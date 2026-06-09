@@ -1,4 +1,7 @@
-Into this folder copy the libopenxr_loader.so for each HMD required to support, suffixed with the headset type:
+No per-HMD OpenXR loader is required here.
 
-libopenxr_loader_meta.so
-libopenxr_loader_pico.so
+JKXR links against the generic Khronos loader in:
+
+Projects/AndroidPrebuilt/jni/libopenxr_loader.so
+
+At runtime the system OpenXR broker selects the active Meta or Pico runtime.

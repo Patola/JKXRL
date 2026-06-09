@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <ctype.h>
 #include <stdlib.h>
+#include <math.h>
 #include <time.h>
 #include <unistd.h>
 #include <pthread.h>
@@ -53,10 +54,12 @@ JKXR Stuff
 
 bool VR_UseScreenLayer()
 {
+	const bool inGameCinematic = (CL_IsRunningInGameCinematic() || CL_InGameCinematicOnStandBy());
+
 	vr.using_screen_layer = _UI_IsFullscreen() ||
 			(bool)((vr.cin_camera && !vr.immersive_cinematics) ||
 			vr.misc_camera ||
-			(CL_IsRunningInGameCinematic() || CL_InGameCinematicOnStandBy()) ||
+			(inGameCinematic && !vr.immersive_cinematics) ||
 //            (cls.state == CA_DISCONNECTED) ||
             (cls.state == CA_CINEMATIC) ||
             (cls.state == CA_LOADING) ||
@@ -437,7 +440,9 @@ void * AppThreadFunction(void * parm ) {
 
 int VR_SetRefreshRate(int refreshRate)
 {
-	if (strstr(gAppState.OpenXRHMD, "meta") != NULL)
+	if (gAppState.OpenXRHMD != NULL &&
+		strstr(gAppState.OpenXRHMD, "meta") != NULL &&
+		gAppState.pfnRequestDisplayRefreshRate != NULL)
 	{
 		OXR(gAppState.pfnRequestDisplayRefreshRate(gAppState.Session, (float) refreshRate));
 		return refreshRate;
@@ -462,6 +467,11 @@ void VR_FrameSetup()
 
 bool VR_GetVRProjection(int eye, float zNear, float zFar, float zZoomX, float zZoomY, float* projection)
 {
+	if (!gAppState.SessionActive || gAppState.Views == NULL)
+	{
+		return false;
+	}
+
 	//Don't use our projection if playing a cinematic and we are not immersive
 	if (vr.cin_camera && !vr.immersive_cinematics)
 	{
@@ -474,7 +484,25 @@ bool VR_GetVRProjection(int eye, float zNear, float zFar, float zZoomX, float zZ
 		return false;
 	}
 
-	XrFovf fov = gAppState.Views[eye].fov;
+	XrFovf fov;
+	if (eye < 0)
+	{
+		XrFovf left = gAppState.Views[0].fov;
+		XrFovf right = gAppState.Views[1].fov;
+		fov.angleLeft = atanf(fminf(tanf(left.angleLeft), tanf(right.angleLeft)));
+		fov.angleRight = atanf(fmaxf(tanf(left.angleRight), tanf(right.angleRight)));
+		fov.angleUp = atanf(fmaxf(tanf(left.angleUp), tanf(right.angleUp)));
+		fov.angleDown = atanf(fminf(tanf(left.angleDown), tanf(right.angleDown)));
+	}
+	else
+	{
+		if (eye > 1)
+		{
+			eye = vr.eye;
+		}
+		fov = gAppState.Views[eye].fov;
+	}
+
     fov.angleLeft = atanf((tanf(fov.angleLeft) / zZoomX));
     fov.angleRight = atanf((tanf(fov.angleRight) / zZoomX));
     fov.angleUp = atanf((tanf(fov.angleUp) / zZoomY));
@@ -485,6 +513,79 @@ bool VR_GetVRProjection(int eye, float zNear, float zFar, float zZoomX, float zZ
 		fov, zNear, zFar);
 
 	return true;
+}
+
+bool VR_GetFovTangentsForEye(int eye, float *tanLeft, float *tanRight, float *tanUp, float *tanDown)
+{
+	XrFovf fov;
+
+	if (!gAppState.SessionActive || gAppState.Views == NULL)
+	{
+		return false;
+	}
+
+	if (vr.cin_camera && !vr.immersive_cinematics)
+	{
+		return false;
+	}
+
+	if (vr.using_screen_layer)
+	{
+		return false;
+	}
+
+	if (eye < 0)
+	{
+		XrFovf left = gAppState.Views[0].fov;
+		XrFovf right = gAppState.Views[1].fov;
+		*tanLeft = fminf(tanf(left.angleLeft), tanf(right.angleLeft));
+		*tanRight = fmaxf(tanf(left.angleRight), tanf(right.angleRight));
+		*tanUp = fmaxf(tanf(left.angleUp), tanf(right.angleUp));
+		*tanDown = fminf(tanf(left.angleDown), tanf(right.angleDown));
+		return true;
+	}
+
+	if (eye > 1)
+	{
+		eye = vr.eye;
+	}
+
+	fov = gAppState.Views[eye].fov;
+	*tanLeft = tanf(fov.angleLeft);
+	*tanRight = tanf(fov.angleRight);
+	*tanUp = tanf(fov.angleUp);
+	*tanDown = tanf(fov.angleDown);
+	return true;
+}
+
+float VR_GetEyeStereoSeparation(int eye)
+{
+	XrVector3f *left;
+	XrVector3f *right;
+	float dx, dy, dz;
+	float ipd;
+	float worldScale = 33.5f;
+	cvar_t *worldScaleCvar;
+
+	if (!gAppState.SessionActive || gAppState.Views == NULL)
+	{
+		return 0.0f;
+	}
+
+	worldScaleCvar = Cvar_Get("cg_worldScale", "33.5", 0);
+	if (worldScaleCvar)
+	{
+		worldScale = worldScaleCvar->value;
+	}
+
+	left = &gAppState.Views[0].pose.position;
+	right = &gAppState.Views[1].pose.position;
+	dx = right->x - left->x;
+	dy = right->y - left->y;
+	dz = right->z - left->z;
+	ipd = sqrtf(dx * dx + dy * dy + dz * dz);
+
+	return (eye == 0 ? 0.5f : -0.5f) * ipd * worldScale;
 }
 
 

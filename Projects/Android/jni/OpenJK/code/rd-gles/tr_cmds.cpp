@@ -25,6 +25,236 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "../server/exe_headers.h"
 
 #include "tr_local.h"
+#include <VrClientInfo.h>
+
+extern vr_client_info_t *vr;
+
+typedef union {
+	void	*align;
+	byte	cmds[MAX_RENDER_COMMANDS + sizeof( int ) + sizeof( void * )];
+} vrStereoReplayBuffer_t;
+
+static vrStereoReplayBuffer_t	vrStereoReplayCommands;
+static vrStereoReplayBuffer_t	vrStereoReplayScratch;
+static int	vrStereoReplayCommandBytes;
+static qboolean vrStereoReplayActive;
+static qboolean vrStereoReplayLoggedInvalid;
+
+typedef struct {
+	int drawSurfs;
+	int stretchPics;
+	int swaps;
+	int flushes;
+	int unknownCommand;
+} vrStereoReplayStats_t;
+
+static qboolean R_VR_InspectStereoReplayCommands( const byte *cmds, vrStereoReplayStats_t *stats ) {
+	const void *curCmd = cmds;
+
+	memset( stats, 0, sizeof( *stats ) );
+
+	while ( 1 ) {
+		curCmd = PADP( curCmd, sizeof( void * ) );
+
+		switch ( *(const int *)curCmd ) {
+		case RC_SET_COLOR:
+			curCmd = (const void *)( (const setColorCommand_t *)curCmd + 1 );
+			break;
+		case RC_STRETCH_PIC:
+			stats->stretchPics++;
+			curCmd = (const void *)( (const stretchPicCommand_t *)curCmd + 1 );
+			break;
+		case RC_SCISSOR:
+			curCmd = (const void *)( (const scissorCommand_t *)curCmd + 1 );
+			break;
+		case RC_ROTATE_PIC:
+		case RC_ROTATE_PIC2:
+			curCmd = (const void *)( (const rotatePicCommand_t *)curCmd + 1 );
+			break;
+		case RC_DRAW_SURFS:
+			stats->drawSurfs++;
+			curCmd = (const void *)( (const drawSurfsCommand_t *)curCmd + 1 );
+			break;
+		case RC_DRAW_BUFFER:
+			curCmd = (const void *)( (const drawBufferCommand_t *)curCmd + 1 );
+			break;
+		case RC_SWAP_BUFFERS:
+			stats->swaps++;
+			curCmd = (const void *)( (const swapBuffersCommand_t *)curCmd + 1 );
+			break;
+		case RC_WORLD_EFFECTS:
+			curCmd = (const void *)( (const setModeCommand_t *)curCmd + 1 );
+			break;
+		case RC_FLUSH:
+			stats->flushes++;
+			curCmd = (const void *)( (const swapBuffersCommand_t *)curCmd + 1 );
+			break;
+		case RC_END_OF_LIST:
+			return qtrue;
+		default:
+			stats->unknownCommand = *(const int *)curCmd;
+			return qfalse;
+		}
+	}
+}
+
+static void R_VR_GetHudReplayOffset( stereoFrame_t stereoFrame, float *x, float *y ) {
+	cvar_t *hudStereo;
+
+	*x = 0.0f;
+	*y = 0.0f;
+
+	if ( stereoFrame != STEREO_LEFT && stereoFrame != STEREO_RIGHT ) {
+		return;
+	}
+
+	hudStereo = ri.Cvar_Get( "cg_hudStereo", "20", 0 );
+	if ( hudStereo ) {
+		*x += ( stereoFrame == STEREO_LEFT ) ? hudStereo->value : -hudStereo->value;
+	}
+
+	if ( vr ) {
+		*x += vr->off_center_fov_x * 640.0f;
+		*y -= vr->off_center_fov_y * 480.0f;
+	}
+}
+
+static void R_VR_PatchStretchPicCommand( stretchPicCommand_t *cmd, stereoFrame_t stereoFrame ) {
+	float x, y;
+
+	if ( cmd->x <= 1.0f && cmd->y <= 1.0f &&
+	     cmd->w >= 638.0f && cmd->h >= 478.0f ) {
+		return;
+	}
+
+	R_VR_GetHudReplayOffset( stereoFrame, &x, &y );
+	cmd->x += x;
+	cmd->y += y;
+}
+
+static void R_VR_PatchRotatePicCommand( rotatePicCommand_t *cmd, stereoFrame_t stereoFrame ) {
+	float x, y;
+
+	if ( cmd->x <= 1.0f && cmd->y <= 1.0f &&
+	     cmd->w >= 638.0f && cmd->h >= 478.0f ) {
+		return;
+	}
+
+	R_VR_GetHudReplayOffset( stereoFrame, &x, &y );
+	cmd->x += x;
+	cmd->y += y;
+}
+
+static void R_VR_PatchDrawSurfsCommand( drawSurfsCommand_t *cmd, stereoFrame_t stereoFrame ) {
+	int eye;
+	float worldScale;
+	float stereoSeparation;
+	float sep;
+	trRefdef_t savedRefdef;
+	viewParms_t savedViewParms;
+	stereoFrame_t savedStereoFrame;
+	qboolean savedReplayCapture;
+	cvar_t *stereoSeparationCvar;
+	cvar_t *worldScaleCvar;
+
+	if ( stereoFrame != STEREO_LEFT && stereoFrame != STEREO_RIGHT ) {
+		return;
+	}
+
+	eye = ( stereoFrame == STEREO_LEFT ) ? 0 : 1;
+	cmd->refdef.stereoFrame = stereoFrame;
+	cmd->viewParms.stereoFrame = stereoFrame;
+
+	if ( !( cmd->refdef.rdflags & ( RDF_NOWORLDMODEL | RDF_SKYBOXPORTAL ) ) ) {
+		if ( ri.TBXR_GetEyeStereoSeparation ) {
+			sep = ri.TBXR_GetEyeStereoSeparation( eye );
+		} else {
+			worldScale = cmd->refdef.worldscale;
+			if ( worldScale <= 0.0f ) {
+				worldScaleCvar = ri.Cvar_Get( "cg_worldScale", "33.5", 0 );
+				worldScale = worldScaleCvar ? worldScaleCvar->value : 33.5f;
+			}
+
+			stereoSeparationCvar = ri.Cvar_Get( "cg_stereoSeparation", "0.065", 0 );
+			stereoSeparation = stereoSeparationCvar ? stereoSeparationCvar->value : 0.065f;
+			sep = ( eye == 0 ? 0.5f : -0.5f ) * stereoSeparation * worldScale;
+		}
+
+		VectorMA( cmd->refdef.vieworg, sep, cmd->refdef.viewaxis[1], cmd->refdef.vieworg );
+		VectorCopy( cmd->refdef.vieworg, cmd->viewParms.ori.origin );
+		VectorCopy( cmd->refdef.vieworg, cmd->viewParms.pvsOrigin );
+	}
+
+	R_RebuildViewParmsWorld( &cmd->viewParms );
+
+	savedRefdef = tr.refdef;
+	savedViewParms = tr.viewParms;
+	savedStereoFrame = tr.currentStereoFrame;
+	savedReplayCapture = tr.vrStereoReplayCapture;
+
+	tr.refdef = cmd->refdef;
+	tr.viewParms = cmd->viewParms;
+	tr.currentStereoFrame = stereoFrame;
+	tr.vrStereoReplayCapture = qfalse;
+	R_SetupProjection();
+	cmd->viewParms = tr.viewParms;
+
+	tr.refdef = savedRefdef;
+	tr.viewParms = savedViewParms;
+	tr.currentStereoFrame = savedStereoFrame;
+	tr.vrStereoReplayCapture = savedReplayCapture;
+}
+
+static void R_VR_PatchStereoReplayCommands( byte *cmds, stereoFrame_t stereoFrame ) {
+	void *curCmd = cmds;
+	qboolean seenDrawSurfs = qfalse;
+
+	while ( 1 ) {
+		curCmd = PADP( curCmd, sizeof( void * ) );
+
+		switch ( *(int *)curCmd ) {
+		case RC_SET_COLOR:
+			curCmd = (void *)( (setColorCommand_t *)curCmd + 1 );
+			break;
+		case RC_STRETCH_PIC:
+			if ( seenDrawSurfs ) {
+				R_VR_PatchStretchPicCommand( (stretchPicCommand_t *)curCmd, stereoFrame );
+			}
+			curCmd = (void *)( (stretchPicCommand_t *)curCmd + 1 );
+			break;
+		case RC_SCISSOR:
+			curCmd = (void *)( (scissorCommand_t *)curCmd + 1 );
+			break;
+		case RC_ROTATE_PIC:
+		case RC_ROTATE_PIC2:
+			if ( seenDrawSurfs ) {
+				R_VR_PatchRotatePicCommand( (rotatePicCommand_t *)curCmd, stereoFrame );
+			}
+			curCmd = (void *)( (rotatePicCommand_t *)curCmd + 1 );
+			break;
+		case RC_DRAW_SURFS:
+			R_VR_PatchDrawSurfsCommand( (drawSurfsCommand_t *)curCmd, stereoFrame );
+			seenDrawSurfs = qtrue;
+			curCmd = (void *)( (drawSurfsCommand_t *)curCmd + 1 );
+			break;
+		case RC_DRAW_BUFFER:
+			curCmd = (void *)( (drawBufferCommand_t *)curCmd + 1 );
+			break;
+		case RC_SWAP_BUFFERS:
+			curCmd = (void *)( (swapBuffersCommand_t *)curCmd + 1 );
+			break;
+		case RC_WORLD_EFFECTS:
+			curCmd = (void *)( (setModeCommand_t *)curCmd + 1 );
+			break;
+		case RC_FLUSH:
+			curCmd = (void *)( (swapBuffersCommand_t *)curCmd + 1 );
+			break;
+		case RC_END_OF_LIST:
+		default:
+			return;
+		}
+	}
+}
 
 
 /*
@@ -376,6 +606,7 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 		return;
 	}
 	glState.finishCalled = qfalse;
+	tr.currentStereoFrame = stereoFrame;
 
 	tr.frameCount++;
 	tr.frameSceneNum = 0;
@@ -464,6 +695,8 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 			cmd->buffer = (int)0;
 		} else if ( stereoFrame == STEREO_RIGHT ) {
 			cmd->buffer = (int)1;
+		} else if ( stereoFrame == STEREO_CENTER ) {
+			cmd->buffer = (int)0;
 		} else {
 			ri.Error( ERR_FATAL, "RE_BeginFrame: Stereo is enabled, but stereoFrame was %i", stereoFrame );
 		}
@@ -511,6 +744,114 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 	{
 		styleUpdated[i] = false;
 	}
+}
+
+qboolean RE_VR_BeginStereoReplayCapture( void ) {
+	if ( !tr.registered ) {
+		return qfalse;
+	}
+	if ( r_debugSurface->integer ) {
+		return qfalse;
+	}
+
+	tr.vrStereoReplayCapture = qtrue;
+	vrStereoReplayActive = qfalse;
+	vrStereoReplayCommandBytes = 0;
+	return qtrue;
+}
+
+void RE_VR_CancelStereoReplayCapture( void ) {
+	tr.vrStereoReplayCapture = qfalse;
+	vrStereoReplayActive = qfalse;
+	vrStereoReplayCommandBytes = 0;
+	R_InitNextFrame();
+}
+
+qboolean RE_VR_ReplayStereoFrame( stereoFrame_t stereoFrame, qboolean finalReplay ) {
+	renderCommandList_t *cmdList;
+	swapBuffersCommand_t *cmd;
+	vrStereoReplayStats_t stats;
+	static qboolean loggedReplayStats = qfalse;
+	static qboolean loggedReplay3DStats = qfalse;
+
+	if ( !tr.registered ) {
+		return qfalse;
+	}
+
+	cmdList = &backEndData->commands;
+
+	if ( !vrStereoReplayActive ) {
+		cmd = (swapBuffersCommand_t *)R_GetCommandBufferReserved( sizeof( *cmd ), 0 );
+		if ( !cmd ) {
+			ri.Printf( PRINT_WARNING,
+				"VR stereo replay: failed to reserve flush command (%d bytes used).\n",
+				cmdList->used );
+			RE_VR_CancelStereoReplayCapture();
+			return qfalse;
+		}
+		cmd->commandId = RC_FLUSH;
+
+		*(int *)( cmdList->cmds + cmdList->used ) = RC_END_OF_LIST;
+		vrStereoReplayCommandBytes = cmdList->used + sizeof( int );
+		if ( vrStereoReplayCommandBytes > (int)sizeof( vrStereoReplayCommands.cmds ) ) {
+			RE_VR_CancelStereoReplayCapture();
+			return qfalse;
+		}
+
+		memcpy( vrStereoReplayCommands.cmds, cmdList->cmds, vrStereoReplayCommandBytes );
+		if ( !R_VR_InspectStereoReplayCommands( vrStereoReplayCommands.cmds, &stats ) ) {
+			if ( !vrStereoReplayLoggedInvalid ) {
+				ri.Printf( PRINT_WARNING,
+					"VR stereo replay: invalid captured command stream (%d bytes, drawSurfs=%d, stretchPics=%d, swaps=%d, flushes=%d, unknown=%d).\n",
+					vrStereoReplayCommandBytes, stats.drawSurfs, stats.stretchPics, stats.swaps, stats.flushes, stats.unknownCommand );
+				vrStereoReplayLoggedInvalid = qtrue;
+			}
+			RE_VR_CancelStereoReplayCapture();
+			return qfalse;
+		}
+		if ( stats.drawSurfs == 0 ) {
+			if ( !vrStereoReplayLoggedInvalid ) {
+				ri.Printf( PRINT_WARNING,
+					"VR stereo replay: captured command stream has no 3D draw surfaces (%d bytes, stretchPics=%d, swaps=%d, flushes=%d); falling back to per-eye render.\n",
+					vrStereoReplayCommandBytes, stats.stretchPics, stats.swaps, stats.flushes );
+				vrStereoReplayLoggedInvalid = qtrue;
+			}
+			RE_VR_CancelStereoReplayCapture();
+			return qfalse;
+		}
+		if ( !loggedReplayStats || ( stats.drawSurfs > 0 && !loggedReplay3DStats ) ) {
+			ri.Printf( PRINT_ALL,
+				"VR stereo replay: captured %d bytes (%d drawSurfs, %d stretchPics, %d swaps, %d flushes).\n",
+				vrStereoReplayCommandBytes, stats.drawSurfs, stats.stretchPics, stats.swaps, stats.flushes );
+			loggedReplayStats = qtrue;
+			if ( stats.drawSurfs > 0 ) {
+				loggedReplay3DStats = qtrue;
+			}
+		}
+		vrStereoReplayActive = qtrue;
+		tr.vrStereoReplayCapture = qfalse;
+	}
+
+	memcpy( vrStereoReplayScratch.cmds, vrStereoReplayCommands.cmds, vrStereoReplayCommandBytes );
+	R_VR_PatchStereoReplayCommands( vrStereoReplayScratch.cmds, stereoFrame );
+
+	if ( !r_skipBackEnd->integer ) {
+		RB_ExecuteRenderCommands( vrStereoReplayScratch.cmds );
+	}
+
+	if ( finalReplay ) {
+		R_InitNextFrame();
+		vrStereoReplayActive = qfalse;
+		vrStereoReplayCommandBytes = 0;
+		tr.frontEndMsec = 0;
+		backEnd.pc.msec = 0;
+
+		for ( int i = 0; i < MAX_LIGHT_STYLES; i++ ) {
+			styleUpdated[i] = false;
+		}
+	}
+
+	return qtrue;
 }
 
 void RE_SubmitStereoFrame( ) {

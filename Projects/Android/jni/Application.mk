@@ -1,4 +1,6 @@
-APP_PLATFORM := android-24
+APP_ABI := arm64-v8a
+APP_PLATFORM := android-29
+APP_STL := c++_shared
 
 APP_CFLAGS += -Wl,--no-undefined
 
@@ -13,9 +15,7 @@ SHARED_PATH		:= $(OPENJK_PATH)/shared
 JK3_CODE_PATH	:= $(OPENJK_PATH)/code
 JK2_CODE_PATH	:= $(OPENJK_PATH)/codeJK2
 
-APP_ALLOW_MISSING_DEPS=true
+APP_ALLOW_MISSING_DEPS := true
 
 APP_MODULES := gl4es rd-gles-jo_arm jogamearm openjk_jo rd-gles-ja_arm jagamearm openjk_ja
-APP_STL := c++_shared
-
 

@@ -298,6 +298,7 @@ void RE_RenderScene( const refdef_t *fd ) {
 	tr.refdef.override_fov = fd->override_fov;
 	tr.refdef.fov_x = fd->fov_x;
 	tr.refdef.fov_y = fd->fov_y;
+	tr.refdef.worldscale = fd->worldscale;
 
 	memset( &parms, 0, sizeof( parms ) );
 	VectorCopy( fd->viewaxis[0], parms.ori.axis[0] );
@@ -312,6 +313,7 @@ void RE_RenderScene( const refdef_t *fd ) {
 	tr.refdef.time = fd->time;
 	tr.refdef.frametime = fd->time - lastTime;
 	tr.refdef.rdflags = fd->rdflags;
+	tr.refdef.stereoFrame = tr.currentStereoFrame;
 	// Ignore my last there. This actually breaks the rest of the game as well, causing massive issues.
 	// We need to figure out what's going on in fd->rdflags first :S .. I'm half-tempted to just revert
 	// back to JK2 and use a qbool for it --eez
@@ -400,6 +402,7 @@ void RE_RenderScene( const refdef_t *fd ) {
 
 	parms.fovX = tr.refdef.fov_x;
 	parms.fovY = tr.refdef.fov_y;
+	parms.stereoFrame = tr.currentStereoFrame;
 
 	VectorCopy( fd->vieworg, parms.ori.origin );
 //	VectorCopy( fd->viewaxis[0], parms.ori.axis[0] );

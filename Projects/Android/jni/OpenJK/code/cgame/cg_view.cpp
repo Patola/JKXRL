@@ -2014,7 +2014,7 @@ static qboolean cg_rangedFogging = qfalse; //so we know if we should go back to 
 void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	qboolean	inwater = qfalse;
 
-	if ( stereoView == STEREO_LEFT ) {
+	if ( stereoView != STEREO_RIGHT ) {
 		cg.time = serverTime;
 	}
 
@@ -2046,7 +2046,7 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 
 	CG_BuildSolidList();
 
-	if ( stereoView == STEREO_LEFT )
+	if ( stereoView != STEREO_RIGHT )
 	{
 		// set up cg.snap and possibly cg.nextSnap
 		CG_ProcessSnapshots();
@@ -2110,7 +2110,7 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	}
 	cgi_SetUserCmdValue( cg.weaponSelect, speed, mPitchOverride, mYawOverride );
 
-	if ( stereoView == STEREO_LEFT ) {
+	if ( stereoView != STEREO_RIGHT ) {
 		// this counter will be bumped for every valid scene we generate
 		cg.clientFrame++;
 

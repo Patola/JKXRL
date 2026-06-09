@@ -29,10 +29,12 @@ JKXR Stuff
 
 bool VR_UseScreenLayer()
 {
+	const bool inGameCinematic = (CL_IsRunningInGameCinematic() || CL_InGameCinematicOnStandBy());
+
 	vr.using_screen_layer = _UI_IsFullscreen() ||
 			(bool)((vr.cin_camera && !vr.immersive_cinematics) ||
 			vr.misc_camera ||
-			(CL_IsRunningInGameCinematic() || CL_InGameCinematicOnStandBy()) ||
+			(inGameCinematic && !vr.immersive_cinematics) ||
             (cls.state == CA_DISCONNECTED) ||
             (cls.state == CA_CHALLENGING) ||
             (cls.state == CA_CONNECTING) ||

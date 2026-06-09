@@ -1200,6 +1200,8 @@ void CL_InitRef( void ) {
 
 	rit.TBXR_useScreenLayer = VR_UseScreenLayer;
 	rit.TBXR_GetVRProjection = VR_GetVRProjection;
+	rit.TBXR_GetFovTangentsForEye = VR_GetFovTangentsForEye;
+	rit.TBXR_GetEyeStereoSeparation = VR_GetEyeStereoSeparation;
 
 	ret = GetRefAPI( REF_API_VERSION, &rit );
 

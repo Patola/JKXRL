@@ -502,26 +502,90 @@ void SCR_UpdateScreen( void ) {
 		//Try again here in case we've not done it yet
 		TBXR_FrameSetup();
 
-		for (int eye = 0; eye < 2; ++eye)
+		qboolean skippingCin = Cvar_VariableIntegerValue( "skippingCinematic" ) != 0 ? qtrue : qfalse;
+		qboolean useScreenLayer = VR_UseScreenLayer() ? qtrue : qfalse;
+
+		if ( useScreenLayer )
 		{
-			TBXR_prepareEyeBuffer(eye);
+			TBXR_prepareEyeBuffer(0);
 
-			//Draw twice for Quest
-			SCR_DrawScreenField(eye == 0 ? STEREO_LEFT : STEREO_RIGHT);
+			SCR_DrawScreenField( STEREO_CENTER );
 
-			//This won't perform the submit eye buffers
+			if (com_speeds->integer)
 			{
-				if (com_speeds->integer)
-				{
-					re.EndFrame(&time_frontend, &time_backend);
-				}
-				else
-				{
-					re.EndFrame(NULL, NULL);
-				}
+				re.EndFrame(&time_frontend, &time_backend);
+			}
+			else
+			{
+				re.EndFrame(NULL, NULL);
 			}
 
-			TBXR_finishEyeBuffer(eye);
+			TBXR_finishEyeBuffer(0);
+		}
+		else if ( skippingCin )
+		{
+			for (int eye = 0; eye < 2; ++eye)
+			{
+				TBXR_prepareEyeBuffer(eye);
+				re.BeginFrame(eye == 0 ? STEREO_LEFT : STEREO_RIGHT);
+				SCR_FillRect(0, 0, 640, 480, colorBlack);
+				re.EndFrame(NULL, NULL);
+				TBXR_finishEyeBuffer(eye);
+			}
+		}
+		else
+		{
+			qboolean useStereoReplay = qtrue;
+			qboolean replayed = qfalse;
+
+			if (useStereoReplay &&
+				re.VR_BeginStereoReplayCapture && re.VR_ReplayStereoFrame &&
+				re.VR_BeginStereoReplayCapture())
+			{
+				qboolean replayFailed = qfalse;
+
+				vr.eye = 0;
+				vr.off_center_fov_x = 0.0f;
+				vr.off_center_fov_y = 0.0f;
+
+				SCR_DrawScreenField(STEREO_CENTER);
+
+				for (int eye = 0; eye < 2; ++eye)
+				{
+					TBXR_prepareEyeBuffer(eye);
+					if (!re.VR_ReplayStereoFrame(eye == 0 ? STEREO_LEFT : STEREO_RIGHT, eye == 1 ? qtrue : qfalse))
+					{
+						TBXR_finishEyeBuffer(eye);
+						if (re.VR_CancelStereoReplayCapture)
+						{
+							re.VR_CancelStereoReplayCapture();
+						}
+						replayFailed = qtrue;
+						break;
+					}
+					TBXR_finishEyeBuffer(eye);
+				}
+
+				replayed = replayFailed ? qfalse : qtrue;
+			}
+
+			if (!replayed)
+			{
+				for (int eye = 0; eye < 2; ++eye)
+				{
+					TBXR_prepareEyeBuffer(eye);
+					SCR_DrawScreenField(eye == 0 ? STEREO_LEFT : STEREO_RIGHT);
+					if (com_speeds->integer)
+					{
+						re.EndFrame(&time_frontend, &time_backend);
+					}
+					else
+					{
+						re.EndFrame(NULL, NULL);
+					}
+					TBXR_finishEyeBuffer(eye);
+				}
+			}
 		}
 
 		//And we're done

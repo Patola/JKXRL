@@ -130,6 +130,8 @@ typedef struct {
 	//JKXR Functions
 	bool 				(*TBXR_useScreenLayer)				( void );
 	bool 				(*TBXR_GetVRProjection)				(int eye, float zNear, float zFar, float zZoomX, float zZoomY, float* projection);
+	bool 				(*TBXR_GetFovTangentsForEye)		(int eye, float *tanLeft, float *tanRight, float *tanUp, float *tanDown);
+	float				(*TBXR_GetEyeStereoSeparation)		(int eye);
 
 } refimport_t;
 
@@ -207,6 +209,9 @@ typedef struct {
 	void	(*EndFrame)( int *frontEndMsec, int *backEndMsec );
 
 	void ( *SubmitStereoFrame )( );
+	qboolean (*VR_BeginStereoReplayCapture)( void );
+	qboolean (*VR_ReplayStereoFrame)( stereoFrame_t stereoFrame, qboolean finalReplay );
+	void (*VR_CancelStereoReplayCapture)( void );
 
 	qboolean (*ProcessDissolve)(void);
 	qboolean (*InitDissolve)(qboolean bForceCircularExtroWipe);

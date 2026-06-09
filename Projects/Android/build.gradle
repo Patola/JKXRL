@@ -1,43 +1,60 @@
+// JKXR Android standalone build.
+// Tooling level matches the Star Trek: Elite Force VR port
+// (AGP 8.2.2 / Gradle 8.5 / NDK r26 / SDK 34).
+
 buildscript {
     repositories {
-        google() // For Gradle 4.0+
+        google()
         mavenCentral()
     }
 
     dependencies {
-        classpath 'com.android.tools.build:gradle:4.1.3'
+        classpath 'com.android.tools.build:gradle:8.2.2'
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
     }
 }
 
 apply plugin: 'com.android.application'
 
 android {
-  // This is the name of the generated apk file, which will have
-  // -debug.apk or -release.apk appended to it.
-  // The filename doesn't effect the Android installation process.
-  // Use only letters to remain compatible with the package name.
-  project.archivesBaseName = "jkxr"
+    namespace "com.drbeef.jkxr"
+    compileSdk 34
+    ndkVersion "26.1.10909125"
 
-  defaultConfig {
-    // Gradle replaces the manifest package with this value, which must
-    // be unique on a system.  If you don't change it, a new app
-    // will replace an older one.
-    applicationId "com.drbeef." + project.archivesBaseName
+    // This is the name of the generated APK file, which will have
+    // -debug.apk or -release.apk appended to it.
+    project.archivesBaseName = "jkxr"
 
-      externalNativeBuild {
-          ndk {
-              abiFilters 'arm64-v8a'
-          }
-          ndkBuild {
-              def numProcs = Runtime.runtime.availableProcessors()
-              arguments "V=0", "-j$numProcs", "-C$project.buildDir.parent", "APP_PLATFORM=android-29", "NDK_TOOLCHAIN_VERSION=clang", "APP_STL=c++_static"
-              abiFilters 'arm64-v8a'
-          }
-      }
+    packaging {
+        jniLibs {
+            keepDebugSymbols += "**/*.so"
+            useLegacyPackaging = true
+        }
+    }
 
-      minSdkVersion 29
-      targetSdkVersion 29
-  }
+    defaultConfig {
+        applicationId "com.drbeef." + project.archivesBaseName
+        minSdk 29
+        targetSdk 34
+
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+
+        externalNativeBuild {
+            ndkBuild {
+                def numProcs = Runtime.runtime.availableProcessors()
+                arguments "V=0", "-j$numProcs"
+                abiFilters 'arm64-v8a'
+            }
+        }
+    }
 
     externalNativeBuild {
         ndkBuild {
@@ -81,10 +98,9 @@ android {
             signingConfig signingConfigs.debug
             debuggable true
             jniDebuggable true
-
             externalNativeBuild {
                 ndkBuild {
-                    arguments "NDK_DEBUG=1","USE_ASAN=1"
+                    arguments "NDK_DEBUG=1", "USE_ASAN=1"
                 }
             }
         }
@@ -93,41 +109,33 @@ android {
             signingConfig signingConfigs.release
             debuggable false
             jniDebuggable false
-
+            minifyEnabled false
             externalNativeBuild {
                 ndkBuild {
-                    arguments "NDK_DEBUG=0","USE_ASAN=0"
+                    arguments "NDK_DEBUG=0", "USE_ASAN=0"
                 }
             }
         }
     }
 
-  sourceSets.main {
-      manifest.srcFile 'AndroidManifest.xml'
-      java.srcDirs = ['../../java']
-      jniLibs.srcDir 'libs'
-      res.srcDirs = ['../../res']
-      assets.srcDirs = ['../../assets']
-      jni.srcDirs = ['jni']
-
-  }
-
-    lintOptions {
-        checkReleaseBuilds false
-        disable 'ExpiredTargetSdkVersion'
+    sourceSets.main {
+        manifest.srcFile 'AndroidManifest.xml'
+        java.srcDirs = ['../../java']
+        jniLibs.srcDirs = ['libs']
+        res.srcDirs = ['../../res']
+        assets.srcDirs = ['../../assets']
+        jni.srcDirs = ['jni']
     }
-
-    //packagingOptions {
-    //    exclude 'lib/arm64-v8a/libopenxr_loader.so'
-    //}
 
     compileOptions {
-        sourceCompatibility = '1.8'
-        targetCompatibility = '1.8'
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
     }
-    compileSdkVersion = 29
-    buildToolsVersion = '29.0.3'
-    ndkVersion '21.1.6352462'
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
 }
 
 dependencies {
@@ -136,36 +144,27 @@ dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar', '*.aar'])
 }
 
-repositories {
-    google()
-}
-
-// Workaround to fix issue in Android Studio Chipmunk 2021.2.1 and later
-// where opening a project would result in a 'prepareKotlinBuildScriptModel'
-// not found error
-if (!tasks.findByName("prepareKotlinBuildScriptModel")) {
-    tasks.register("prepareKotlinBuildScriptModel") {}
-}
-
-
 task packBaseResources(type: Zip) {
-    from "../../z_vr_assets_base/"
-    destinationDir file("../../assets/")
-    archiveName "z_vr_assets_base.pk3"
+    archiveFileName = "z_vr_assets_base.pk3"
+    destinationDirectory = file("../../assets")
+    from "../../z_vr_assets_base"
 }
 
 task packJOResources(type: Zip) {
-    from "../../z_vr_assets_jko/"
-    destinationDir file("../../assets/")
-    archiveName "z_vr_assets_jko.pk3"
+    archiveFileName = "z_vr_assets_jko.pk3"
+    destinationDirectory = file("../../assets")
+    from "../../z_vr_assets_jko"
 }
 
 task packJAResources(type: Zip) {
-    from "../../z_vr_assets_jka/"
-    destinationDir file("../../assets/")
-    archiveName "z_vr_assets_jka.pk3"
+    archiveFileName = "z_vr_assets_jka.pk3"
+    destinationDirectory = file("../../assets")
+    from "../../z_vr_assets_jka"
 }
 
-tasks.matching {it.name.startsWith("assemble")}.all { Task task ->
-    task.dependsOn([packBaseResources, packJOResources, packJAResources])
+def vrAssetTasks = [packBaseResources, packJOResources, packJAResources]
+
+tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") }.configureEach {
+    dependsOn vrAssetTasks
 }
+preBuild.dependsOn vrAssetTasks

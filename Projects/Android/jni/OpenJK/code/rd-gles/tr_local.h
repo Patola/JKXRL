@@ -81,12 +81,14 @@ typedef struct {
 	int			x, y, width, height;
 	bool 		override_fov;
 	float		fov_x, fov_y;
+	float		worldscale;
 	vec3_t		vieworg;
 	vec3_t		viewaxis[3];		// transformation matrix
 
 	int			time;				// time in milliseconds for shader effects and other time dependent rendering issues
 	int			frametime;
 	int			rdflags;			// RDF_NOWORLDMODEL, etc
+	stereoFrame_t stereoFrame;
 
 	// 1 bits will prevent the associated area from rendering at all
 	byte		areamask[MAX_MAP_AREA_BYTES];
@@ -548,6 +550,7 @@ typedef struct {
 	cplane_t	portalPlane;		// clip anything behind this if mirroring
 	int			viewportX, viewportY, viewportWidth, viewportHeight;
 	float		fovX, fovY;
+	stereoFrame_t stereoFrame;
 	float		projectionMatrix[16];
 	cplane_t	frustum[5];
 	vec3_t		visBounds[2];
@@ -1019,6 +1022,8 @@ typedef struct {
 	model_t					*currentModel;
 
 	viewParms_t				viewParms;
+	stereoFrame_t			currentStereoFrame;
+	qboolean				vrStereoReplayCapture;
 
 	float					identityLight;		// 1.0 / ( 1 << overbrightBits )
 	int						identityLightByte;	// identityLight * 255
@@ -1259,7 +1264,9 @@ int R_CullLocalBox (const vec3_t bounds[2]);
 int R_CullPointAndRadius( const vec3_t pt, float radius );
 int R_CullLocalPointAndRadius( const vec3_t pt, float radius );
 
+void R_SetupProjection( void );
 void R_RotateForEntity( const trRefEntity_t *ent, const viewParms_t *viewParms, orientationr_t *ori );
+void R_RebuildViewParmsWorld( viewParms_t *parms );
 
 /*
 ** GL wrapper/helper functions
@@ -1829,6 +1836,9 @@ void RE_Scissor ( float x, float y, float w, float h);
 void RE_BeginFrame( stereoFrame_t stereoFrame );
 void RE_EndFrame( int *frontEndMsec, int *backEndMsec );
 void RE_SubmitStereoFrame(  );
+qboolean RE_VR_BeginStereoReplayCapture( void );
+qboolean RE_VR_ReplayStereoFrame( stereoFrame_t stereoFrame, qboolean finalReplay );
+void RE_VR_CancelStereoReplayCapture( void );
 qboolean	RE_ProcessDissolve(void);
 qboolean	RE_InitDissolve(qboolean bForceCircularExtroWipe);
 

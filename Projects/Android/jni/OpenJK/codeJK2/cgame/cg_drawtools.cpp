@@ -33,7 +33,9 @@ void CG_AdjustFrom640( float *x, float *y, float *w, float *h ) {
 		float screenYScale = 1.0f / (cg.drawingHUD == CG_HUD_SCALED ? cg_hudScale.value : 1.0f);
 
 		float xoffset = cg.drawingHUD == CG_HUD_SCALED ? -cg_hudStereo.value : 0;
-		if (cg.stereoView == STEREO_LEFT) {
+		if (cg.stereoView == STEREO_CENTER) {
+			xoffset = 0;
+		} else if (cg.stereoView == STEREO_LEFT) {
 			xoffset *= -1;
 		}
 

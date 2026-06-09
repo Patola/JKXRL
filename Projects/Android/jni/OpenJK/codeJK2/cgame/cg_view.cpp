@@ -1836,7 +1836,7 @@ extern vec3_t	serverViewOrg;
 void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	qboolean	inwater = qfalse;
 
-	if ( stereoView == STEREO_LEFT ) {
+	if ( stereoView != STEREO_RIGHT ) {
 		cg.time = serverTime;
 	}
 
@@ -1912,7 +1912,7 @@ wasForceSpeed=isForceSpeed;
 	}
 	cgi_SetUserCmdValue( cg.weaponSelect, speed, mPitchOverride, mYawOverride );
 
-	if ( stereoView == STEREO_LEFT ) {
+	if ( stereoView != STEREO_RIGHT ) {
 		// this counter will be bumped for every valid scene we generate
 		cg.clientFrame++;
 

@@ -10,8 +10,11 @@ import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
+import android.provider.Settings;
 import android.os.RemoteException;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
@@ -32,13 +35,11 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.util.Locale;
 import java.util.Vector;
 
 @SuppressLint("SdCardPath") public class GLES3JNIActivity extends Activity implements SurfaceHolder.Callback
 {
 	private static String game = "";
-	private static String manufacturer = "";
 
 	private boolean hapticsEnabled = false;
 
@@ -68,20 +69,7 @@ import java.util.Vector;
 			e.printStackTrace();
 		}
 
-		manufacturer = Build.MANUFACTURER.toLowerCase(Locale.ROOT);
-		if (manufacturer.contains("oculus")) // rename oculus to meta as this will probably happen in the future anyway
-		{
-			manufacturer = "meta";
-		}
-
-		try
-		{
-			//Load manufacturer specific loader
-			System.loadLibrary("openxr_loader_" + manufacturer);
-			setenv("OPENXR_HMD", manufacturer, true);
-		} catch (Exception e)
-		{}
-
+		System.loadLibrary("openxr_loader");
 		System.loadLibrary( "openjk_" + game );
 	}
 
@@ -92,6 +80,7 @@ import java.util.Vector;
 	private boolean permissionsGranted = false;
 	private static final int READ_EXTERNAL_STORAGE_PERMISSION_ID = 1;
 	private static final int WRITE_EXTERNAL_STORAGE_PERMISSION_ID = 2;
+	private static final int MANAGE_EXTERNAL_STORAGE_PERMISSION_ID = 3;
 
 	String commandLineParams;
 
@@ -154,13 +143,24 @@ import java.util.Vector;
 	/** Initializes the Activity only if the permission has been granted. */
 	private void checkPermissionsAndInitialize() {
 		// Boilerplate for checking runtime permissions in Android.
-		if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
+			try {
+				Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+				intent.setData(Uri.parse("package:" + getPackageName()));
+				startActivityForResult(intent, MANAGE_EXTERNAL_STORAGE_PERMISSION_ID);
+			} catch (Exception e) {
+				startActivityForResult(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION),
+						MANAGE_EXTERNAL_STORAGE_PERMISSION_ID);
+			}
+		} else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R &&
+				ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
 				!= PackageManager.PERMISSION_GRANTED){
 			ActivityCompat.requestPermissions(
 					GLES3JNIActivity.this,
 					new String[] {Manifest.permission.WRITE_EXTERNAL_STORAGE},
 					WRITE_EXTERNAL_STORAGE_PERMISSION_ID);
-		} else if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
+		} else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R &&
+				ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
 				!= PackageManager.PERMISSION_GRANTED){
             ActivityCompat.requestPermissions(
                     GLES3JNIActivity.this,
@@ -194,6 +194,14 @@ import java.util.Vector;
 		}
 
 		checkPermissionsAndInitialize();
+	}
+
+	@Override
+	protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+		super.onActivityResult(requestCode, resultCode, data);
+		if (requestCode == MANAGE_EXTERNAL_STORAGE_PERMISSION_ID) {
+			checkPermissionsAndInitialize();
+		}
 	}
 
 	public void create() {

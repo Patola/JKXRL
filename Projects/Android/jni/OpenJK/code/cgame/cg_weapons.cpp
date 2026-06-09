@@ -992,7 +992,7 @@ static void CG_DoMuzzleFlash( centity_t *cent, vec3_t org, vec3_t dir, weaponDat
 	// Handle muzzle flashes, really this could just be a qboolean instead of a time.......
 	if ( cent->muzzleFlashTime > 0 )
 	{
-		if (cg.stereoView == STEREO_RIGHT) {
+		if (cg.stereoView == STEREO_RIGHT || cg.stereoView == STEREO_CENTER) {
 			cent->muzzleFlashTime = 0;
 		}
 		const char *effect = NULL;

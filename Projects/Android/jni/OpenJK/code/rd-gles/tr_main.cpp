@@ -338,6 +338,38 @@ void myGlMultMatrix( const float *a, const float *b, float *out ) {
 	}
 }
 
+void R_RebuildViewParmsWorld( viewParms_t *parms )
+{
+	float	viewerMatrix[16];
+	vec3_t	origin;
+
+	VectorCopy( parms->ori.origin, origin );
+
+	viewerMatrix[0] = parms->ori.axis[0][0];
+	viewerMatrix[4] = parms->ori.axis[0][1];
+	viewerMatrix[8] = parms->ori.axis[0][2];
+	viewerMatrix[12] = -origin[0] * viewerMatrix[0] + -origin[1] * viewerMatrix[4] + -origin[2] * viewerMatrix[8];
+
+	viewerMatrix[1] = parms->ori.axis[1][0];
+	viewerMatrix[5] = parms->ori.axis[1][1];
+	viewerMatrix[9] = parms->ori.axis[1][2];
+	viewerMatrix[13] = -origin[0] * viewerMatrix[1] + -origin[1] * viewerMatrix[5] + -origin[2] * viewerMatrix[9];
+
+	viewerMatrix[2] = parms->ori.axis[2][0];
+	viewerMatrix[6] = parms->ori.axis[2][1];
+	viewerMatrix[10] = parms->ori.axis[2][2];
+	viewerMatrix[14] = -origin[0] * viewerMatrix[2] + -origin[1] * viewerMatrix[6] + -origin[2] * viewerMatrix[10];
+
+	viewerMatrix[3] = 0;
+	viewerMatrix[7] = 0;
+	viewerMatrix[11] = 0;
+	viewerMatrix[15] = 1;
+
+	parms->world = parms->ori;
+	VectorCopy( parms->ori.origin, parms->world.viewOrigin );
+	myGlMultMatrix( viewerMatrix, s_flipMatrix, parms->world.modelMatrix );
+}
+
 /*
 =================
 R_RotateForEntity
@@ -529,6 +561,7 @@ void R_SetupProjection( void ) {
 	float	xmin, xmax, ymin, ymax;
 	float	width, height, depth;
 	float	zNear, zFar, zZoomX, zZoomY;
+	qboolean gotVRTangents;
 
 	// dynamically compute far clip plane distance
 	SetFarClip();
@@ -547,16 +580,48 @@ void R_SetupProjection( void ) {
 		zZoomY = vr->fov_y / tr.refdef.fov_y;
 	}
 
-	if (ri.TBXR_GetVRProjection(vr->eye, zNear, zFar, zZoomX, zZoomY, tr.viewParms.projectionMatrix))
+	int projectionEye = vr->eye;
+	if (tr.vrStereoReplayCapture && tr.currentStereoFrame == STEREO_CENTER)
+	{
+		projectionEye = -1;
+	}
+	else if (tr.currentStereoFrame == STEREO_LEFT)
+	{
+		projectionEye = 0;
+	}
+	else if (tr.currentStereoFrame == STEREO_RIGHT)
+	{
+		projectionEye = 1;
+	}
+
+	gotVRTangents = qfalse;
+	if ( !( tr.refdef.rdflags & RDF_NOWORLDMODEL ) && ri.TBXR_GetFovTangentsForEye )
+	{
+		float tanLeft, tanRight, tanUp, tanDown;
+		if ( ri.TBXR_GetFovTangentsForEye( projectionEye, &tanLeft, &tanRight, &tanUp, &tanDown ) )
+		{
+			xmin = zNear * ( tanLeft / zZoomX );
+			xmax = zNear * ( tanRight / zZoomX );
+			ymin = zNear * ( tanDown / zZoomY );
+			ymax = zNear * ( tanUp / zZoomY );
+			gotVRTangents = qtrue;
+		}
+	}
+
+	if (!gotVRTangents &&
+		ri.TBXR_GetVRProjection(projectionEye, zNear, zFar, zZoomX, zZoomY, tr.viewParms.projectionMatrix))
 	{
 		return;
 	}
 
-	ymax = zNear * tan( tr.refdef.fov_y * M_PI / 360.0f );
-	ymin = -ymax;
+	if (!gotVRTangents)
+	{
+		ymax = zNear * tan( tr.refdef.fov_y * M_PI / 360.0f );
+		ymin = -ymax;
 
-	xmax = zNear * tan( tr.refdef.fov_x * M_PI / 360.0f );
-	xmin = -xmax;
+		xmax = zNear * tan( tr.refdef.fov_x * M_PI / 360.0f );
+		xmin = -xmax;
+	}
 
 	width = xmax - xmin;
 	height = ymax - ymin;

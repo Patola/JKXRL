@@ -2105,6 +2105,9 @@ extern "C" Q_EXPORT refexport_t* QDECL GetRefAPI ( int apiVersion, refimport_t *
 	REX(BeginFrame);
 	REX(EndFrame);
 	REX(SubmitStereoFrame);
+	REX(VR_BeginStereoReplayCapture);
+	REX(VR_ReplayStereoFrame);
+	REX(VR_CancelStereoReplayCapture);
 
 	REX(ProcessDissolve);
 	REX(InitDissolve);

@@ -1479,7 +1479,7 @@ void CL_CGameRendering( stereoFrame_t stereo ) {
 #endif
 	//Only update server time if we are starting a new pair of frames
 	static int timei=0;
-	if (stereo == STEREO_LEFT) {
+	if (stereo != STEREO_RIGHT) {
 		timei = cl.serverTime;
 		if (timei > 60) {
 			timei -= 0;

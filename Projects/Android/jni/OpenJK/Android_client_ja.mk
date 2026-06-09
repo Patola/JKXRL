@@ -16,8 +16,7 @@ LOCAL_LDLIBS := $(JK3_BASE_LDLIBS)
 
 LOCAL_LDLIBS +=  -lGLESv3 -landroid -lEGL -llog -lz -lOpenSLES
 
-#Needed so lib can be loaded (_exit error)
-LOCAL_LDLIBS += -fuse-ld=bfd 
+# NDK r26 uses lld; the old bfd linker workaround is invalid here.
 
 LOCAL_STATIC_LIBRARIES := sigc libzip libpng libminizip
 LOCAL_SHARED_LIBRARIES := openxr_loader gl4es

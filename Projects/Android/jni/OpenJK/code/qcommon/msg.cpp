@@ -136,7 +136,7 @@ void MSG_WriteBits( msg_t *msg, int value, int bits ) {
 		} else {
 			int	r;
 
-			r = 1 << (bits-1);
+			r = 1 << ((-bits)-1);
 
 			if ( value >  r - 1 || value < -r ) {
 				overflows++;

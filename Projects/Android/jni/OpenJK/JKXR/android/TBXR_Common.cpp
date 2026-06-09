@@ -75,12 +75,9 @@ float superSampling = 1.0f;
 qboolean usingScreenLayer = qtrue;
 qboolean resetScreenLayerRenderer = qfalse;
 
-const char* const requiredExtensionNames_meta[] = {
+const char* const requiredExtensionNames[] = {
 		XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME,
-		XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME,
-		XR_KHR_ANDROID_THREAD_SETTINGS_EXTENSION_NAME,
-		XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME,
-		XR_FB_COLOR_SPACE_EXTENSION_NAME};
+		XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME};
 
 #define XR_PICO_CONFIGS_EXT_EXTENSION_NAME "XR_PICO_configs_ext"
 
@@ -134,17 +131,155 @@ typedef XrResult (XRAPI_PTR *PFN_xrSetConfigPICO) (
 		char *                                configData);
 PFN_xrSetConfigPICO    pfnXrSetConfigPICO;
 
-const char* const requiredExtensionNames_pico[] = {
-		XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME,
+const char* const optionalExtensionNames[] = {
 		XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME,
-		XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME,
+		XR_KHR_ANDROID_THREAD_SETTINGS_EXTENSION_NAME,
+		XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME,
+		XR_FB_COLOR_SPACE_EXTENSION_NAME,
 		XR_PICO_CONFIGS_EXT_EXTENSION_NAME};
 
+const uint32_t numRequiredExtensions =
+		sizeof(requiredExtensionNames) / sizeof(requiredExtensionNames[0]);
+const uint32_t numOptionalExtensions =
+		sizeof(optionalExtensionNames) / sizeof(optionalExtensionNames[0]);
 
-const uint32_t numRequiredExtensions_meta =
-		sizeof(requiredExtensionNames_meta) / sizeof(requiredExtensionNames_meta[0]);
-const uint32_t numRequiredExtensions_pico =
-		sizeof(requiredExtensionNames_pico) / sizeof(requiredExtensionNames_pico[0]);
+static qboolean openXrExtPerformanceSettings = qfalse;
+static qboolean openXrExtAndroidThreadSettings = qfalse;
+static qboolean openXrExtFBDisplayRefreshRate = qfalse;
+static qboolean openXrExtFBColorSpace = qfalse;
+static qboolean openXrExtPicoConfigs = qfalse;
+
+static qboolean TBXR_StringContainsNoCase(const char* haystack, const char* needle)
+{
+	if (haystack == NULL || needle == NULL || needle[0] == '\0')
+	{
+		return qfalse;
+	}
+
+	for (const char* h = haystack; *h != '\0'; h++)
+	{
+		const char* hp = h;
+		const char* np = needle;
+		while (*hp != '\0' && *np != '\0' && tolower((unsigned char)*hp) == tolower((unsigned char)*np))
+		{
+			hp++;
+			np++;
+		}
+		if (*np == '\0')
+		{
+			return qtrue;
+		}
+	}
+
+	return qfalse;
+}
+
+static qboolean TBXR_ExtensionIsSupported(
+		const char* extensionName,
+		const XrExtensionProperties* supportedExtensions,
+		uint32_t supportedExtensionCount)
+{
+	for (uint32_t i = 0; i < supportedExtensionCount; i++)
+	{
+		if (strcmp(extensionName, supportedExtensions[i].extensionName) == 0)
+		{
+			return qtrue;
+		}
+	}
+
+	return qfalse;
+}
+
+static void TBXR_SetOptionalExtensionFlag(const char* extensionName)
+{
+	if (strcmp(extensionName, XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME) == 0)
+	{
+		openXrExtPerformanceSettings = qtrue;
+	}
+	else if (strcmp(extensionName, XR_KHR_ANDROID_THREAD_SETTINGS_EXTENSION_NAME) == 0)
+	{
+		openXrExtAndroidThreadSettings = qtrue;
+	}
+	else if (strcmp(extensionName, XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME) == 0)
+	{
+		openXrExtFBDisplayRefreshRate = qtrue;
+	}
+	else if (strcmp(extensionName, XR_FB_COLOR_SPACE_EXTENSION_NAME) == 0)
+	{
+		openXrExtFBColorSpace = qtrue;
+	}
+	else if (strcmp(extensionName, XR_PICO_CONFIGS_EXT_EXTENSION_NAME) == 0)
+	{
+		openXrExtPicoConfigs = qtrue;
+	}
+}
+
+static uint32_t TBXR_BuildEnabledExtensionList(const char** enabledExtensionNames, uint32_t maxEnabledExtensions)
+{
+	uint32_t supportedExtensionCount = 0;
+	XrResult result = xrEnumerateInstanceExtensionProperties(
+			NULL, 0, &supportedExtensionCount, NULL);
+	if (XR_FAILED(result))
+	{
+		ALOGE("xrEnumerateInstanceExtensionProperties count failed: %d", result);
+		exit(1);
+	}
+
+	XrExtensionProperties* supportedExtensions =
+			(XrExtensionProperties*)malloc(supportedExtensionCount * sizeof(XrExtensionProperties));
+	for (uint32_t i = 0; i < supportedExtensionCount; i++)
+	{
+		supportedExtensions[i].type = XR_TYPE_EXTENSION_PROPERTIES;
+		supportedExtensions[i].next = NULL;
+	}
+
+	result = xrEnumerateInstanceExtensionProperties(
+			NULL, supportedExtensionCount, &supportedExtensionCount, supportedExtensions);
+	if (XR_FAILED(result))
+	{
+		ALOGE("xrEnumerateInstanceExtensionProperties failed: %d", result);
+		free(supportedExtensions);
+		exit(1);
+	}
+
+	uint32_t enabledExtensionCount = 0;
+	for (uint32_t i = 0; i < numRequiredExtensions; i++)
+	{
+		const char* extensionName = requiredExtensionNames[i];
+		if (!TBXR_ExtensionIsSupported(extensionName, supportedExtensions, supportedExtensionCount))
+		{
+			ALOGE("Required OpenXR extension is unavailable: %s", extensionName);
+			free(supportedExtensions);
+			exit(1);
+		}
+		if (enabledExtensionCount < maxEnabledExtensions)
+		{
+			enabledExtensionNames[enabledExtensionCount++] = extensionName;
+		}
+	}
+
+	openXrExtPerformanceSettings = qfalse;
+	openXrExtAndroidThreadSettings = qfalse;
+	openXrExtFBDisplayRefreshRate = qfalse;
+	openXrExtFBColorSpace = qfalse;
+	openXrExtPicoConfigs = qfalse;
+
+	for (uint32_t i = 0; i < numOptionalExtensions; i++)
+	{
+		const char* extensionName = optionalExtensionNames[i];
+		if (TBXR_ExtensionIsSupported(extensionName, supportedExtensions, supportedExtensionCount))
+		{
+			if (enabledExtensionCount < maxEnabledExtensions)
+			{
+				enabledExtensionNames[enabledExtensionCount++] = extensionName;
+				TBXR_SetOptionalExtensionFlag(extensionName);
+			}
+		}
+	}
+
+	free(supportedExtensions);
+	return enabledExtensionCount;
+}
 
 
 /*
@@ -454,7 +589,7 @@ static bool ovrFramebuffer_Create(
     XrSwapchainCreateInfo swapChainCreateInfo;
     memset(&swapChainCreateInfo, 0, sizeof(swapChainCreateInfo));
     swapChainCreateInfo.type = XR_TYPE_SWAPCHAIN_CREATE_INFO;
-    swapChainCreateInfo.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+    swapChainCreateInfo.usageFlags = XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
     swapChainCreateInfo.format = colorFormat;
     swapChainCreateInfo.sampleCount = 1;
     swapChainCreateInfo.width = width;
@@ -918,34 +1053,41 @@ void ovrApp_HandleSessionStateChanges(ovrApp* app, XrSessionState state) {
 		// Set session state once we have entered VR mode and have a valid session object.
 		if (app->SessionActive)
 		{
-			XrPerfSettingsLevelEXT cpuPerfLevel = XR_PERF_SETTINGS_LEVEL_BOOST_EXT;
-			XrPerfSettingsLevelEXT gpuPerfLevel = XR_PERF_SETTINGS_LEVEL_BOOST_EXT;
+			if (openXrExtPerformanceSettings)
+			{
+				XrPerfSettingsLevelEXT cpuPerfLevel = XR_PERF_SETTINGS_LEVEL_BOOST_EXT;
+				XrPerfSettingsLevelEXT gpuPerfLevel = XR_PERF_SETTINGS_LEVEL_BOOST_EXT;
 
-			PFN_xrPerfSettingsSetPerformanceLevelEXT pfnPerfSettingsSetPerformanceLevelEXT = NULL;
-			OXR(xrGetInstanceProcAddr(
-					app->Instance,
-					"xrPerfSettingsSetPerformanceLevelEXT",
-					(PFN_xrVoidFunction * )(&pfnPerfSettingsSetPerformanceLevelEXT)));
+				PFN_xrPerfSettingsSetPerformanceLevelEXT pfnPerfSettingsSetPerformanceLevelEXT = NULL;
+				XrResult perfResult = xrGetInstanceProcAddr(
+						app->Instance,
+						"xrPerfSettingsSetPerformanceLevelEXT",
+						(PFN_xrVoidFunction * )(&pfnPerfSettingsSetPerformanceLevelEXT));
+				if (XR_SUCCEEDED(perfResult) && pfnPerfSettingsSetPerformanceLevelEXT != NULL)
+				{
+					OXR(pfnPerfSettingsSetPerformanceLevelEXT(
+							app->Session, XR_PERF_SETTINGS_DOMAIN_CPU_EXT, cpuPerfLevel));
+					OXR(pfnPerfSettingsSetPerformanceLevelEXT(
+							app->Session, XR_PERF_SETTINGS_DOMAIN_GPU_EXT, gpuPerfLevel));
+				}
+			}
 
-			OXR(pfnPerfSettingsSetPerformanceLevelEXT(
-					app->Session, XR_PERF_SETTINGS_DOMAIN_CPU_EXT, cpuPerfLevel));
-			OXR(pfnPerfSettingsSetPerformanceLevelEXT(
-					app->Session, XR_PERF_SETTINGS_DOMAIN_GPU_EXT, gpuPerfLevel));
-
-			if (strstr(gAppState.OpenXRHMD, "meta") != NULL)
+			if (openXrExtAndroidThreadSettings && TBXR_StringContainsNoCase(app->OpenXRHMD, "meta"))
 			{
 				PFN_xrSetAndroidApplicationThreadKHR pfnSetAndroidApplicationThreadKHR = NULL;
-				OXR(xrGetInstanceProcAddr(
+				XrResult threadResult = xrGetInstanceProcAddr(
 						app->Instance,
 						"xrSetAndroidApplicationThreadKHR",
-						(PFN_xrVoidFunction *) (&pfnSetAndroidApplicationThreadKHR)));
-
-				OXR(pfnSetAndroidApplicationThreadKHR(
-						app->Session, XR_ANDROID_THREAD_TYPE_APPLICATION_MAIN_KHR,
-						app->MainThreadTid));
-				OXR(pfnSetAndroidApplicationThreadKHR(
-						app->Session, XR_ANDROID_THREAD_TYPE_RENDERER_MAIN_KHR,
-						app->RenderThreadTid));
+						(PFN_xrVoidFunction *) (&pfnSetAndroidApplicationThreadKHR));
+				if (XR_SUCCEEDED(threadResult) && pfnSetAndroidApplicationThreadKHR != NULL)
+				{
+					OXR(pfnSetAndroidApplicationThreadKHR(
+							app->Session, XR_ANDROID_THREAD_TYPE_APPLICATION_MAIN_KHR,
+							app->MainThreadTid));
+					OXR(pfnSetAndroidApplicationThreadKHR(
+							app->Session, XR_ANDROID_THREAD_TYPE_RENDERER_MAIN_KHR,
+							app->RenderThreadTid));
+				}
 			}
 		}
 	} else if (state == XR_SESSION_STATE_STOPPING) {
@@ -1454,92 +1596,109 @@ void TBXR_InitRenderer(  ) {
 			gAppState.Instance, gAppState.SystemId, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO, &gAppState.ViewportConfig));
 
 
-	if (strstr(gAppState.OpenXRHMD, "meta") != NULL)
+	if (TBXR_StringContainsNoCase(gAppState.OpenXRHMD, "meta"))
 	{
-		XrSystemColorSpacePropertiesFB colorSpacePropertiesFB = {};
-		colorSpacePropertiesFB.type = XR_TYPE_SYSTEM_COLOR_SPACE_PROPERTIES_FB;
-
-		XrSystemProperties systemProperties = {};
-		systemProperties.type = XR_TYPE_SYSTEM_PROPERTIES;
-		systemProperties.next = &colorSpacePropertiesFB;
-		OXR(xrGetSystemProperties(gAppState.Instance, gAppState.SystemId, &systemProperties));
-
-		// Enumerate the supported color space options for the system.
+		if (openXrExtFBColorSpace)
 		{
+			XrSystemColorSpacePropertiesFB colorSpacePropertiesFB = {};
+			colorSpacePropertiesFB.type = XR_TYPE_SYSTEM_COLOR_SPACE_PROPERTIES_FB;
+
+			XrSystemProperties systemProperties = {};
+			systemProperties.type = XR_TYPE_SYSTEM_PROPERTIES;
+			systemProperties.next = &colorSpacePropertiesFB;
+			OXR(xrGetSystemProperties(gAppState.Instance, gAppState.SystemId, &systemProperties));
+
+			// Enumerate the supported color space options for the system.
 			PFN_xrEnumerateColorSpacesFB pfnxrEnumerateColorSpacesFB = NULL;
-			OXR(xrGetInstanceProcAddr(
+			XrResult enumerateColorSpacesResult = xrGetInstanceProcAddr(
 					gAppState.Instance,
 					"xrEnumerateColorSpacesFB",
-					(PFN_xrVoidFunction *) (&pfnxrEnumerateColorSpacesFB)));
+					(PFN_xrVoidFunction *) (&pfnxrEnumerateColorSpacesFB));
 
-			uint32_t colorSpaceCountOutput = 0;
-			OXR(pfnxrEnumerateColorSpacesFB(gAppState.Session, 0, &colorSpaceCountOutput, NULL));
-
-			XrColorSpaceFB *colorSpaces =
-					(XrColorSpaceFB *) malloc(colorSpaceCountOutput * sizeof(XrColorSpaceFB));
-
-			OXR(pfnxrEnumerateColorSpacesFB(
-					gAppState.Session, colorSpaceCountOutput, &colorSpaceCountOutput, colorSpaces));
-			ALOGV("Supported ColorSpaces:");
-
-			for (uint32_t i = 0; i < colorSpaceCountOutput; i++)
+			if (XR_SUCCEEDED(enumerateColorSpacesResult) && pfnxrEnumerateColorSpacesFB != NULL)
 			{
-				ALOGV("%d:%d", i, colorSpaces[i]);
+				uint32_t colorSpaceCountOutput = 0;
+				OXR(pfnxrEnumerateColorSpacesFB(gAppState.Session, 0, &colorSpaceCountOutput, NULL));
+
+				XrColorSpaceFB *colorSpaces =
+						(XrColorSpaceFB *) malloc(colorSpaceCountOutput * sizeof(XrColorSpaceFB));
+
+				OXR(pfnxrEnumerateColorSpacesFB(
+						gAppState.Session, colorSpaceCountOutput, &colorSpaceCountOutput, colorSpaces));
+				ALOGV("Supported ColorSpaces:");
+
+				for (uint32_t i = 0; i < colorSpaceCountOutput; i++)
+				{
+					ALOGV("%d:%d", i, colorSpaces[i]);
+				}
+
+				const XrColorSpaceFB requestColorSpace = XR_COLOR_SPACE_REC2020_FB;
+
+				PFN_xrSetColorSpaceFB pfnxrSetColorSpaceFB = NULL;
+				XrResult setColorSpaceResult = xrGetInstanceProcAddr(
+						gAppState.Instance, "xrSetColorSpaceFB",
+						(PFN_xrVoidFunction *) (&pfnxrSetColorSpaceFB));
+
+				if (XR_SUCCEEDED(setColorSpaceResult) && pfnxrSetColorSpaceFB != NULL)
+				{
+					OXR(pfnxrSetColorSpaceFB(gAppState.Session, requestColorSpace));
+				}
+
+				free(colorSpaces);
 			}
-
-			const XrColorSpaceFB requestColorSpace = XR_COLOR_SPACE_REC2020_FB;
-
-			PFN_xrSetColorSpaceFB pfnxrSetColorSpaceFB = NULL;
-			OXR(xrGetInstanceProcAddr(
-					gAppState.Instance, "xrSetColorSpaceFB",
-					(PFN_xrVoidFunction *) (&pfnxrSetColorSpaceFB)));
-
-			OXR(pfnxrSetColorSpaceFB(gAppState.Session, requestColorSpace));
-
-			free(colorSpaces);
 		}
 
 		// Get the supported display refresh rates for the system.
+		if (openXrExtFBDisplayRefreshRate)
 		{
 			PFN_xrEnumerateDisplayRefreshRatesFB pfnxrEnumerateDisplayRefreshRatesFB = NULL;
-			OXR(xrGetInstanceProcAddr(
+			XrResult enumerateDisplayRefreshRatesResult = xrGetInstanceProcAddr(
 					gAppState.Instance,
 					"xrEnumerateDisplayRefreshRatesFB",
-					(PFN_xrVoidFunction *) (&pfnxrEnumerateDisplayRefreshRatesFB)));
+					(PFN_xrVoidFunction *) (&pfnxrEnumerateDisplayRefreshRatesFB));
 
-			OXR(pfnxrEnumerateDisplayRefreshRatesFB(
-					gAppState.Session, 0, &gAppState.NumSupportedDisplayRefreshRates, NULL));
-
-			gAppState.SupportedDisplayRefreshRates =
-					(float *) malloc(gAppState.NumSupportedDisplayRefreshRates * sizeof(float));
-			OXR(pfnxrEnumerateDisplayRefreshRatesFB(
-					gAppState.Session,
-					gAppState.NumSupportedDisplayRefreshRates,
-					&gAppState.NumSupportedDisplayRefreshRates,
-					gAppState.SupportedDisplayRefreshRates));
-			ALOGV("Supported Refresh Rates:");
-			for (uint32_t i = 0; i < gAppState.NumSupportedDisplayRefreshRates; i++)
+			if (XR_SUCCEEDED(enumerateDisplayRefreshRatesResult) && pfnxrEnumerateDisplayRefreshRatesFB != NULL)
 			{
-				ALOGV("%d:%f", i, gAppState.SupportedDisplayRefreshRates[i]);
+				OXR(pfnxrEnumerateDisplayRefreshRatesFB(
+						gAppState.Session, 0, &gAppState.NumSupportedDisplayRefreshRates, NULL));
+
+				gAppState.SupportedDisplayRefreshRates =
+						(float *) malloc(gAppState.NumSupportedDisplayRefreshRates * sizeof(float));
+				OXR(pfnxrEnumerateDisplayRefreshRatesFB(
+						gAppState.Session,
+						gAppState.NumSupportedDisplayRefreshRates,
+						&gAppState.NumSupportedDisplayRefreshRates,
+						gAppState.SupportedDisplayRefreshRates));
+				ALOGV("Supported Refresh Rates:");
+				for (uint32_t i = 0; i < gAppState.NumSupportedDisplayRefreshRates; i++)
+				{
+					ALOGV("%d:%f", i, gAppState.SupportedDisplayRefreshRates[i]);
+				}
 			}
 
-			OXR(xrGetInstanceProcAddr(
+			XrResult getDisplayRefreshRateResult = xrGetInstanceProcAddr(
 					gAppState.Instance,
 					"xrGetDisplayRefreshRateFB",
-					(PFN_xrVoidFunction *) (&gAppState.pfnGetDisplayRefreshRate)));
+					(PFN_xrVoidFunction *) (&gAppState.pfnGetDisplayRefreshRate));
 
-			OXR(gAppState.pfnGetDisplayRefreshRate(gAppState.Session,
-												   &gAppState.currentDisplayRefreshRate));
-			ALOGV("Current System Display Refresh Rate: %f", gAppState.currentDisplayRefreshRate);
+			if (XR_SUCCEEDED(getDisplayRefreshRateResult) && gAppState.pfnGetDisplayRefreshRate != NULL)
+			{
+				OXR(gAppState.pfnGetDisplayRefreshRate(gAppState.Session,
+													   &gAppState.currentDisplayRefreshRate));
+				ALOGV("Current System Display Refresh Rate: %f", gAppState.currentDisplayRefreshRate);
+			}
 
-			OXR(xrGetInstanceProcAddr(
+			XrResult requestDisplayRefreshRateResult = xrGetInstanceProcAddr(
 					gAppState.Instance,
 					"xrRequestDisplayRefreshRateFB",
-					(PFN_xrVoidFunction *) (&gAppState.pfnRequestDisplayRefreshRate)));
+					(PFN_xrVoidFunction *) (&gAppState.pfnRequestDisplayRefreshRate));
 
 			// Test requesting the system default.
-			OXR(gAppState.pfnRequestDisplayRefreshRate(gAppState.Session, 0.0f));
-			ALOGV("Requesting system default display refresh rate");
+			if (XR_SUCCEEDED(requestDisplayRefreshRateResult) && gAppState.pfnRequestDisplayRefreshRate != NULL)
+			{
+				OXR(gAppState.pfnRequestDisplayRefreshRate(gAppState.Session, 0.0f));
+				ALOGV("Requesting system default display refresh rate");
+			}
 		}
 	}
 
@@ -1569,15 +1728,23 @@ void TBXR_InitRenderer(  ) {
         gAppState.Views[eye].type = XR_TYPE_VIEW;
 	}
 
-	if (strstr(gAppState.OpenXRHMD, "pico") != NULL)
+	if (openXrExtPicoConfigs && TBXR_StringContainsNoCase(gAppState.OpenXRHMD, "pico"))
 	{
-		xrGetInstanceProcAddr(gAppState.Instance,"xrSetConfigPICO", (PFN_xrVoidFunction*)(&pfnXrSetConfigPICO));
-		xrGetInstanceProcAddr(gAppState.Instance,"xrGetConfigPICO", (PFN_xrVoidFunction*)(&pfnXrGetConfigPICO));
+		XrResult setConfigResult = xrGetInstanceProcAddr(
+				gAppState.Instance, "xrSetConfigPICO", (PFN_xrVoidFunction*)(&pfnXrSetConfigPICO));
+		XrResult getConfigResult = xrGetInstanceProcAddr(
+				gAppState.Instance, "xrGetConfigPICO", (PFN_xrVoidFunction*)(&pfnXrGetConfigPICO));
 
-		pfnXrSetConfigPICO(gAppState.Session,TRACKING_ORIGIN,"0");
-		pfnXrSetConfigPICO(gAppState.Session,TRACKING_ORIGIN,"1");
+		if (XR_SUCCEEDED(setConfigResult) && pfnXrSetConfigPICO != NULL)
+		{
+			pfnXrSetConfigPICO(gAppState.Session,TRACKING_ORIGIN,"0");
+			pfnXrSetConfigPICO(gAppState.Session,TRACKING_ORIGIN,"1");
+		}
 
-		pfnXrGetConfigPICO(gAppState.Session, GET_DISPLAY_RATE, &gAppState.currentDisplayRefreshRate);
+		if (XR_SUCCEEDED(getConfigResult) && pfnXrGetConfigPICO != NULL)
+		{
+			pfnXrGetConfigPICO(gAppState.Session, GET_DISPLAY_RATE, &gAppState.currentDisplayRefreshRate);
+		}
 	}
 
 	int eyeW, eyeH;
@@ -1611,8 +1778,8 @@ void TBXR_InitialiseOpenXR()
 	ovrEgl_CreateContext(&gAppState.Egl, NULL);
 	EglInitExtensions();
 
-	//First, find out which HMD we are using
-	gAppState.OpenXRHMD = (char*)getenv("OPENXR_HMD");
+	const char* openXRHMD = getenv("OPENXR_HMD");
+	gAppState.OpenXRHMD = openXRHMD != NULL ? (char*)openXRHMD : (char*)"";
 
 	PFN_xrInitializeLoaderKHR xrInitializeLoaderKHR;
 	xrGetInstanceProcAddr(
@@ -1634,7 +1801,7 @@ void TBXR_InitialiseOpenXR()
 	appInfo.applicationVersion = 0;
 	strcpy(appInfo.engineName, "JKXR");
 	appInfo.engineVersion = 0;
-	appInfo.apiVersion = XR_CURRENT_API_VERSION;
+	appInfo.apiVersion = XR_MAKE_VERSION(1, 0, 0);
 
 	XrInstanceCreateInfo instanceCreateInfo;
 	memset(&instanceCreateInfo, 0, sizeof(instanceCreateInfo));
@@ -1650,16 +1817,12 @@ void TBXR_InitialiseOpenXR()
 	instanceCreateInfo.applicationInfo = appInfo;
 	instanceCreateInfo.enabledApiLayerCount = 0;
 	instanceCreateInfo.enabledApiLayerNames = NULL;
-	if (strstr(gAppState.OpenXRHMD, "meta") != NULL)
-	{
-		instanceCreateInfo.enabledExtensionCount = numRequiredExtensions_meta;
-		instanceCreateInfo.enabledExtensionNames = requiredExtensionNames_meta;
-	}
-	else
-	{
-		instanceCreateInfo.enabledExtensionCount = numRequiredExtensions_pico;
-		instanceCreateInfo.enabledExtensionNames = requiredExtensionNames_pico;
-	}
+
+	const char* enabledExtensionNames[16];
+	instanceCreateInfo.enabledExtensionCount =
+			TBXR_BuildEnabledExtensionList(enabledExtensionNames,
+										   sizeof(enabledExtensionNames) / sizeof(enabledExtensionNames[0]));
+	instanceCreateInfo.enabledExtensionNames = enabledExtensionNames;
 
 	XrResult initResult;
 	OXR(initResult = xrCreateInstance(&instanceCreateInfo, &gAppState.Instance));
@@ -1678,6 +1841,21 @@ void TBXR_InitialiseOpenXR()
 			XR_VERSION_MAJOR(instanceInfo.runtimeVersion),
 			XR_VERSION_MINOR(instanceInfo.runtimeVersion),
 			XR_VERSION_PATCH(instanceInfo.runtimeVersion));
+
+	if (gAppState.OpenXRHMD[0] == '\0')
+	{
+		if (TBXR_StringContainsNoCase(instanceInfo.runtimeName, "pico"))
+		{
+			gAppState.OpenXRHMD = (char*)"pico";
+		}
+		else if (TBXR_StringContainsNoCase(instanceInfo.runtimeName, "meta") ||
+				 TBXR_StringContainsNoCase(instanceInfo.runtimeName, "oculus") ||
+				 TBXR_StringContainsNoCase(instanceInfo.runtimeName, "quest"))
+		{
+			gAppState.OpenXRHMD = (char*)"meta";
+		}
+	}
+	ALOGV("OpenXR HMD profile: %s", gAppState.OpenXRHMD[0] != '\0' ? gAppState.OpenXRHMD : "generic");
 
 	XrSystemGetInfo systemGetInfo;
 	memset(&systemGetInfo, 0, sizeof(systemGetInfo));
@@ -1703,7 +1881,7 @@ void TBXR_InitialiseOpenXR()
 	OXR(pfnGetOpenGLESGraphicsRequirementsKHR(gAppState.Instance, gAppState.SystemId,
 											  &graphicsRequirements));
 
-	if (strstr(gAppState.OpenXRHMD, "meta") != NULL)
+	if (openXrExtFBColorSpace && TBXR_StringContainsNoCase(gAppState.OpenXRHMD, "meta"))
 	{
 		XrSystemColorSpacePropertiesFB colorSpacePropertiesFB = {};
 		colorSpacePropertiesFB.type = XR_TYPE_SYSTEM_COLOR_SPACE_PROPERTIES_FB;
