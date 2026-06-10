@@ -1,0 +1,38 @@
+#!/bin/sh
+# JKXR launcher - Star Wars Jedi Knight II: Jedi Outcast (single player, VR)
+#
+# Game data is NOT included: you need your own copy of Jedi Outcast
+# (Steam/GOG). This launcher looks for its GameData directory in the default
+# Steam library; for any other location set JKXR_JKO_GAMEDATA, e.g.:
+#   JKXR_JKO_GAMEDATA="/games/SteamLibrary/steamapps/common/Jedi Outcast/GameData" jkxr-jko
+set -e
+
+LIBDIR=/usr/lib/jkxr
+SHAREDIR=/usr/share/jkxr/jko
+HOMEDATA="${XDG_DATA_HOME:-$HOME/.local/share}/openjo/base"
+
+GAMEDATA="${JKXR_JKO_GAMEDATA:-}"
+if [ -z "$GAMEDATA" ]; then
+	for d in \
+		"$HOME/.local/share/Steam/steamapps/common/Jedi Outcast/GameData" \
+		"$HOME/.steam/steam/steamapps/common/Jedi Outcast/GameData"; do
+		if [ -f "$d/base/assets0.pk3" ]; then GAMEDATA=$d; break; fi
+	done
+fi
+if [ -z "$GAMEDATA" ] || [ ! -d "$GAMEDATA/base" ]; then
+	echo "jkxr-jko: Jedi Outcast GameData directory not found." >&2
+	echo "Set JKXR_JKO_GAMEDATA to it, e.g.:" >&2
+	echo "  JKXR_JKO_GAMEDATA=\"/games/SteamLibrary/steamapps/common/Jedi Outcast/GameData\" jkxr-jko" >&2
+	exit 1
+fi
+
+# Sync the VR asset pk3s into the engine's per-user home path, which is the
+# highest-priority search path - no need to write into the game directory.
+mkdir -p "$HOMEDATA"
+for pk3 in "$SHAREDIR"/*.pk3; do
+	cp -u "$pk3" "$HOMEDATA/"
+done
+
+# The OpenXR session uses the X11/GLX graphics binding (XWayland is fine).
+export SDL_VIDEODRIVER=x11
+exec "$LIBDIR/openjo_sp.x86_64" +set fs_basepath "$GAMEDATA" "$@"

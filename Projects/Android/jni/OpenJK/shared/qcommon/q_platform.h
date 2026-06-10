@@ -119,7 +119,11 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 
 	#if defined(__linux__)
 		#define OS_STRING "linux"
-    	#define ARCH_STRING "arm"
+		#if defined(__ANDROID__)
+			// Android is always ARM here; desktop Linux gets ARCH_STRING from
+			// the build system (-DARCH_STRING=...), checked for below.
+			#define ARCH_STRING "arm"
+		#endif
 	#else
 		#define OS_STRING "kFreeBSD"
 	#endif

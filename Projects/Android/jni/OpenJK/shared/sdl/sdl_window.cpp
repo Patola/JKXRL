@@ -40,6 +40,19 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 
 #define GL_RGBA16F                        0x881A
 
+#elif defined(__linux__) && !defined(__ANDROID__)
+
+// OpenXR Header - core types only (xr_result helper below). No platform
+// graphics binding is needed here, so XR_USE_PLATFORM_XLIB is deliberately
+// left undefined to avoid pulling in Xlib's macros.
+#define XR_USE_GRAPHICS_API_OPENGL
+#include <openxr.h>
+#include <openxr_platform.h>
+#include <GL/gl.h>
+#include <GL/glext.h>
+
+#define GL_RGBA16F                        0x881A
+
 
 #endif
 
@@ -849,10 +862,14 @@ window_t WIN_Init( const windowDesc_t *windowDesc, glconfig_t *glConfig )
 				break;
 		}
 	}
+#endif
 
+	// Bring up the OpenXR VR session now that an OpenGL context is current.
+	// On Linux the X11/GLX graphics binding reads the current context directly,
+	// so no native window handle is needed here.
+#if defined(_WIN32) || (defined(__linux__) && !defined(__ANDROID__))
 	VR_Init();
 	TBXR_GetScreenRes(&glConfig->vidWidth, &glConfig->vidHeight);
-	
 #endif
 
 	return window;

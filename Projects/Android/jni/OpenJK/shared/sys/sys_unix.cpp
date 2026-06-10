@@ -37,6 +37,8 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "qcommon/q_shared.h"
 #include "sys_local.h"
 
+#include <SDL.h>
+
 qboolean stdinIsATTY = qfalse;
 
 // Used to determine where to store user-specific files
@@ -408,7 +410,6 @@ qboolean Sys_Mkdir( const char *path )
 
 	return qtrue;
 }
-/*
 char *Sys_Cwd( void )
 {
 	static char cwd[MAX_OSPATH];
@@ -419,7 +420,37 @@ char *Sys_Cwd( void )
 		cwd[MAX_OSPATH-1] = '\0';
 
 	return cwd;
-}*/
+}
+
+const char *Sys_CurrentDirname( void )
+{
+	static char dir[MAX_OSPATH];
+
+	if ( getcwd( dir, sizeof( dir ) - 1 ) == NULL )
+		dir[0] = '\0';
+	else
+		dir[MAX_OSPATH-1] = '\0';
+
+	return dir;
+}
+
+dialogResult_t Sys_Dialog( dialogType_t type, const char *message, const char *title )
+{
+	// Always echo to the console/terminal.
+	Com_Printf( "%s: %s\n", title, message );
+
+	// Best-effort native dialog via SDL (already a dependency).
+	Uint32 flags;
+	switch ( type )
+	{
+		case DT_ERROR:   flags = SDL_MESSAGEBOX_ERROR;       break;
+		case DT_WARNING: flags = SDL_MESSAGEBOX_WARNING;     break;
+		default:         flags = SDL_MESSAGEBOX_INFORMATION; break;
+	}
+	SDL_ShowSimpleMessageBox( flags, title, message, NULL );
+
+	return DR_OK;
+}
 
 /* Resolves path names and determines if they are the same */
 /* For use with full OS paths not quake paths */

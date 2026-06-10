@@ -20,6 +20,10 @@
 #ifndef GSL_GSL_LITE_H_INCLUDED
 #define GSL_GSL_LITE_H_INCLUDED
 
+#include <cstdint>   // included here (at global scope) so the <cstdint>
+                     // includes further down - which sit inside namespace gsl -
+                     // become guarded no-ops; otherwise they nest namespace std
+                     // into gsl::std and break every std:: reference (GCC 16).
 #include <exception>
 #include <iterator>
 #include <limits>

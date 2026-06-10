@@ -462,8 +462,13 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 			cmd->buffer = (int)0;
 		} else if ( stereoFrame == STEREO_RIGHT ) {
 			cmd->buffer = (int)1;
+		} else if ( stereoFrame == STEREO_CENTER ) {
+			// Mono / screen-layer frame (e.g. the 2D menu drawn into a single
+			// eye buffer). In VR everything renders into FBOs, so the back
+			// buffer selection is irrelevant - just don't treat it as fatal.
+			cmd->buffer = (int)0;
 		} else {
-			ri.Error( ERR_FATAL, "RE_BeginFrame: Stereo is enabled, but stereoFrame was %i", stereoFrame );
+			ri.Error( ERR_FATAL, "RE_BeginFrame: unexpected stereoFrame %i", stereoFrame );
 		}
 	}
 }

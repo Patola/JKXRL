@@ -16,7 +16,7 @@
 # along with this program; if not, see <http://www.gnu.org/licenses/>.
 #============================================================================
 
-cmake_minimum_required(VERSION 3.1)
+cmake_minimum_required(VERSION 3.5...3.31)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "10.9" CACHE STRING "Minimum OS X deployment version")
 
 set(InOpenJK ON)
@@ -229,6 +229,15 @@ elseif (("${CMAKE_C_COMPILER_ID}" STREQUAL "GNU") OR ("${CMAKE_C_COMPILER_ID}" M
 	# Note that -fvisibility=hidden is stronger than -fvisibility-inlines-hidden.
 	set(OPENJK_VISIBILITY_FLAGS "-fvisibility=hidden")
 
+	# The Quake/JKA codebase pervasively type-puns through incompatible pointer
+	# types (e.g. (CEffect**)&particlePtr in the cgame FX system). That is
+	# undefined behaviour under GCC/Clang strict aliasing, which is enabled at
+	# -O2/-O3 and miscompiles such code (observed as a SIGSEGV in the effect
+	# system during cutscenes). The Windows (MSVC) and Android (-O1) builds don't
+	# hit this; ioquake3 and other Q3 derivatives disable it for the same reason.
+	set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -fno-strict-aliasing")
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-strict-aliasing")
+
 	# removes the -rdynamic flag at linking (which causes crashes for some reason)
 	set(CMAKE_SHARED_LIBRARY_LINK_C_FLAGS "")
 	set(CMAKE_SHARED_LIBRARY_LINK_CXX_FLAGS "")
@@ -242,8 +251,14 @@ elseif (("${CMAKE_C_COMPILER_ID}" STREQUAL "GNU") OR ("${CMAKE_C_COMPILER_ID}" M
 		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -msse2")
 	endif()
 
-	set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3")
-	set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3")
+	# This 20-year-old codebase has latent undefined behaviour that GCC/Clang
+	# only miscompile under the aggressive optimisations enabled at -O2/-O3
+	# (observed as ghoul2 handle corruption / FX-system crashes during cutscenes).
+	# The Windows (MSVC) and Android builds never hit this - notably the Android
+	# build uses -O1 (see Android.mk). Match that proven optimisation level here.
+	# -fno-strict-aliasing (set above) is also required for the same class of bug.
+	set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O1")
+	set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O1")
 
 	# enable somewhat modern C++
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")

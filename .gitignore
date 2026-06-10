@@ -25,6 +25,11 @@ $RECYCLE.BIN/
 *.class
 Projects/Android/build/*
 assets/oculussig*
+
+# Linux/desktop CMake build directories
+Projects/Android/jni/OpenJK/build-linux/
+Projects/Android/jni/OpenJK/build-debug/
+Projects/Android/jni/OpenJK/build/
 Projects/Android/.cxx/*
 *.json
 *.bin

@@ -140,7 +140,7 @@ void sendButtonAction(const char* action, long buttonDown)
     Cbuf_AddText( command );
 }
 
-#ifndef _WIN32
+#ifdef __ANDROID__
 void PortableMouseAbs(float x,float y);
 #else
 void PortableMouseAbs(float x, float y)
