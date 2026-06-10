@@ -1,0 +1,78 @@
+# Maintainer: Cláudio "Patola" Sampaio <patola at gmail dot com>
+#
+# Native Linux PCVR build of JKXR (Team Beef's VR port of Jedi Academy /
+# Jedi Outcast), using OpenXR with the X11/GLX graphics binding.
+#
+# Game data is NOT included. You need your own copy of the games (Steam/GOG);
+# see the post-install notes / BUILDING_LINUX.md.
+#
+# Note: this builds the default branch of the repository. To build a work
+# branch instead, append #branch=<name> to the source URL below.
+
+pkgname=jkxr-git
+pkgver=r1.0
+pkgrel=1
+pkgdesc="VR port of Jedi Academy & Jedi Outcast (Team Beef JKXR) - native Linux PCVR build"
+arch=('x86_64')
+url="https://github.com/Patola/JKXR"
+license=('GPL-2.0-only')
+depends=('sdl2' 'openxr' 'glu' 'libglvnd' 'libx11' 'zlib' 'libpng' 'libjpeg-turbo')
+makedepends=('git' 'cmake' 'zip')
+provides=('jkxr')
+conflicts=('jkxr')
+install=jkxr.install
+# This old Quake-derived codebase relies on -fno-strict-aliasing and modest
+# optimisation (see BUILDING_LINUX.md); LTO across modules is asking for it.
+options=('!lto')
+source=("JKXR::git+https://github.com/Patola/JKXR.git")
+sha256sums=('SKIP')
+
+pkgver() {
+	cd JKXR
+	printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+build() {
+	cmake -S JKXR/Projects/Android/jni/OpenJK -B build \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DBuildMPEngine=OFF -DBuildMPRdVanilla=OFF -DBuildMPDed=OFF \
+		-DBuildMPGame=OFF -DBuildMPCGame=OFF -DBuildMPUI=OFF \
+		-DBuildSPEngine=ON -DBuildSPGame=ON -DBuildSPRdVanilla=ON \
+		-DBuildJK2SPEngine=ON -DBuildJK2SPGame=ON -DBuildJK2SPRdVanilla=ON \
+		-DBuildTests=OFF
+	cmake --build build
+
+	# Pack the VR asset pk3s
+	(cd JKXR && ./make_z_vr_assets_pk3.sh)
+}
+
+package() {
+	# Engines, renderers and game code all live together so the engine finds
+	# the .so modules next to the binary.
+	install -Dm755 -t "$pkgdir/usr/lib/jkxr" \
+		build/openjk_sp.x86_64 \
+		build/openjo_sp.x86_64 \
+		build/code/rd-vanilla/rdsp-vanilla_x86_64.so \
+		build/code/rd-vanilla/rdjosp-vanilla_x86_64.so \
+		build/code/game/jagamex86_64.so \
+		build/codeJK2/game/jospgamex86_64.so
+
+	# VR asset pk3s; the launchers sync these into the engine's per-user
+	# home path (~/.local/share/openjk|openjo/base) on start.
+	install -Dm644 -t "$pkgdir/usr/share/jkxr/jka" \
+		JKXR/assets/z_vr_assets_base.pk3 \
+		JKXR/assets/z_vr_assets_jka.pk3 \
+		"JKXR/JKXR-PCVR-Installer/JKA/base/z_vr_weapons_jka_Crusty_and_Elin.pk3"
+	install -Dm644 -t "$pkgdir/usr/share/jkxr/jko" \
+		JKXR/assets/z_vr_assets_base.pk3 \
+		JKXR/assets/z_vr_assets_jko.pk3 \
+		"JKXR/JKXR-PCVR-Installer/JKO/base/z_vr_weapons_jko_Crusty_and_Elin.pk3"
+
+	# Launchers
+	install -Dm755 -t "$pkgdir/usr/bin" \
+		JKXR/packaging/arch/jkxr-jka \
+		JKXR/packaging/arch/jkxr-jko
+
+	install -Dm644 JKXR/BUILDING_LINUX.md -t "$pkgdir/usr/share/doc/jkxr"
+	install -Dm644 JKXR/LICENSE.txt "$pkgdir/usr/share/licenses/$pkgname/LICENSE.txt"
+}

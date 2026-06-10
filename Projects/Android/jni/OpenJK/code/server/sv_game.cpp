@@ -1050,7 +1050,9 @@ void SV_InitGameProgs (void) {
 
 #ifdef JK2_MODE
 
-#ifdef _WIN32
+// Windows and desktop Linux load the CMake-built module (jospgame...);
+// only the Android build names its JK2 gamecode library "jogame".
+#if defined(_WIN32) || (defined(__linux__) && !defined(__ANDROID__))
 	const char *gamename = "jospgame";
 #else
 	const char *gamename = "jogame";

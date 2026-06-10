@@ -1,110 +1,191 @@
-# Building JKXR natively on Linux
+# JKXR on Linux (native PCVR)
 
-JKXR upstream ships only Windows (PCVR) and Android (standalone) builds. This
-fork adds a **native Linux PCVR build** of the single-player VR engine, using
-the OpenXR **X11/GLX** graphics binding. It has been built and linked on Arch
-Linux (GCC 16, CMake 4.x); see the notes at the bottom about runtime testing.
+This fork adds a **native Linux PCVR build** of JKXR — the single-player VR
+ports of **Star Wars Jedi Knight: Jedi Academy** and **Star Wars Jedi Knight
+II: Jedi Outcast** — using OpenXR with the **X11/GLX** graphics binding.
+Upstream JKXR only ships Windows (PCVR) and Android (standalone) builds.
 
-Only the Jedi **Academy** single-player engine is wired up so far (Jedi Outcast
-/ `JK2_MODE` is a follow-up — see *Status* below).
+Both games have been built, run and played end-to-end on Arch Linux
+(GCC 16, CMake 4.x, AMD RX 7900 XTX / Mesa, WiVRn runtime): menus, motion
+controllers, gameplay, in-engine and pre-rendered cutscenes, sound/music,
+save/load.
 
-## 1. Dependencies
+You need **your own copy of the games** (Steam, GOG, original CDs). Only the
+engine and VR assets are provided here.
 
-You need a C/C++ toolchain plus the development packages for SDL2, OpenXR,
-OpenGL/GLX, X11, zlib, libpng, libjpeg and OpenAL.
+## 1. Requirements
 
-On Arch Linux:
+A C/C++ toolchain plus development packages for SDL2, OpenXR, OpenGL/GLX,
+X11, zlib, libpng, libjpeg and GLU.
 
-```sh
-sudo pacman -S --needed base-devel cmake \
-    sdl2 openxr openal zlib libpng libjpeg-turbo \
-    libglvnd libx11 mesa
-```
-
-You also need a working **OpenXR runtime** that supports the OpenGL
-(`XR_KHR_opengl_enable`) graphics binding, e.g. one of:
-
-- **Monado** (`monado`) — open-source, runs on the desktop.
-- **WiVRn** (`wivrn`) — streams to a standalone headset (Quest, Pico, …).
-- **SteamVR** — proprietary; OpenGL support via its OpenXR runtime.
-
-> The X11/GLX binding needs an X11 session. Under Wayland, run the game through
-> **XWayland** (the default when `SDL_VIDEODRIVER` is left unset and X11 is
-> available). A native-Wayland EGL binding is not implemented.
-
-## 2. Configure & build
-
-The CMake project lives in `Projects/Android/jni/OpenJK`. Build only the
-single-player VR engine, renderer and gamecode (multiplayer / JK2 are off):
+Arch Linux:
 
 ```sh
-cd Projects/Android/jni/OpenJK
-
-cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Release \
-    -DBuildMPEngine=OFF -DBuildMPRdVanilla=OFF -DBuildMPDed=OFF \
-    -DBuildMPGame=OFF -DBuildMPCGame=OFF -DBuildMPUI=OFF \
-    -DBuildSPEngine=ON -DBuildSPGame=ON -DBuildSPRdVanilla=ON \
-    -DBuildJK2SPEngine=OFF -DBuildJK2SPGame=OFF -DBuildJK2SPRdVanilla=OFF \
-    -DBuildTests=OFF
-
-cmake --build build-linux -j"$(nproc)"
+sudo pacman -S --needed base-devel cmake zip \
+    sdl2 openxr glu libglvnd libx11 zlib libpng libjpeg-turbo mesa
 ```
 
-This produces three artifacts:
+Debian/Ubuntu (approximate):
+
+```sh
+sudo apt install build-essential cmake zip libsdl2-dev libopenxr-dev \
+    libglu1-mesa-dev libgl-dev libx11-dev zlib1g-dev libpng-dev libjpeg-dev
+```
+
+At runtime you also need:
+
+- An **OpenXR runtime** supporting the OpenGL (`XR_KHR_opengl_enable`)
+  binding: **WiVRn** (streams to standalone headsets), **Monado**, or
+  **SteamVR**. Make sure it is the *active* runtime
+  (`~/.config/openxr/1/active_runtime.json`) — WiVRn's dashboard and most
+  runtimes set this up for you.
+- An **X11 session or XWayland**. The OpenXR session uses the X11/GLX
+  binding; under Wayland just run with `SDL_VIDEODRIVER=x11` (the
+  instructions below include it).
+
+## 2. Building
+
+One command builds both games' engines, renderers, game code and packs the
+VR asset `.pk3` files:
+
+```sh
+./build_linux.sh
+```
+
+(Manual CMake invocations: see the script — the project lives in
+`Projects/Android/jni/OpenJK`, despite the path name it is the full
+cross-platform source tree.)
+
+Artifacts:
 
 | File | What it is |
 |------|------------|
-| `build-linux/openjk_sp.x86_64` | the single-player VR engine executable |
-| `build-linux/code/rd-vanilla/rdsp-vanilla_x86_64.so` | the renderer |
-| `build-linux/code/game/jagamex86_64.so` | the Jedi Academy game code |
+| `build-linux/openjk_sp.x86_64` | Jedi Academy SP VR engine |
+| `build-linux/openjo_sp.x86_64` | Jedi Outcast SP VR engine |
+| `build-linux/code/rd-vanilla/rdsp-vanilla_x86_64.so` | JKA renderer |
+| `build-linux/code/rd-vanilla/rdjosp-vanilla_x86_64.so` | JKO renderer |
+| `build-linux/code/game/jagamex86_64.so` | JKA game code |
+| `build-linux/codeJK2/game/jospgamex86_64.so` | JKO game code |
+| `assets/z_vr_assets_{base,jka,jko}.pk3` | VR assets (menus, VR weapon models, configs) |
 
-## 3. Installing & running
+## 3. Installing into your game directory
 
-JKXR needs the original **Jedi Academy** game data plus this fork's VR asset
-`.pk3`s. Lay out a game directory like:
+Find your game's **GameData** directory — the one containing `base/` with
+`assets0.pk3` etc. The location varies with how you installed the game:
 
-```
-jkxr/
-├── openjk_sp.x86_64               # from build-linux/
-├── rdsp-vanilla_x86_64.so         # from build-linux/code/rd-vanilla/
-├── jagamex86_64.so                # from build-linux/code/game/
-└── base/
-    ├── assets0.pk3 … assets3.pk3  # from a Jedi Academy install (GOG/Steam)
-    └── z_vr_assets_*.pk3          # JKXR VR assets (see z_vr_assets_* dirs in this repo)
-```
+- Default Steam library:
+  `~/.local/share/Steam/steamapps/common/Jedi Academy/GameData`
+  `~/.local/share/Steam/steamapps/common/Jedi Outcast/GameData`
+- Any custom Steam library, e.g.:
+  `/games/SteamLibrary/steamapps/common/Jedi Academy/GameData`
+- GOG/innoextract installs: wherever `GameData/base/assets0.pk3` ends up.
 
-The engine looks for the renderer/game `.so` next to the executable and under
-`fs_basepath`, so keeping them alongside the binary (or passing
-`+set fs_basepath /path/to/jkxr`) works.
-
-Start your OpenXR runtime first (e.g. `monado-service`, or the WiVRn server +
-headset client), then:
+Then:
 
 ```sh
-cd jkxr
-./openjk_sp.x86_64                 # add +set fs_basepath <dir> if running elsewhere
+./install_linux.sh jka "/path/to/Jedi Academy/GameData"
+./install_linux.sh jko "/path/to/Jedi Outcast/GameData"
 ```
 
-If no headset/runtime is detected the engine shows a dialog and exits.
+### File layout (what the script does / manual install)
 
-## Status / notes
+Binaries go in **GameData/** (the engine looks for the renderer and game
+`.so` next to the executable), pk3s go in **GameData/base/**:
 
-- **Working and runtime-verified.** Jedi Academy has been played in VR on Arch
-  (GCC 16, CMake 4.x, AMD RX 7900 XTX / Mesa, WiVRn runtime) through multiple
-  levels — input, config, smooth turning, sound/music and save/load all work.
-- The release build uses `-O1` and `-fno-strict-aliasing`. The latter is
-  **required**: this Quake-derived code type-puns through incompatible pointer
-  types, which GCC's strict aliasing (on at `-O2`/`-O3`) miscompiles into a
-  crash in the cgame effects system. `-O1` matches the proven Android build as a
-  hedge against other latent undefined behaviour in this 20-year-old code.
-- Pre-rendered (ROQ) video cinematics are presented on the virtual screen
-  (quad layer) rather than per-eye: the desktop rd-vanilla renderer lacks the
-  stereo-replay feature the Android renderer uses for per-eye video, which
-  produced swapped/pseudoscopic eyes and a flattened text crawl. In-engine
-  cutscenes remain fully immersive (`vr_immersive_cinematics`).
-- **Jedi Outcast (`JK2_MODE`)** is not yet built for Linux — only the Academy
-  SP engine is wired up. The `codeJK2` / JK2 SP CMake options would need the
-  same treatment.
-- The Linux OpenXR glue lives in `JKXR/linux/` (ported from `JKXR/windows/`),
-  differing only in the graphics binding (`XrGraphicsBindingOpenGLXlibKHR` via
-  GLX instead of the Win32/WGL binding) and the millisecond clock.
+```
+GameData/
+├── openjk_sp.x86_64                  # JKA engine    (JKO: openjo_sp.x86_64)
+├── rdsp-vanilla_x86_64.so            # JKA renderer  (JKO: rdjosp-vanilla_x86_64.so)
+├── jagamex86_64.so                   # JKA game code (JKO: jospgamex86_64.so)
+└── base/
+    ├── assets0.pk3 ... assets3.pk3   # YOUR game data (from Steam/GOG)
+    ├── z_vr_assets_base.pk3          # VR assets (both games need this one)
+    ├── z_vr_assets_jka.pk3           # game-specific VR assets (JKO: z_vr_assets_jko.pk3)
+    └── z_vr_weapons_jka_Crusty_and_Elin.pk3   # VR weapon models (JKO: ..._jko_...)
+```
+
+> The pk3s can alternatively go into the engine's per-user home path, which
+> has the highest search priority and avoids touching the game directory:
+> `~/.local/share/openjk/base/` for JKA, `~/.local/share/openjo/base/` for
+> JKO. (This is what the Arch package launchers do.)
+
+### Running
+
+Start your OpenXR runtime (e.g. WiVRn dashboard + headset client), then:
+
+```sh
+cd "/path/to/Jedi Academy/GameData"
+SDL_VIDEODRIVER=x11 ./openjk_sp.x86_64
+```
+
+```sh
+cd "/path/to/Jedi Outcast/GameData"
+SDL_VIDEODRIVER=x11 ./openjo_sp.x86_64
+```
+
+Config and savegames live in `~/.local/share/openjk/` (JKA) and
+`~/.local/share/openjo/` (JKO). To run from elsewhere, pass
+`+set fs_basepath "/path/to/GameData"`.
+
+## 4. Arch Linux package (PKGBUILD)
+
+A PKGBUILD is provided in [`packaging/arch/`](packaging/arch/):
+
+```sh
+cd packaging/arch
+makepkg -si
+```
+
+It installs into the system (root-owned) paths:
+
+- `/usr/lib/jkxr/` — engines + renderer/game `.so` modules
+- `/usr/share/jkxr/{jka,jko}/` — VR asset pk3s
+- `/usr/bin/jkxr-jka`, `/usr/bin/jkxr-jko` — launchers
+
+Since your game data stays wherever Steam/GOG put it, the launchers locate
+it at run time:
+
+- They auto-detect the default Steam library
+  (`~/.local/share/Steam/steamapps/common/<game>/GameData`).
+- For any other location, point them at it with an environment variable:
+
+```sh
+JKXR_JKA_GAMEDATA="/games/SteamLibrary/steamapps/common/Jedi Academy/GameData" jkxr-jka
+JKXR_JKO_GAMEDATA="/games/SteamLibrary/steamapps/common/Jedi Outcast/GameData" jkxr-jko
+```
+
+(Export the variable in your shell profile to make it permanent.) The
+launchers copy the VR pk3s into `~/.local/share/openjk|openjo/base` on
+start — nothing is ever written to the game directory or anywhere root-owned
+at run time.
+
+## 5. Technical notes / status
+
+- The Linux OpenXR glue lives in `JKXR/linux/` (ported from
+  `JKXR/windows/`); the OpenXR session is created with
+  `XrGraphicsBindingOpenGLXlibKHR` from the SDL-created GLX context.
+- The release build uses `-O1 -fno-strict-aliasing`. The latter is
+  **required**: this Quake-derived code type-puns through incompatible
+  pointer types, which GCC's strict aliasing (enabled at `-O2`/`-O3`)
+  miscompiles into crashes (e.g. in the cgame effects system). `-O1` matches
+  the proven Android build as a hedge against other latent UB in this
+  20-year-old codebase. The PKGBUILD also disables LTO for the same reason.
+- Pre-rendered (ROQ) video cinematics — including the opening text crawls —
+  are presented on the virtual screen (quad layer) rather than per-eye: the
+  desktop rd-vanilla renderer lacks the stereo-replay feature the Android
+  renderer uses for per-eye video. In-engine cutscenes remain fully
+  immersive (`vr_immersive_cinematics`).
+- Multiplayer is not built (SP VR only, same as upstream JKXR).
+
+## Troubleshooting
+
+- **"No VR Headset Detected" dialog** — no active OpenXR runtime, or the
+  runtime doesn't expose `XR_KHR_opengl_enable`. Check
+  `~/.config/openxr/1/active_runtime.json` and that the runtime is running
+  (for WiVRn: server running *and* headset client connected).
+- **"no current GLX context" error** — you're on native Wayland; run with
+  `SDL_VIDEODRIVER=x11` (XWayland).
+- **"Failed to load ... library"** — the renderer/game `.so` files are not
+  next to the engine binary (or in `fs_basepath`). See the layout above.
+- **Menus missing / vanilla menus shown** — the `z_vr_assets_*.pk3` files
+  are not in a searched `base/` directory.

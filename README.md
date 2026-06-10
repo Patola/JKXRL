@@ -11,6 +11,32 @@
 
 JK XR is a VR port of the Jedi Knight games using OpenXR (the open standard for virtual and augmented reality devices) and is based on the excellent OpenJK port, originally forked from: https://github.com/JACoders/OpenJK
 
+## Native Linux PCVR (this fork)
+
+This fork adds a **native Linux PCVR build** of JK XR — both Jedi Academy and
+Jedi Outcast single-player — using the OpenXR X11/GLX graphics binding. No
+Wine/Proton needed. Tested on Arch Linux with the WiVRn runtime (also works
+with Monado/SteamVR).
+
+Quick start (you need your own copy of the games, e.g. from Steam or GOG):
+
+```sh
+./build_linux.sh
+./install_linux.sh jka "$HOME/.local/share/Steam/steamapps/common/Jedi Academy/GameData"
+./install_linux.sh jko "$HOME/.local/share/Steam/steamapps/common/Jedi Outcast/GameData"
+```
+
+then, with your OpenXR runtime active:
+
+```sh
+cd ".../Jedi Academy/GameData" && SDL_VIDEODRIVER=x11 ./openjk_sp.x86_64
+```
+
+Arch Linux users can instead build a system package from
+[packaging/arch/PKGBUILD](packaging/arch/PKGBUILD), which provides `jkxr-jka`
+and `jkxr-jko` launchers. Full instructions, file layout and troubleshooting:
+[BUILDING_LINUX.md](BUILDING_LINUX.md).
+
 
 The easiest way to install this on your device is using SideQuest. Download SideQuest here:
 https://sidequestvr.com/setup-howto
