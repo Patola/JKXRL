@@ -31,10 +31,18 @@ bool VR_UseScreenLayer()
 {
 	const bool inGameCinematic = (CL_IsRunningInGameCinematic() || CL_InGameCinematicOnStandBy());
 
+	// Pre-rendered (ROQ) video cinematics always use the screen layer on
+	// desktop. The per-eye path relies on the renderer's stereo replay
+	// (VR_ReplayStereoFrame), which only the Android rd-gles renderer
+	// implements; without it each eye draws the video independently with the
+	// VR projection override, producing swapped/pseudoscopic eyes and
+	// flattening the text crawl's perspective refdef. The quad screen layer
+	// (same path as the menu) shows them correctly. In-engine cutscenes
+	// (cin_camera) remain immersive per vr_immersive_cinematics.
 	vr.using_screen_layer = _UI_IsFullscreen() ||
 			(bool)((vr.cin_camera && !vr.immersive_cinematics) ||
 			vr.misc_camera ||
-			(inGameCinematic && !vr.immersive_cinematics) ||
+			inGameCinematic ||
             (cls.state == CA_DISCONNECTED) ||
             (cls.state == CA_CHALLENGING) ||
             (cls.state == CA_CONNECTING) ||

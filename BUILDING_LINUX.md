@@ -97,9 +97,11 @@ If no headset/runtime is detected the engine shows a dialog and exits.
   types, which GCC's strict aliasing (on at `-O2`/`-O3`) miscompiles into a
   crash in the cgame effects system. `-O1` matches the proven Android build as a
   hedge against other latent undefined behaviour in this 20-year-old code.
-- **Known issue:** pre-rendered (ROQ) video cutscenes render with swapped /
-  too-close eyes. In-engine 3D scenes and the 2D menu are correct; only the
-  video-cinematic path is affected. Cosmetic.
+- Pre-rendered (ROQ) video cinematics are presented on the virtual screen
+  (quad layer) rather than per-eye: the desktop rd-vanilla renderer lacks the
+  stereo-replay feature the Android renderer uses for per-eye video, which
+  produced swapped/pseudoscopic eyes and a flattened text crawl. In-engine
+  cutscenes remain fully immersive (`vr_immersive_cinematics`).
 - **Jedi Outcast (`JK2_MODE`)** is not yet built for Linux — only the Academy
   SP engine is wired up. The `codeJK2` / JK2 SP CMake options would need the
   same treatment.
