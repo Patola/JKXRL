@@ -38,10 +38,15 @@ if(BuildSPEngine OR BuildJK2SPEngine)
 	# Defines
 	set(SPEngineDefines ${SharedDefines} "_JK2EXE") # it's called JK2EXE but it really just means Singleplayer Exe
 	
-	# OpenXR defines used by 
-	set(SPEngineDefines ${SPEngineDefines} "JKXR_CLIENT") 
-	set(SPEngineDefines ${SPEngineDefines} "XR_USE_PLATFORM_WIN32") 
-	set(SPEngineDefines ${SPEngineDefines} "XR_USE_GRAPHICS_API_OPENGL") 
+	# OpenXR defines
+	set(SPEngineDefines ${SPEngineDefines} "JKXR_CLIENT")
+	set(SPEngineDefines ${SPEngineDefines} "XR_USE_GRAPHICS_API_OPENGL")
+	if(WIN32)
+		set(SPEngineDefines ${SPEngineDefines} "XR_USE_PLATFORM_WIN32")
+	endif()
+	# On Linux XR_USE_PLATFORM_XLIB is defined locally in JKXR/linux/TBXR_Common.cpp
+	# (the only TU that needs the X11/GLX graphics binding) to keep Xlib's macros
+	# out of the rest of the engine.
 
 	set(SPEngineIncludeDirectories
 		${SPEngineIncludeDirectories}
@@ -116,11 +121,24 @@ if(BuildSPEngine OR BuildJK2SPEngine)
 	set(SPEngineLibraries ${SPEngineLibraries} ${OPENGL_LIBRARIES})
 
 
-	# OpenXR library - switch between debug/release
-	set(SPEngineLibraries
-		${SPEngineLibraries}
-		${OpenJKLibDir}/openxr/lib/x64/openxr_loader$<$<CONFIG:Debug>:d>.lib
-	)
+	# OpenXR loader
+	if(WIN32)
+		# Bundled loader - switch between debug/release
+		set(SPEngineLibraries
+			${SPEngineLibraries}
+			${OpenJKLibDir}/openxr/lib/x64/openxr_loader$<$<CONFIG:Debug>:d>.lib
+		)
+	else()
+		# Linux: use the system OpenXR loader plus X11 for the GLX graphics
+		# binding (the glX* entry points themselves live in libGL, linked above).
+		find_library(OPENXR_LOADER_LIBRARY NAMES openxr_loader REQUIRED)
+		find_package(X11 REQUIRED)
+		set(SPEngineLibraries
+			${SPEngineLibraries}
+			${OPENXR_LOADER_LIBRARY}
+			${X11_LIBRARIES}
+		)
+	endif()
 
 
 	#    Source Files
@@ -340,10 +358,15 @@ if(BuildSPEngine OR BuildJK2SPEngine)
 
 
 	# JKXR files
+	if(WIN32)
+		set(JKXRPlatformDir "${CMAKE_SOURCE_DIR}/JKXR/windows")
+	else()
+		set(JKXRPlatformDir "${CMAKE_SOURCE_DIR}/JKXR/linux")
+	endif()
 	set(SPEngineJKXRFiles
-		"${CMAKE_SOURCE_DIR}/JKXR/windows/JKXR_SurfaceView.cpp"
-		"${CMAKE_SOURCE_DIR}/JKXR/windows/TBXR_Common.cpp"
-		"${CMAKE_SOURCE_DIR}/JKXR/windows/TBXR_Common.h"
+		"${JKXRPlatformDir}/JKXR_SurfaceView.cpp"
+		"${JKXRPlatformDir}/TBXR_Common.cpp"
+		"${JKXRPlatformDir}/TBXR_Common.h"
 		"${CMAKE_SOURCE_DIR}/JKXR/OpenXrInput.cpp"
 		"${CMAKE_SOURCE_DIR}/JKXR/VrClientInfo.h"
 		"${CMAKE_SOURCE_DIR}/JKXR/VrCommon.h"

@@ -24,7 +24,10 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #if !defined(G2_H_INC)
 #define G2_H_INC
 
-#ifndef _WIN32
+// Android (rd-gles) needs tr_local.h pulled in here; on Windows and desktop
+// (Linux/macOS) this creates a circular include via tr_public.h -> G2.h ->
+// tr_local.h before refimport_t is defined, so it is restricted to Android.
+#ifdef __ANDROID__
 #include "tr_local.h"
 #endif
 
