@@ -95,6 +95,8 @@ When released the game must be played via unofficial PimaxXR OpenXR runtime (htt
 
 **Pico** - Virtual Desktop (VDXR or SteamVR) / Streaming Assistant (Currently Untested)
 
+**LINUX SUPPORT** -> If you wish to play on Linux, then someone has created a build with Linux support:  https://github.com/Patola/JKXR
+
 
 ## Copying the Full Game files to your Meta Quest / Pico
 
