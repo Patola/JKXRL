@@ -37,10 +37,17 @@ Arch Linux users can instead build a system package from
 and `jkxr-jko` launchers. Full instructions, file layout and troubleshooting:
 [BUILDING_LINUX.md](BUILDING_LINUX.md).
 
+If you have the game(s) on Steam, I would advise to use these strings as launch options:
+
+* For Jedi Outcast: `cmd=(%command%); JKXR_JKO_GAMEDATA="$(dirname "${cmd[-1]}")" jkxr-jko`
+* For Jedi Academy: `cmd=(%command%); JKXR_JKA_GAMEDATA="$(dirname "${cmd[-1]}")" jkxr-jka`
+
+This way the game will automatically start in VR mode when you press Play and its playing time will be recorded on Steam.
+
+## Quest/Pico builds
 
 The easiest way to install this on your device is using SideQuest. Download SideQuest here:
 https://sidequestvr.com/setup-howto
-
 
 
 ### Jedi Knight: Jedi Outcast / Jedi Academy
