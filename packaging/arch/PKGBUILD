@@ -9,8 +9,8 @@
 # Note: this builds the default branch of the repository. To build a work
 # branch instead, append #branch=<name> to the source URL below.
 
-pkgname=jkxr-git
-pkgver=r1.0
+pkgname=jkxrl-git
+pkgver=r.13cd8d1
 pkgrel=1
 pkgdesc="VR port of Jedi Academy & Jedi Outcast (Team Beef JKXR) - native Linux PCVR build"
 arch=('x86_64')
@@ -18,22 +18,22 @@ url="https://github.com/Patola/JKXR"
 license=('GPL-2.0-only')
 depends=('sdl2' 'openxr' 'glu' 'libglvnd' 'libx11' 'zlib' 'libpng' 'libjpeg-turbo')
 makedepends=('git' 'cmake' 'zip')
-provides=('jkxr')
-conflicts=('jkxr')
+provides=('jkxrl')
+conflicts=('jkxrl')
 install=jkxr.install
 # This old Quake-derived codebase relies on -fno-strict-aliasing and modest
 # optimisation (see BUILDING_LINUX.md); LTO across modules is asking for it.
 options=('!lto')
-source=("JKXR::git+https://github.com/Patola/JKXR.git")
+source=("JKXRL::git+https://github.com/Patola/JKXRL.git")
 sha256sums=('SKIP')
 
 pkgver() {
-	cd JKXR
+	cd JKXRL
 	printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
 }
 
 build() {
-	cmake -S JKXR/Projects/Android/jni/OpenJK -B build \
+	cmake -S JKXRL/Projects/Android/jni/OpenJK -B build \
 		-DCMAKE_BUILD_TYPE=Release \
 		-DBuildMPEngine=OFF -DBuildMPRdVanilla=OFF -DBuildMPDed=OFF \
 		-DBuildMPGame=OFF -DBuildMPCGame=OFF -DBuildMPUI=OFF \
@@ -43,7 +43,7 @@ build() {
 	cmake --build build
 
 	# Pack the VR asset pk3s
-	(cd JKXR && ./make_z_vr_assets_pk3.sh)
+	(cd JKXRL && ./make_z_vr_assets_pk3.sh)
 }
 
 package() {
@@ -60,19 +60,19 @@ package() {
 	# VR asset pk3s; the launchers sync these into the engine's per-user
 	# home path (~/.local/share/openjk|openjo/base) on start.
 	install -Dm644 -t "$pkgdir/usr/share/jkxr/jka" \
-		JKXR/assets/z_vr_assets_base.pk3 \
-		JKXR/assets/z_vr_assets_jka.pk3 \
-		"JKXR/JKXR-PCVR-Installer/JKA/base/z_vr_weapons_jka_Crusty_and_Elin.pk3"
+		JKXRL/assets/z_vr_assets_base.pk3 \
+		JKXRL/assets/z_vr_assets_jka.pk3 \
+		"JKXRL/JKXR-PCVR-Installer/JKA/base/z_vr_weapons_jka_Crusty_and_Elin.pk3"
 	install -Dm644 -t "$pkgdir/usr/share/jkxr/jko" \
-		JKXR/assets/z_vr_assets_base.pk3 \
-		JKXR/assets/z_vr_assets_jko.pk3 \
-		"JKXR/JKXR-PCVR-Installer/JKO/base/z_vr_weapons_jko_Crusty_and_Elin.pk3"
+		JKXRL/assets/z_vr_assets_base.pk3 \
+		JKXRL/assets/z_vr_assets_jko.pk3 \
+		"JKXRL/JKXR-PCVR-Installer/JKO/base/z_vr_weapons_jko_Crusty_and_Elin.pk3"
 
 	# Launchers
 	install -Dm755 -t "$pkgdir/usr/bin" \
-		JKXR/packaging/arch/jkxr-jka \
-		JKXR/packaging/arch/jkxr-jko
+		JKXRL/packaging/arch/jkxr-jka \
+		JKXRL/packaging/arch/jkxr-jko
 
-	install -Dm644 JKXR/BUILDING_LINUX.md -t "$pkgdir/usr/share/doc/jkxr"
-	install -Dm644 JKXR/LICENSE.txt "$pkgdir/usr/share/licenses/$pkgname/LICENSE.txt"
+	install -Dm644 JKXRL/BUILDING_LINUX.md -t "$pkgdir/usr/share/doc/jkxr"
+	install -Dm644 JKXRL/LICENSE.txt "$pkgdir/usr/share/licenses/$pkgname/LICENSE.txt"
 }
