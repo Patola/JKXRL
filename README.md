@@ -28,9 +28,17 @@ Quick start (you need your own copy of the games, e.g. from Steam or GOG):
 
 then, with your OpenXR runtime active:
 
+* For Jedi Academy:
 ```sh
-cd ".../Jedi Academy/GameData" && SDL_VIDEODRIVER=x11 ./openjk_sp.x86_64
+cd "(...)/Jedi Academy/GameData" && SDL_VIDEODRIVER=x11 ./openjk_sp.x86_64
 ```
+
+* For Jedi Outcast:
+```sh
+cd "(...)/Jedi Outcast/GameData" && SDL_VIDEODRIVER=x11 ./openjo_sp.x86_64
+```
+
+Where `(...)` is the rest of the path for your game.
 
 Arch Linux users can instead build a system package from
 [packaging/arch/PKGBUILD](packaging/arch/PKGBUILD), which provides `jkxr-jka`
