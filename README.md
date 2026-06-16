@@ -52,6 +52,10 @@ If you have the game(s) on Steam, I would advise to use these strings as launch 
 
 This way the game will automatically start in VR mode when you press Play and its playing time will be recorded on Steam.
 
+## Demo Video (on Linux)
+
+[![JKXRL - Jedi Outcast on Linux](jkxrl-jedi-outcast.jpg)](https://www.youtube.com/watch?v=U9MpaD9U0Jc)
+
 ## Quest/Pico builds
 
 The easiest way to install this on your device is using SideQuest. Download SideQuest here:
