@@ -1199,12 +1199,11 @@ extern	cvar_t	*r_showsky;						// forces sky in front of all surfaces
 extern	cvar_t	*r_shownormals;					// draws wireframe normals
 extern	cvar_t	*r_clear;						// force screen clear every frame
 
-extern	cvar_t	*r_shadows;						// controls shadows: 0 = none, 1 = blur, 2 = stencil, 3 = black planar projection, 4 = soft stencil
-extern	cvar_t	*r_shadowAlpha;					// darkness of stencil shadows (modes 2 and 4); 0..1
+extern	cvar_t	*r_shadows;						// controls shadows: 0 = none, 1 = blob, 2 = stencil, 3 = black planar projection, 4/5 = translucent stencil
 extern	cvar_t	*r_flares;						// light flares
 
-// Modes 4 (hard) and 5 (soft) are stencil shadows where a stencil buffer exists,
-// and fall back to planar projection (mode 3) where it does not (e.g. Quest VR).
+// Modes 4/5 are stencil shadows on stencil-capable targets; this GLES backend has
+// no stencil buffer (e.g. Quest), so they fall back to planar projection (mode 3).
 #define R_STENCIL_SHADOWS		( r_shadows->integer == 2 || ( r_shadows->integer >= 4 && glConfig.stencilBits >= 4 ) )
 #define R_PROJECTION_SHADOWS	( r_shadows->integer == 3 || ( r_shadows->integer >= 4 && glConfig.stencilBits <  4 ) )
 

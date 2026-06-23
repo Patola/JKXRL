@@ -492,7 +492,7 @@ overlap and double darken.
 =================
 */
 void RB_ShadowFinish( void ) {
-	if ( r_shadows->integer != 2 && r_shadows->integer < 4 ) {
+	if ( r_shadows->integer != 2 ) {
 		return;
 	}
 	if ( glConfig.stencilBits < 4 ) {
@@ -519,30 +519,25 @@ void RB_ShadowFinish( void ) {
 
 	GL_Bind( tr.whiteImage );
 
-	// Draw a screen-filling quad directly in clip space (identity projection AND
-	// modelview) with depth testing off, so the shadow darkening always covers the
-	// whole view wherever the stencil is set. The original code drew a fixed z=-10
-	// quad that assumed a particular perspective projection/matrix-mode was current;
-	// under the VR renderer that state differs per eye, so the quad missed the screen.
-	qglMatrixMode( GL_PROJECTION );
 	qglPushMatrix();
-	qglLoadIdentity();
-	qglMatrixMode( GL_MODELVIEW );
-	qglPushMatrix();
-	qglLoadIdentity();
+	qglLoadIdentity ();
 
-	float shadowAlpha = r_shadowAlpha->value;
-	if ( shadowAlpha < 0.0f ) shadowAlpha = 0.0f;
-	else if ( shadowAlpha > 1.0f ) shadowAlpha = 1.0f;
-	qglColor4f( 0.0f, 0.0f, 0.0f, shadowAlpha );
-	GL_State( GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA | GLS_DEPTHTEST_DISABLE );
+//	qglColor3f( 0.6f, 0.6f, 0.6f );
+//	GL_State( GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_DST_COLOR | GLS_DSTBLEND_ZERO );
+
+//	qglColor3f( 1, 0, 0 );
+//	GL_State( GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_ONE | GLS_DSTBLEND_ZERO );
+
+	qglColor4f( 0.0f, 0.0f, 0.0f, 0.5f );
+	//GL_State( GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA );
+	GL_State( GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA );
 
 #ifdef HAVE_GLES
 	GLfloat vtx[] = {
-	 -1.0f,  1.0f, 0.0f,
-	  1.0f,  1.0f, 0.0f,
-	  1.0f, -1.0f, 0.0f,
-	 -1.0f, -1.0f, 0.0f
+	 -100,  100, -10,
+	  100,  100, -10,
+	  100, -100, -10,
+	 -100, -100, -10
 	};
 	GLboolean text = qglIsEnabled(GL_TEXTURE_COORD_ARRAY);
 	GLboolean glcol = qglIsEnabled(GL_COLOR_ARRAY);
@@ -558,10 +553,10 @@ void RB_ShadowFinish( void ) {
 		qglEnableClientState( GL_COLOR_ARRAY );
 #else
 	qglBegin( GL_QUADS );
-	qglVertex3f( -1.0f,  1.0f, 0.0f );
-	qglVertex3f(  1.0f,  1.0f, 0.0f );
-	qglVertex3f(  1.0f, -1.0f, 0.0f );
-	qglVertex3f( -1.0f, -1.0f, 0.0f );
+	qglVertex3f( -100, 100, -10 );
+	qglVertex3f( 100, 100, -10 );
+	qglVertex3f( 100, -100, -10 );
+	qglVertex3f( -100, -100, -10 );
 	qglEnd ();
 #endif
 
@@ -571,9 +566,6 @@ void RB_ShadowFinish( void ) {
 	{
 		qglEnable (GL_CLIP_PLANE0);
 	}
-	qglMatrixMode( GL_PROJECTION );
-	qglPopMatrix();
-	qglMatrixMode( GL_MODELVIEW );
 	qglPopMatrix();
 }
 
