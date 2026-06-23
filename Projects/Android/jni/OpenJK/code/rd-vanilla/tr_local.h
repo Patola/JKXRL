@@ -1189,8 +1189,20 @@ extern	cvar_t	*r_showsky;						// forces sky in front of all surfaces
 extern	cvar_t	*r_shownormals;					// draws wireframe normals
 extern	cvar_t	*r_clear;						// force screen clear every frame
 
-extern	cvar_t	*r_shadows;						// controls shadows: 0 = none, 1 = blur, 2 = stencil, 3 = black planar projection
+extern	cvar_t	*r_shadows;						// controls shadows: 0 = none, 1 = blob, 2 = stencil, 3 = black planar projection, 4 = translucent hard stencil, 5 = translucent soft stencil
+extern	cvar_t	*r_shadowAlpha;					// darkness of stencil shadows (modes 2, 4, 5); 0..1
+extern	cvar_t	*r_shadowSoft;					// soft-shadow (mode 5) penumbra: number of jittered taps
+extern	cvar_t	*r_shadowSoftSpread;			// width of the soft-shadow penumbra
+
+#define MAX_SHADOW_TAPS		8
+
+// Modes 4 and 5 are stencil shadows where a stencil buffer exists, and fall back
+// to planar projection (mode 3) where it does not (e.g. Quest VR has none).
+// Mode 5 adds the jittered soft penumbra on top of mode 4's translucent stencil.
 extern	cvar_t	*r_flares;						// light flares
+
+#define R_STENCIL_SHADOWS		( r_shadows->integer == 2 || ( r_shadows->integer >= 4 && glConfig.stencilBits >= 4 ) )
+#define R_PROJECTION_SHADOWS	( r_shadows->integer == 3 || ( r_shadows->integer >= 4 && glConfig.stencilBits <  4 ) )
 
 extern	cvar_t	*r_intensity;
 

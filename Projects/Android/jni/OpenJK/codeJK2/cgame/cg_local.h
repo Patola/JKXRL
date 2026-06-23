@@ -575,7 +575,16 @@ extern	vmCvar_t		cg_bobpitch;
 extern	vmCvar_t		cg_bobroll;
 extern	vmCvar_t		cg_swingSpeed;
 extern	vmCvar_t		cg_shadows;
+extern	vmCvar_t		cg_shadowAlpha;
+extern	vmCvar_t		cg_shadowScale;
 extern	vmCvar_t		cg_paused;
+
+// cg_shadows: 0 none, 1 blob, 2 stencil, 3 planar projection, 4 translucent hard
+// stencil, 5 translucent soft stencil. Modes 4/5 use real stencil shadows where a
+// stencil buffer exists, and fall back to planar projection (like mode 3) where it
+// does not (e.g. Quest VR has none).
+#define CG_STENCIL_SHADOWS		( cg_shadows.integer == 2 || ( cg_shadows.integer >= 4 && cgs.glconfig.stencilBits >= 4 ) )
+#define CG_PROJECTION_SHADOWS	( cg_shadows.integer == 3 || ( cg_shadows.integer >= 4 && cgs.glconfig.stencilBits <  4 ) )
 extern	vmCvar_t		cg_drawTimer;
 extern	vmCvar_t		cg_drawFPS;
 extern	vmCvar_t		cg_drawSnapshot;

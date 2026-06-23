@@ -2874,6 +2874,7 @@ static qboolean _PlayerShadow( const vec3_t origin, const float orientation, flo
 	vec3_t		end, mins = {-7, -7, 0}, maxs = {7, 7, 2};
 	trace_t		trace;
 	float		alpha;
+	float		markRadius = radius;
 
 	// send a trace down from the player to the ground
 	VectorCopy( origin, end );
@@ -2895,10 +2896,21 @@ static qboolean _PlayerShadow( const vec3_t origin, const float orientation, flo
 	// fade the shadow out with height
 	alpha = 1.0 - trace.fraction;
 
+	// soft-shadow tuning knobs (only affect the blob decal)
+	if ( cg_shadowScale.value > 0.0f ) {
+		markRadius = radius * cg_shadowScale.value;
+	}
+	alpha *= cg_shadowAlpha.value;
+	if ( alpha > 1.0f ) {
+		alpha = 1.0f;
+	} else if ( alpha < 0.0f ) {
+		alpha = 0.0f;
+	}
+
 	// add the mark as a temporary, so it goes directly to the renderer
 	// without taking a spot in the cg_marks array
 	CG_ImpactMark( cgs.media.shadowMarkShader, trace.endpos, trace.plane.normal,
-		orientation, 1,1,1,alpha, qfalse, radius, qtrue );
+		orientation, 1,1,1,alpha, qfalse, markRadius, qtrue );
 
 	return qtrue;
 }
@@ -4992,7 +5004,7 @@ void CG_Player(centity_t *cent ) {
 		// add the shadow
 		shadow = CG_PlayerShadow( cent, &shadowPlane );
 
-		if ( (cg_shadows.integer == 2) || (cg_shadows.integer == 3 && shadow) )
+		if ( CG_STENCIL_SHADOWS || (CG_PROJECTION_SHADOWS && shadow) )
 		{
 			ent.renderfx |= RF_SHADOW_PLANE;
 		}
@@ -5144,7 +5156,7 @@ Ghoul2 Insert Start
 			ent.renderfx = RF_THIRD_PERSON;			// only draw in mirrors
 		}
 
-		if ( (cg_shadows.integer == 2) || (cg_shadows.integer == 3 && shadow) )
+		if ( CG_STENCIL_SHADOWS || (CG_PROJECTION_SHADOWS && shadow) )
 		{
 			ent.renderfx |= RF_SHADOW_PLANE;
 		}
@@ -5812,7 +5824,7 @@ Ghoul2 Insert End
 		}
 	}
 
-	if ( (cg_shadows.integer == 2) || (cg_shadows.integer == 3 && shadow) )
+	if ( CG_STENCIL_SHADOWS || (CG_PROJECTION_SHADOWS && shadow) )
 	{
 		renderfx |= RF_SHADOW_PLANE;
 	}

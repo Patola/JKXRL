@@ -409,7 +409,7 @@ void R_AddMD3Surfaces( trRefEntity_t *ent ) {
 
 		// stencil shadows can't do personal models unless I polyhedron clip
 		if ( !personalModel
-			&& r_shadows->integer == 2
+			&& R_STENCIL_SHADOWS
 			&& fogNum == 0
 			&& (ent->e.renderfx & RF_SHADOW_PLANE )
 			&& !(ent->e.renderfx & ( RF_NOSHADOW | RF_DEPTHHACK ) )
@@ -418,7 +418,7 @@ void R_AddMD3Surfaces( trRefEntity_t *ent ) {
 		}
 
 		// projection shadows work fine with personal models
-		if ( r_shadows->integer == 3
+		if ( R_PROJECTION_SHADOWS
 			&& fogNum == 0
 			&& (ent->e.renderfx & RF_SHADOW_PLANE )
 			&& shader->sort == SS_OPAQUE ) {

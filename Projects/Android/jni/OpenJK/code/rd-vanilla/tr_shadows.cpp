@@ -232,10 +232,20 @@ void RB_DoShadowTessEnd( vec3_t lightPos )
 		return;
 	}
 
-#if 1 //controlled method - try to keep shadows in range so they don't show through so much -rww
+	// Soft shadows (mode 5): render the volume several times with the light direction
+	// jittered laterally. The stencil then counts how many taps cover each pixel,
+	// so the fully-shadowed core gets the highest count and the fuzzy edge gets a
+	// lower one - RB_ShadowFinish turns that count into a graduated (soft) penumbra.
+	// Mode 4 (translucent hard) uses a single tap.
+	int numTaps = ( r_shadows->integer >= 5 ) ? r_shadowSoft->integer : 1;
+	if ( numTaps < 1 ) numTaps = 1;
+	if ( numTaps > MAX_SHADOW_TAPS ) numTaps = MAX_SHADOW_TAPS;
+	float spread = r_shadowSoftSpread->value;
+
 	vec3_t	worldxyz;
 	vec3_t	entLight;
 	float	groundDist;
+	vec3_t	baseDir;
 
 	VectorCopy( backEnd.currentEntity->lightDir, entLight );
 	entLight[2] = 0.0f;
@@ -244,89 +254,7 @@ void RB_DoShadowTessEnd( vec3_t lightPos )
 	//Oh well, just cast them straight down no matter what onto the ground plane.
 	//This presets no chance of screwups and still looks better than a stupid
 	//shader blob.
-	VectorSet(lightDir, entLight[0]*0.3f, entLight[1]*0.3f, 1.0f);
-	// project vertexes away from light direction
-	for ( i = 0 ; i < tess.numVertexes ; i++ ) {
-		//add or.origin to vert xyz to end up with world oriented coord, then figure
-		//out the ground pos for the vert to project the shadow volume to
-		VectorAdd(tess.xyz[i], backEnd.ori.origin, worldxyz);
-		groundDist = worldxyz[2] - backEnd.currentEntity->e.shadowPlane;
-		groundDist += 16.0f; //fudge factor
-		VectorMA( tess.xyz[i], -groundDist, lightDir, shadowXyz[i] );
-	}
-#else
-	if (lightPos)
-	{
-		for ( i = 0 ; i < tess.numVertexes ; i++ )
-		{
-			shadowXyz[i][0] = tess.xyz[i][0]+(( tess.xyz[i][0]-lightPos[0] )*128.0f);
-			shadowXyz[i][1] = tess.xyz[i][1]+(( tess.xyz[i][1]-lightPos[1] )*128.0f);
-			shadowXyz[i][2] = tess.xyz[i][2]+(( tess.xyz[i][2]-lightPos[2] )*128.0f);
-		}
-	}
-	else
-	{
-		VectorCopy( backEnd.currentEntity->lightDir, lightDir );
-
-		// project vertexes away from light direction
-		for ( i = 0 ; i < tess.numVertexes ; i++ ) {
-			VectorMA( tess.xyz[i], -512, lightDir, shadowXyz[i] );
-		}
-	}
-#endif
-	// decide which triangles face the light
-	memset( numEdgeDefs, 0, 4 * tess.numVertexes );
-
-	numTris = tess.numIndexes / 3;
-	for ( i = 0 ; i < numTris ; i++ ) {
-		int		i1, i2, i3;
-		vec3_t	d1, d2, normal;
-		float	*v1, *v2, *v3;
-		float	d;
-
-		i1 = tess.indexes[ i*3 + 0 ];
-		i2 = tess.indexes[ i*3 + 1 ];
-		i3 = tess.indexes[ i*3 + 2 ];
-
-		v1 = tess.xyz[ i1 ];
-		v2 = tess.xyz[ i2 ];
-		v3 = tess.xyz[ i3 ];
-
-		if (!lightPos)
-		{
-			VectorSubtract( v2, v1, d1 );
-			VectorSubtract( v3, v1, d2 );
-			CrossProduct( d1, d2, normal );
-
-			d = DotProduct( normal, lightDir );
-		}
-		else
-		{
-			float planeEq[4];
-			planeEq[0] = v1[1]*(v2[2]-v3[2]) + v2[1]*(v3[2]-v1[2]) + v3[1]*(v1[2]-v2[2]);
-			planeEq[1] = v1[2]*(v2[0]-v3[0]) + v2[2]*(v3[0]-v1[0]) + v3[2]*(v1[0]-v2[0]);
-			planeEq[2] = v1[0]*(v2[1]-v3[1]) + v2[0]*(v3[1]-v1[1]) + v3[0]*(v1[1]-v2[1]);
-			planeEq[3] = -( v1[0]*( v2[1]*v3[2] - v3[1]*v2[2] ) +
-						v2[0]*(v3[1]*v1[2] - v1[1]*v3[2]) +
-						v3[0]*(v1[1]*v2[2] - v2[1]*v1[2]) );
-
-			d = planeEq[0]*lightPos[0]+
-				planeEq[1]*lightPos[1]+
-				planeEq[2]*lightPos[2]+
-				planeEq[3];
-		}
-
-		if ( d > 0 ) {
-			facing[ i ] = 1;
-		} else {
-			facing[ i ] = 0;
-		}
-
-		// create the edges
-		R_AddEdgeDef( i1, i2, facing[ i ] );
-		R_AddEdgeDef( i2, i3, facing[ i ] );
-		R_AddEdgeDef( i3, i1, facing[ i ] );
-	}
+	VectorSet(baseDir, entLight[0]*0.3f, entLight[1]*0.3f, 1.0f);
 
 	GL_Bind( tr.whiteImage );
 	//qglEnable( GL_CULL_FACE );
@@ -348,53 +276,125 @@ void RB_DoShadowTessEnd( vec3_t lightPos )
 
 #ifdef _STENCIL_REVERSE
 	qglDepthFunc(GL_LESS);
+#endif
 
-	//now using the Carmack Reverse<tm> -rww
+	for ( int tap = 0 ; tap < numTaps ; tap++ )
+	{
+		// tap 0 is the centre (the umbra); the rest ring around it to form the penumbra
+		if ( numTaps > 1 && tap > 0 ) {
+			float ang = (float)(tap - 1) * ( 2.0f * M_PI ) / (float)( numTaps - 1 );
+			lightDir[0] = baseDir[0] + cos( ang ) * spread;
+			lightDir[1] = baseDir[1] + sin( ang ) * spread;
+			lightDir[2] = baseDir[2];
+		} else {
+			VectorCopy( baseDir, lightDir );
+		}
+
+		// project vertexes away from light direction
+		for ( i = 0 ; i < tess.numVertexes ; i++ ) {
+			//add or.origin to vert xyz to end up with world oriented coord, then figure
+			//out the ground pos for the vert to project the shadow volume to
+			VectorAdd(tess.xyz[i], backEnd.ori.origin, worldxyz);
+			groundDist = worldxyz[2] - backEnd.currentEntity->e.shadowPlane;
+			groundDist += 16.0f; //fudge factor
+			VectorMA( tess.xyz[i], -groundDist, lightDir, shadowXyz[i] );
+		}
+
+		// decide which triangles face the light
+		memset( numEdgeDefs, 0, 4 * tess.numVertexes );
+
+		numTris = tess.numIndexes / 3;
+		for ( i = 0 ; i < numTris ; i++ ) {
+			int		i1, i2, i3;
+			vec3_t	d1, d2, normal;
+			float	*v1, *v2, *v3;
+			float	d;
+
+			i1 = tess.indexes[ i*3 + 0 ];
+			i2 = tess.indexes[ i*3 + 1 ];
+			i3 = tess.indexes[ i*3 + 2 ];
+
+			v1 = tess.xyz[ i1 ];
+			v2 = tess.xyz[ i2 ];
+			v3 = tess.xyz[ i3 ];
+
+			VectorSubtract( v2, v1, d1 );
+			VectorSubtract( v3, v1, d2 );
+			CrossProduct( d1, d2, normal );
+
+			d = DotProduct( normal, lightDir );
+
+			if ( d > 0 ) {
+				facing[ i ] = 1;
+			} else {
+				facing[ i ] = 0;
+			}
+
+			// create the edges
+			R_AddEdgeDef( i1, i2, facing[ i ] );
+			R_AddEdgeDef( i2, i3, facing[ i ] );
+			R_AddEdgeDef( i3, i1, facing[ i ] );
+		}
+
+#ifdef _STENCIL_REVERSE
+		//now using the Carmack Reverse<tm> -rww
+		// The single-drawcall path increments on front faces / decrements on back,
+		// i.e. it produces NEGATIVE winding inside the volume (stored as 255,254,...
+		// via wrap). That's fine for hard shadows (they only test stencil != 0) but
+		// breaks the soft penumbra, which needs the coverage count to ramp up 1..N.
+		// So for soft mode (numTaps > 1) use the two-pass path, which gives the
+		// standard positive z-fail winding.
+		if (glConfig.doStencilShadowsInOneDrawcall && numTaps <= 1)
+		{
+			GL_Cull(CT_TWO_SIDED);
+			qglStencilOpSeparate(GL_FRONT, GL_KEEP, GL_INCR_WRAP, GL_KEEP);
+			qglStencilOpSeparate(GL_BACK, GL_KEEP, GL_DECR_WRAP, GL_KEEP);
+
+			R_RenderShadowEdges();
+		}
+		else
+		{
+			GL_Cull(CT_FRONT_SIDED);
+			qglStencilOp(GL_KEEP, GL_INCR, GL_KEEP);
+
+			R_RenderShadowEdges();
+
+			GL_Cull(CT_BACK_SIDED);
+			qglStencilOp(GL_KEEP, GL_DECR, GL_KEEP);
+
+			R_RenderShadowEdges();
+		}
+#else
+		// mirrors have the culling order reversed
+		if ( backEnd.viewParms.isMirror ) {
+			qglCullFace( GL_FRONT );
+			qglStencilOp( GL_KEEP, GL_KEEP, GL_INCR );
+
+			R_RenderShadowEdges();
+
+			qglCullFace( GL_BACK );
+			qglStencilOp( GL_KEEP, GL_KEEP, GL_DECR );
+
+			R_RenderShadowEdges();
+		} else {
+			qglCullFace( GL_BACK );
+			qglStencilOp( GL_KEEP, GL_KEEP, GL_INCR );
+
+			R_RenderShadowEdges();
+
+			qglCullFace( GL_FRONT );
+			qglStencilOp( GL_KEEP, GL_KEEP, GL_DECR );
+
+			R_RenderShadowEdges();
+		}
+#endif
+	}
+
+#ifdef _STENCIL_REVERSE
+	qglDepthFunc(GL_LEQUAL);
 	if (glConfig.doStencilShadowsInOneDrawcall)
 	{
-		GL_Cull(CT_TWO_SIDED);
-		qglStencilOpSeparate(GL_FRONT, GL_KEEP, GL_INCR_WRAP, GL_KEEP);
-		qglStencilOpSeparate(GL_BACK, GL_KEEP, GL_DECR_WRAP, GL_KEEP);
-
-		R_RenderShadowEdges();
 		qglDisable(GL_STENCIL_TEST);
-	}
-	else
-	{
-		GL_Cull(CT_FRONT_SIDED);
-		qglStencilOp(GL_KEEP, GL_INCR, GL_KEEP);
-
-		R_RenderShadowEdges();
-
-		GL_Cull(CT_BACK_SIDED);
-		qglStencilOp(GL_KEEP, GL_DECR, GL_KEEP);
-
-		R_RenderShadowEdges();
-	}
-
-	qglDepthFunc(GL_LEQUAL);
-#else
-	// mirrors have the culling order reversed
-	if ( backEnd.viewParms.isMirror ) {
-		qglCullFace( GL_FRONT );
-		qglStencilOp( GL_KEEP, GL_KEEP, GL_INCR );
-
-		R_RenderShadowEdges();
-
-		qglCullFace( GL_BACK );
-		qglStencilOp( GL_KEEP, GL_KEEP, GL_DECR );
-
-		R_RenderShadowEdges();
-	} else {
-		qglCullFace( GL_BACK );
-		qglStencilOp( GL_KEEP, GL_KEEP, GL_INCR );
-
-		R_RenderShadowEdges();
-
-		qglCullFace( GL_FRONT );
-		qglStencilOp( GL_KEEP, GL_KEEP, GL_DECR );
-
-		R_RenderShadowEdges();
 	}
 #endif
 
@@ -418,7 +418,7 @@ overlap and double darken.
 =================
 */
 void RB_ShadowFinish( void ) {
-	if ( r_shadows->integer != 2 ) {
+	if ( r_shadows->integer != 2 && r_shadows->integer < 4 ) {
 		return;
 	}
 	if ( glConfig.stencilBits < 4 ) {
@@ -445,25 +445,57 @@ void RB_ShadowFinish( void ) {
 
 	GL_Bind( tr.whiteImage );
 
+	// Darken the shadowed pixels by drawing a large quad in EYE space through the
+	// existing (VR) projection matrix - the same projection the scene renders with.
+	// An identity projection does not rasterize under the VR renderer, so we keep
+	// the projection and only reset the modelview, placing the quad a few units in
+	// front of the eye so it fills the frustum. Depth testing is off so it covers
+	// everything the stencil marks as shadowed.
+	qglMatrixMode( GL_MODELVIEW );
 	qglPushMatrix();
-    qglLoadIdentity ();
+	qglLoadIdentity();
 
-//	qglColor3f( 0.6f, 0.6f, 0.6f );
-//	GL_State( GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_DST_COLOR | GLS_DSTBLEND_ZERO );
+	float shadowAlpha = r_shadowAlpha->value;
+	if ( shadowAlpha < 0.0f ) shadowAlpha = 0.0f;
+	else if ( shadowAlpha > 1.0f ) shadowAlpha = 1.0f;
 
-//	qglColor3f( 1, 0, 0 );
-//	GL_State( GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_ONE | GLS_DSTBLEND_ZERO );
+	GL_State( GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA | GLS_DEPTHTEST_DISABLE );
 
-	qglColor4f( 0.0f, 0.0f, 0.0f, 0.5f );
-	//GL_State( GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA );
-	GL_State( GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA );
+	int numTaps = ( r_shadows->integer >= 5 ) ? r_shadowSoft->integer : 1;
+	if ( numTaps < 1 ) numTaps = 1;
+	if ( numTaps > MAX_SHADOW_TAPS ) numTaps = MAX_SHADOW_TAPS;
 
-	qglBegin( GL_QUADS );
-	qglVertex3f( -100, 100, -10 );
-	qglVertex3f( 100, 100, -10 );
-	qglVertex3f( 100, -100, -10 );
-	qglVertex3f( -100, -100, -10 );
-	qglEnd ();
+	if ( numTaps <= 1 )
+	{
+		// hard shadow: one darkening pass over any shadowed pixel
+		qglStencilFunc( GL_NOTEQUAL, 0, 255 );
+		qglColor4f( 0.0f, 0.0f, 0.0f, shadowAlpha );
+		qglBegin( GL_QUADS );
+		qglVertex3f( -200.0f,  200.0f, -10.0f );
+		qglVertex3f(  200.0f,  200.0f, -10.0f );
+		qglVertex3f(  200.0f, -200.0f, -10.0f );
+		qglVertex3f( -200.0f, -200.0f, -10.0f );
+		qglEnd ();
+	}
+	else
+	{
+		// soft shadow: darken in layers. Pass k covers pixels touched by >= k taps,
+		// so the compounded alpha rises from the penumbra edge (1 tap) to the fully
+		// shadowed core (all taps), giving a smooth gradient. Per-pass alpha is set
+		// so the core reaches the requested total darkness.
+		float perPass = 1.0f - powf( 1.0f - shadowAlpha, 1.0f / (float)numTaps );
+		qglColor4f( 0.0f, 0.0f, 0.0f, perPass );
+		for ( int k = 1 ; k <= numTaps ; k++ )
+		{
+			qglStencilFunc( GL_LEQUAL, k, 255 );	// pass where stencil >= k
+			qglBegin( GL_QUADS );
+			qglVertex3f( -200.0f,  200.0f, -10.0f );
+			qglVertex3f(  200.0f,  200.0f, -10.0f );
+			qglVertex3f(  200.0f, -200.0f, -10.0f );
+			qglVertex3f( -200.0f, -200.0f, -10.0f );
+			qglEnd ();
+		}
+	}
 
 	qglColor4f(1,1,1,1);
 	qglDisable( GL_STENCIL_TEST );
@@ -471,6 +503,7 @@ void RB_ShadowFinish( void ) {
 	{
 		qglEnable (GL_CLIP_PLANE0);
 	}
+	qglMatrixMode( GL_MODELVIEW );
 	qglPopMatrix();
 }
 

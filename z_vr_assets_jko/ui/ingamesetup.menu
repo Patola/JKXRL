@@ -1819,6 +1819,8 @@
 				@MENUS3_NONE	0
 				@MENUS0_LOW		1
 				@MENUS0_HIGH	3
+				@MENUS_VERY_HIGH	4
+				"Ultra"	5
 			}
 			rect				305 271 300 20
 	   		textalign			ITEM_ALIGN_RIGHT

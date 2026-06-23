@@ -251,6 +251,8 @@ vmCvar_t	cg_shadows;
 vmCvar_t	cg_renderToTextureFX;
 vmCvar_t	cg_forceBlurRenderToTextureFX;
 vmCvar_t	cg_shadowCullDistance;
+vmCvar_t	cg_shadowAlpha;
+vmCvar_t	cg_shadowScale;
 vmCvar_t	cg_footsteps;
 vmCvar_t	cg_saberEntMarks;
 vmCvar_t	cg_paused;
@@ -407,6 +409,8 @@ static cvarTable_t cvarTable[] = {
 	{ &cg_renderToTextureFX, "cg_renderToTextureFX", "1", CVAR_ARCHIVE  },
 	{ &cg_forceBlurRenderToTextureFX, "cg_forceBlurRenderToTextureFX", "0", CVAR_ARCHIVE  },
 	{ &cg_shadowCullDistance, "r_shadowRange", "1000", CVAR_ARCHIVE },
+	{ &cg_shadowAlpha, "cg_shadowAlpha", "1.0", CVAR_ARCHIVE },	// max opacity of the soft (cg_shadows 1) blob shadow
+	{ &cg_shadowScale, "cg_shadowScale", "1.0", CVAR_ARCHIVE },	// radius multiplier for the soft (cg_shadows 1) blob shadow
 	{ &cg_footsteps, "cg_footsteps", "3", CVAR_ARCHIVE  },//1 = sounds, 2 = sounds & effects, 3 = sounds, effects & marks, 4 = always
 	{ &cg_saberEntMarks, "cg_saberEntMarks", "1", CVAR_ARCHIVE  },
 

@@ -466,7 +466,7 @@ static void RB_BeginDrawingView (void) {
 	GL_State( GLS_DEFAULT );
 
 	// clear relevant buffers
-	if ( r_measureOverdraw->integer || r_shadows->integer == 2 || tr_stencilled )
+	if ( r_measureOverdraw->integer || R_STENCIL_SHADOWS || tr_stencilled )
 	{
 		clearBits |= GL_STENCIL_BUFFER_BIT;
 		tr_stencilled = false;

@@ -246,6 +246,8 @@ vmCvar_t	cg_bobpitch;
 vmCvar_t	cg_bobroll;
 vmCvar_t	cg_swingSpeed;
 vmCvar_t	cg_shadows;
+vmCvar_t	cg_shadowAlpha;
+vmCvar_t	cg_shadowScale;
 vmCvar_t	cg_paused;
 vmCvar_t	cg_drawTimer;
 vmCvar_t	cg_drawFPS;
@@ -390,6 +392,8 @@ static cvarTable_t cvarTable[] = {
 #else
 	{ &cg_shadows, "cg_shadows", "1", CVAR_ARCHIVE  },
 #endif
+	{ &cg_shadowAlpha, "cg_shadowAlpha", "1.0", CVAR_ARCHIVE },	// max opacity of the soft (cg_shadows 1) blob shadow
+	{ &cg_shadowScale, "cg_shadowScale", "1.0", CVAR_ARCHIVE },	// radius multiplier for the soft (cg_shadows 1) blob shadow
 	{ &cg_hudScale, "cg_hudScale", "2.5", CVAR_ARCHIVE  },
 	{ &cg_hudStereo, "cg_hudStereo", "20", CVAR_ARCHIVE  },
 	{ &cg_hudYOffset, "cg_hudYOffset", "0.0", CVAR_ARCHIVE  },

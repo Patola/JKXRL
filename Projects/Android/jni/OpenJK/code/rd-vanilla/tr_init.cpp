@@ -110,6 +110,9 @@ cvar_t	*r_texturebitslm;
 cvar_t	*r_lightmap;
 cvar_t	*r_vertexLight;
 cvar_t	*r_shadows;
+cvar_t	*r_shadowAlpha;
+cvar_t	*r_shadowSoft;
+cvar_t	*r_shadowSoftSpread;
 cvar_t	*r_shadowRange;
 cvar_t	*r_flares;
 cvar_t	*r_nobind;
@@ -1641,6 +1644,9 @@ void R_Register( void )
 #else
 	r_shadows = ri.Cvar_Get("cg_shadows", "1", 0);
 #endif
+	r_shadowAlpha = ri.Cvar_Get( "r_shadowAlpha", "0.5", CVAR_ARCHIVE_ND );
+	r_shadowSoft = ri.Cvar_Get( "r_shadowSoft", "6", CVAR_ARCHIVE_ND );
+	r_shadowSoftSpread = ri.Cvar_Get( "r_shadowSoftSpread", "0.12", CVAR_ARCHIVE_ND );
 	r_shadowRange = ri.Cvar_Get( "r_shadowRange", "1000", CVAR_ARCHIVE_ND );
 
 /*

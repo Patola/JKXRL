@@ -13,7 +13,20 @@
 
 #include <SDL.h>
 
-
+// Packed depth-stencil tokens (GL 3.0 / EXT_packed_depth_stencil) so the VR eye
+// framebuffer carries a stencil buffer for stencil shadows (cg_shadows 2/4).
+#ifndef GL_DEPTH_STENCIL
+#define GL_DEPTH_STENCIL                  0x84F9
+#endif
+#ifndef GL_UNSIGNED_INT_24_8
+#define GL_UNSIGNED_INT_24_8              0x84FA
+#endif
+#ifndef GL_DEPTH24_STENCIL8
+#define GL_DEPTH24_STENCIL8               0x88F0
+#endif
+#ifndef GL_DEPTH_STENCIL_ATTACHMENT
+#define GL_DEPTH_STENCIL_ATTACHMENT       0x821A
+#endif
 
 const float ZOOM_FOV_ADJUST = 1.1f;
 
@@ -180,7 +193,8 @@ static bool ovrFramebuffer_Create(
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-			glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32, width, height, 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+			// Packed depth+stencil so stencil shadows (cg_shadows 2/4) have a stencil buffer to render into.
+			glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH24_STENCIL8, width, height, 0, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, nullptr);
 			glBindTexture(GL_TEXTURE_2D,0);
         }
     }
@@ -205,7 +219,7 @@ void ovrFramebuffer_SetCurrent(ovrFramebuffer* frameBuffer) {
 	const uint32_t depthTexture = frameBuffer->DepthBuffers[frameBuffer->TextureSwapChainIndex];
 
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, colorTexture, 0);
-	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthTexture, 0);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, depthTexture, 0);
 }
 
 void ovrFramebuffer_SetNone() {

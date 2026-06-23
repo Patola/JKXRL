@@ -110,6 +110,7 @@ cvar_t	*r_texturebitslm;
 cvar_t	*r_lightmap;
 cvar_t	*r_vertexLight;
 cvar_t	*r_shadows;
+cvar_t	*r_shadowAlpha;
 cvar_t	*r_shadowRange;
 cvar_t	*r_flares;
 cvar_t	*r_nobind;
@@ -1700,6 +1701,7 @@ void R_Register( void )
 	r_lockpvs = ri.Cvar_Get ("r_lockpvs", "0", CVAR_CHEAT);
 	r_noportals = ri.Cvar_Get ("r_noportals", "0", CVAR_CHEAT);
 	r_shadows = ri.Cvar_Get( "cg_shadows", "1", 0 );
+	r_shadowAlpha = ri.Cvar_Get( "r_shadowAlpha", "0.5", CVAR_ARCHIVE_ND );
 	r_shadowRange = ri.Cvar_Get( "r_shadowRange", "1000", CVAR_ARCHIVE_ND );
 
 /*
