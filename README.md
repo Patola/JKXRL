@@ -52,6 +52,28 @@ If you have the game(s) on Steam, I would advise to use these strings as launch 
 
 This way the game will automatically start in VR mode when you press Play and its playing time will be recorded on Steam.
 
+### Shadow quality levels
+
+This fork expands the character-shadow setting (**Setup -> More Video -> Shadows**)
+into five levels:
+
+* **None** — shadows off.
+* **Low** — a soft blob projected on the ground (the original cheap shadow).
+* **High** — a hard black silhouette projected onto a single ground plane (can
+  float next to stairs and edges).
+* **Very High** — a translucent, hard-edged stencil silhouette that correctly
+  drapes over stairs, walls and uneven ground, giving a real sense of volume.
+* **Ultra** — the same stencil shadow with soft, feathered edges (a penumbra).
+
+**Ultra has a noticeable performance cost**: the soft penumbra is built by
+rendering each character's shadow several times, which is most apparent in
+cutscenes with many characters on screen. The five levels exist precisely so you
+can pick the best balance of looks and framerate for your hardware.
+
+Fine-tuning via the console: `r_shadowAlpha` sets shadow darkness;
+`r_shadowSoft` sets the Ultra penumbra smoothness (number of taps); and
+`r_shadowSoftSpread` sets its width.
+
 ## Demo Video (on Linux)
 
 [![JKXRL - Jedi Outcast on Linux](jkxrl-jedi-outcast.jpg)](https://www.youtube.com/watch?v=U9MpaD9U0Jc)
