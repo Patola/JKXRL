@@ -1645,8 +1645,8 @@ void R_Register( void )
 	r_shadows = ri.Cvar_Get("cg_shadows", "1", 0);
 #endif
 	r_shadowAlpha = ri.Cvar_Get( "r_shadowAlpha", "0.5", CVAR_ARCHIVE_ND );
-	r_shadowSoft = ri.Cvar_Get( "r_shadowSoft", "6", CVAR_ARCHIVE_ND );
-	r_shadowSoftSpread = ri.Cvar_Get( "r_shadowSoftSpread", "0.12", CVAR_ARCHIVE_ND );
+	r_shadowSoft = ri.Cvar_Get( "r_shadowSoft", "3", CVAR_ARCHIVE_ND );
+	r_shadowSoftSpread = ri.Cvar_Get( "r_shadowSoftSpread", "0.08", CVAR_ARCHIVE_ND );
 	r_shadowRange = ri.Cvar_Get( "r_shadowRange", "1000", CVAR_ARCHIVE_ND );
 
 /*

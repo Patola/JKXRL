@@ -1370,7 +1370,7 @@ static void ComputeColors( shaderStage_t *pStage, alphaGen_t forceAlphaGen, colo
 {
 	int i;
 
-	if ( tess.shader != tr.projectionShadowShader && tess.shader != tr.shadowShader &&
+	if ( tess.shader != tr.projectionShadowShader && R_ShadowTapForShader( tess.shader ) < 0 &&
 			( backEnd.currentEntity->e.renderfx & (RF_DISINTEGRATE1|RF_DISINTEGRATE2)))
 	{
 		RB_CalcDisintegrateColors( (unsigned char *)tess.svars.colors, pStage->rgbGen );
@@ -2213,7 +2213,7 @@ void RB_EndSurface( void ) {
 		Com_Error (ERR_DROP, "RB_EndSurface() - SHADER_MAX_VERTEXES hit");
 	}
 
-	if ( tess.shader == tr.shadowShader ) {
+	if ( R_ShadowTapForShader( tess.shader ) >= 0 ) {
 		RB_ShadowTessEnd();
 		return;
 	}

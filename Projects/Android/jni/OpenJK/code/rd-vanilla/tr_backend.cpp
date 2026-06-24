@@ -765,10 +765,15 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 			if (oldShader != NULL) {
 				RB_EndSurface();
 
-				if (!didShadowPass && shader && shader->sort > SS_BANNER)
+				// Per-tap solid shadow layers: each soft-shadow tap uses its own marker
+				// shader and they sort tap-major, so when we move off a shadow tap group
+				// (to a different tap, or out of shadows entirely) darken that layer and
+				// clear the stencil for the next. Same-tap entity changes don't darken.
+				int oldShadowTap = R_ShadowTapForShader( oldShader );
+				if ( oldShadowTap >= 0 && !didShadowPass
+					&& R_ShadowTapForShader( shader ) != oldShadowTap )
 				{
-					RB_ShadowFinish();
-					didShadowPass = true;
+					RB_ShadowDarkenTap( oldShadowTap, R_NumShadowTaps() );
 				}
 			}
 			RB_BeginSurface( shader, fogNum );
@@ -957,8 +962,13 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	}
 	if (!didShadowPass)
 	{
-		// darken down any stencil shadows
-		RB_ShadowFinish();
+		// darken down the final stencil-shadow layer (the case where shadow surfaces
+		// were the last thing in the list, so no shader transition darkened them).
+		int lastShadowTap = R_ShadowTapForShader( oldShader );
+		if ( lastShadowTap >= 0 )
+		{
+			RB_ShadowDarkenTap( lastShadowTap, R_NumShadowTaps() );
+		}
 		didShadowPass = true;
 	}
 

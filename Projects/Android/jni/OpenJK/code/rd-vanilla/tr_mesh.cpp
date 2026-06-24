@@ -414,7 +414,11 @@ void R_AddMD3Surfaces( trRefEntity_t *ent ) {
 			&& (ent->e.renderfx & RF_SHADOW_PLANE )
 			&& !(ent->e.renderfx & ( RF_NOSHADOW | RF_DEPTHHACK ) )
 			&& shader->sort == SS_OPAQUE ) {
-			R_AddDrawSurf( (surfaceType_t *)surface, tr.shadowShader, 0, qfalse );
+			// one shadow surface per soft-shadow tap (tap-major marker shaders)
+			int nShadowTaps = R_NumShadowTaps();
+			for ( int t = 0 ; t < nShadowTaps ; t++ ) {
+				R_AddDrawSurf( (surfaceType_t *)surface, tr.shadowShader[t], 0, qfalse );
+			}
 		}
 
 		// projection shadows work fine with personal models

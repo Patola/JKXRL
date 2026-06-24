@@ -2314,7 +2314,14 @@ void RenderSurfaces(CRenderSurface &RS)
 				newSurf->surfaceData = surface;
 			}
 			newSurf->boneCache = RS.boneCache;
-			R_AddDrawSurf( (surfaceType_t *)newSurf, tr.shadowShader, 0, qfalse );
+			// Queue this surface once per soft-shadow tap, each with its own marker
+			// shader so the taps sort tap-major and each becomes its own solid layer.
+			// The same CRenderableSurface is re-tessed per tap (regenerated from the
+			// bone cache), so we only allocate one.
+			int nShadowTaps = R_NumShadowTaps();
+			for ( int t = 0 ; t < nShadowTaps ; t++ ) {
+				R_AddDrawSurf( (surfaceType_t *)newSurf, tr.shadowShader[t], 0, qfalse );
+			}
 		}
 
 		// projection shadows work fine with personal models

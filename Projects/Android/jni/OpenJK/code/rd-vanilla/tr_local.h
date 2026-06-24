@@ -43,6 +43,10 @@ extern refimport_t ri;
 #define SHADERNUM_BITS	13
 #define MAX_SHADERS		(1<<SHADERNUM_BITS)
 
+// Max jittered taps for soft (mode 5) stencil shadows; also the number of internal
+// shadow marker shaders, one per tap, so the taps sort tap-major into the backend.
+#define MAX_SHADOW_TAPS	8
+
 
 typedef struct dlight_s {
 	vec3_t	origin;
@@ -998,7 +1002,7 @@ typedef struct {
 	GLuint					blurImage;
 
 	shader_t				*defaultShader;
-	shader_t				*shadowShader;
+	shader_t				*shadowShader[MAX_SHADOW_TAPS];	// one per soft-shadow tap (tap-major sort)
 	shader_t				*distortionShader;
 	shader_t				*projectionShadowShader;
 
@@ -1193,8 +1197,6 @@ extern	cvar_t	*r_shadows;						// controls shadows: 0 = none, 1 = blob, 2 = sten
 extern	cvar_t	*r_shadowAlpha;					// darkness of stencil shadows (modes 2, 4, 5); 0..1
 extern	cvar_t	*r_shadowSoft;					// soft-shadow (mode 5) penumbra: number of jittered taps
 extern	cvar_t	*r_shadowSoftSpread;			// width of the soft-shadow penumbra
-
-#define MAX_SHADOW_TAPS		8
 
 // Modes 4 and 5 are stencil shadows where a stencil buffer exists, and fall back
 // to planar projection (mode 3) where it does not (e.g. Quest VR has none).
@@ -1512,6 +1514,9 @@ SHADOWS
 void RB_ShadowTessEnd( void );
 void RB_ShadowFinish( void );
 void RB_ProjectionShadowDeform( void );
+int  R_ShadowTapForShader( const shader_t *sh );	// tap index for a shadow marker shader, or -1
+int  R_NumShadowTaps( void );						// taps for the active stencil mode (1 for 2/4, r_shadowSoft for 5)
+void RB_ShadowDarkenTap( int tap, int numTaps );	// darken one solid layer and clear the stencil for the next
 
 /*
 ============================================================

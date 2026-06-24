@@ -3839,10 +3839,17 @@ static void CreateInternalShaders( void ) {
 	stages[0].stateBits = GLS_DEFAULT;
 	tr.defaultShader = FinishShader();
 
-	// shadow shader is just a marker
-	Q_strncpyz( shader.name, "<stencil shadow>", sizeof( shader.name ) );
-	shader.sort = SS_BANNER; //SS_STENCIL_SHADOW;
-	tr.shadowShader = FinishShader();
+	// Shadow shaders are just markers. We create one per soft-shadow tap and create
+	// them consecutively with the same sort, so they get consecutive sortedIndex
+	// values (SortNewShader keeps creation order among equal sorts). That makes the
+	// per-tap shadow surfaces sort tap-major into the backend (all of tap 0 across
+	// every caster, then tap 1, ...), which lets each tap be darkened as its own
+	// solid layer.
+	for ( int t = 0 ; t < MAX_SHADOW_TAPS ; t++ ) {
+		Q_strncpyz( shader.name, va( "<stencil shadow %d>", t ), sizeof( shader.name ) );
+		shader.sort = SS_BANNER; //SS_STENCIL_SHADOW;
+		tr.shadowShader[t] = FinishShader();
+	}
 
 	// distortion shader is just a marker
 	Q_strncpyz( shader.name, "internal_distortion", sizeof( shader.name ) );
