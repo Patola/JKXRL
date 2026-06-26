@@ -1197,6 +1197,7 @@ extern	cvar_t	*r_shadows;						// controls shadows: 0 = none, 1 = blob, 2 = sten
 extern	cvar_t	*r_shadowAlpha;					// darkness of stencil shadows (modes 2, 4, 5); 0..1
 extern	cvar_t	*r_shadowSoft;					// soft-shadow (mode 5) penumbra: number of jittered taps
 extern	cvar_t	*r_shadowSoftSpread;			// width of the soft-shadow penumbra
+extern	cvar_t	*r_shadowBlur;					// mode 5: 0 = stacked solid layers, >0 = screen-space blurred single mask (blur radius in px)
 
 // Modes 4 and 5 are stencil shadows where a stencil buffer exists, and fall back
 // to planar projection (mode 3) where it does not (e.g. Quest VR has none).

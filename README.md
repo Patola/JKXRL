@@ -63,16 +63,18 @@ into five levels:
   float next to stairs and edges).
 * **Very High** — a translucent, hard-edged stencil silhouette that correctly
   drapes over stairs, walls and uneven ground, giving a real sense of volume.
-* **Ultra** — the same stencil shadow with soft, feathered edges (a penumbra).
+* **Ultra** — the same stencil shadow with soft, feathered edges (a real
+  penumbra), produced by blurring the shadow mask in screen space. This is the
+  most natural, modern-looking option.
 
-**Ultra has a noticeable performance cost**: the soft penumbra is built by
-rendering each character's shadow several times, which is most apparent in
-cutscenes with many characters on screen. The five levels exist precisely so you
-can pick the best balance of looks and framerate for your hardware.
+Ultra's blur has a **fixed per-frame cost** (independent of how many characters
+are on screen), so it stays cheap even in crowded cutscenes. The five levels
+still let you pick the balance of looks and framerate for your hardware.
 
-Fine-tuning via the console: `r_shadowAlpha` sets shadow darkness;
-`r_shadowSoft` sets the Ultra penumbra smoothness (number of taps); and
-`r_shadowSoftSpread` sets its width.
+Fine-tuning via the console: `r_shadowAlpha` sets shadow darkness; `r_shadowBlur`
+sets the Ultra penumbra width in pixels (default `16`). Setting `r_shadowBlur 0`
+selects the older multi-pass layered penumbra instead, whose smoothness and width
+are then controlled by `r_shadowSoft` (number of taps) and `r_shadowSoftSpread`.
 
 ## Demo Video (on Linux)
 

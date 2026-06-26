@@ -222,18 +222,40 @@ void RB_ShadowTessEnd( void )
 #endif
 }
 
-// TODO (soft-shadow performance, future work):
-//  * Screen-space blur: render the shadow mask once (hard stencil), copy it to a
-//    texture (RB_CaptureScreenImage already exists), blur it and composite once,
-//    instead of accumulating N jittered volume passes. Decouples cost from softness.
-//  * Shadow mapping + PCF: the modern approach (one depth pass from the light,
-//    percentage-closer filtered) - cheaper and self-shadowing, but needs a
-//    programmable (GLSL) pipeline this fixed-function renderer does not have.
+// v0.2: fuzzy soft shadows via a screen-space blur of the solid mask (RB_ShadowBlurFinish).
+//  Instead of stacking N jittered solid layers (banded penumbra), we render ONE solid
+//  union mask and blur it for a continuous fuzzy edge. Gated by r_shadowBlur on mode 5
+//  (default 16 = penumbra width in px; 0 falls back to the layered penumbra).
+//  Pipeline (avoids compositing a textured quad in the offset VR eye viewport, which
+//  is the part that never worked - everything textured happens in our own aux FBOs,
+//  and only pixel-aligned ops touch the eye FBO):
+//    1. accumulate the solid union into the eye stencil (1 tap, no jitter)
+//    2. glCopyTexImage2D the eye colour -> sceneTex
+//    3. bind an aux FBO (colour = maskTex, depth-stencil = the eye's shared d-s
+//       texture) and draw the alpha-scaled mask where stencil != 0  -> maskTex
+//    4. glGenerateMipmap(maskTex): the mip chain is a true area-average pyramid;
+//       sample a pinned LOD = log2(r_shadowBlur) for a smooth, temporally stable blur
+//    5. composite in an aux FBO: sceneTex * (1 - blurredMask) -> finalTex. The eye
+//       ALPHA is the VR compositor's layer opacity, so finalTex alpha is kept = 1
+//    6. glBlitFramebuffer finalTex -> eye colour (pixel-aligned, no viewport math)
+//  FBO entry points are loaded via ri.GL_GetProcAddress (see pGenFramebuffers etc).
+//  Cost is ~1 mask render per caster + a fixed per-view blur, so in crowded scenes it
+//  beats the per-caster*N layered cost while looking smoother.
+//
+// TODO (further out): shadow mapping + PCF - the modern approach (one depth pass from
+//  the light, percentage-closer filtered), cheaper and self-shadowing, but needs a
+//  programmable (GLSL) pipeline this fixed-function renderer does not have.
 // Number of solid shadow layers (taps) for the active stencil mode. Modes 2 and 4
 // are hard = 1 layer; mode 5 (Ultra) stacks r_shadowSoft jittered solid layers.
+qboolean R_ShadowBlurActive( void );	// fwd; defined with the blur pipeline below
 int R_NumShadowTaps( void )
 {
 	if ( r_shadows->integer != 5 ) {
+		return 1;
+	}
+	// Blur mode renders ONE solid mask and softens it in screen space, so it needs
+	// just a single tap (the softness comes from the blur, not from stacked layers).
+	if ( R_ShadowBlurActive() ) {
 		return 1;
 	}
 	int n = r_shadowSoft->integer;
@@ -523,12 +545,254 @@ layers reaches the requested total darkness in the umbra, while edges touched by
 fewer layers stay lighter - that overlap is the soft penumbra.
 =================
 */
+/*
+=================================================================================
+Screen-space blurred soft shadows (mode 5, r_shadowBlur > 0)
+
+The solid union mask is in the eye stencil. We capture the eye colour, draw the
+mask into an aux texture (sharing the eye's depth-stencil), downsample it (linear
+filtering = a cheap box blur), composite scene*(1-blurredMask) in an aux FBO, then
+blit the result back. Every TEXTURED pass runs in our own aux FBOs with a normal
+0..w viewport, so it avoids the offset VR eye viewport; only pixel-aligned
+glCopyTexImage2D / glBlitFramebuffer touch the eye FBO.
+=================================================================================
+*/
+#ifndef GL_DRAW_FRAMEBUFFER
+#define GL_DRAW_FRAMEBUFFER 0x8CA9
+#endif
+#ifndef GL_READ_FRAMEBUFFER
+#define GL_READ_FRAMEBUFFER 0x8CA8
+#endif
+#ifndef GL_FRAMEBUFFER
+#define GL_FRAMEBUFFER 0x8D40
+#endif
+#ifndef GL_COLOR_ATTACHMENT0
+#define GL_COLOR_ATTACHMENT0 0x8CE0
+#endif
+#ifndef GL_FRAMEBUFFER_COMPLETE
+#define GL_FRAMEBUFFER_COMPLETE 0x8CD5
+#endif
+#ifndef GL_DRAW_FRAMEBUFFER_BINDING
+#define GL_DRAW_FRAMEBUFFER_BINDING 0x8CA6
+#endif
+#ifndef GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME
+#define GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME 0x8CD1
+#endif
+
+static PFNGLGENFRAMEBUFFERSPROC          pGenFramebuffers;
+static PFNGLDELETEFRAMEBUFFERSPROC       pDeleteFramebuffers;
+static PFNGLBINDFRAMEBUFFERPROC          pBindFramebuffer;
+static PFNGLFRAMEBUFFERTEXTURE2DPROC     pFramebufferTexture2D;
+static PFNGLCHECKFRAMEBUFFERSTATUSPROC   pCheckFramebufferStatus;
+static PFNGLBLITFRAMEBUFFERPROC          pBlitFramebuffer;
+static PFNGLGETFRAMEBUFFERATTACHMENTPARAMETERIVPROC pGetFramebufferAttachmentParameteriv;
+static PFNGLGENERATEMIPMAPPROC                pGenerateMipmap;
+
+static int shadowBlurGLState = 0;	// 0 untried, 1 ok, -1 unavailable
+static qboolean R_ShadowBlurGLReady( void )
+{
+	if ( shadowBlurGLState != 0 ) {
+		return (qboolean)( shadowBlurGLState == 1 );
+	}
+	pGenFramebuffers      = (PFNGLGENFRAMEBUFFERSPROC)ri.GL_GetProcAddress("glGenFramebuffers");
+	pDeleteFramebuffers   = (PFNGLDELETEFRAMEBUFFERSPROC)ri.GL_GetProcAddress("glDeleteFramebuffers");
+	pBindFramebuffer      = (PFNGLBINDFRAMEBUFFERPROC)ri.GL_GetProcAddress("glBindFramebuffer");
+	pFramebufferTexture2D = (PFNGLFRAMEBUFFERTEXTURE2DPROC)ri.GL_GetProcAddress("glFramebufferTexture2D");
+	pCheckFramebufferStatus = (PFNGLCHECKFRAMEBUFFERSTATUSPROC)ri.GL_GetProcAddress("glCheckFramebufferStatus");
+	pBlitFramebuffer      = (PFNGLBLITFRAMEBUFFERPROC)ri.GL_GetProcAddress("glBlitFramebuffer");
+	pGetFramebufferAttachmentParameteriv =
+		(PFNGLGETFRAMEBUFFERATTACHMENTPARAMETERIVPROC)ri.GL_GetProcAddress("glGetFramebufferAttachmentParameteriv");
+	pGenerateMipmap       = (PFNGLGENERATEMIPMAPPROC)ri.GL_GetProcAddress("glGenerateMipmap");
+	qboolean ok = (qboolean)( pGenFramebuffers && pDeleteFramebuffers && pBindFramebuffer &&
+		pFramebufferTexture2D && pCheckFramebufferStatus && pBlitFramebuffer &&
+		pGetFramebufferAttachmentParameteriv && pGenerateMipmap );
+	shadowBlurGLState = ok ? 1 : -1;
+	if ( !ok ) {
+		ri.Printf( PRINT_ALL, "r_shadowBlur: framebuffer entry points unavailable; using layered Ultra\n" );
+	}
+	return ok;
+}
+
+qboolean R_ShadowBlurActive( void )
+{
+	return (qboolean)( r_shadows->integer == 5 && r_shadowBlur->integer > 0
+		&& glConfig.stencilBits >= 4 && R_ShadowBlurGLReady() );
+}
+
+static GLuint shadowBlurFBO = 0;
+static GLuint shadowSceneTex = 0, shadowMaskTex = 0, shadowFinalTex = 0;
+static int    shadowBlurW = 0, shadowBlurH = 0;
+
+static GLuint R_BlurMakeTex( int w, int h, GLint filter )
+{
+	GLuint t = 0;
+	qglGenTextures( 1, &t );
+	qglBindTexture( GL_TEXTURE_2D, t );
+	qglTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter );
+	qglTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter );
+	qglTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
+	qglTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
+	qglTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL );
+	return t;
+}
+
+static void R_ShadowBlurEnsureTargets( int w, int h )
+{
+	if ( shadowBlurFBO && shadowBlurW == w && shadowBlurH == h ) {
+		return;
+	}
+	if ( shadowSceneTex ) qglDeleteTextures( 1, &shadowSceneTex );
+	if ( shadowMaskTex )  qglDeleteTextures( 1, &shadowMaskTex );
+	if ( shadowFinalTex ) qglDeleteTextures( 1, &shadowFinalTex );
+	shadowSceneTex = R_BlurMakeTex( w, h, GL_LINEAR );
+	shadowMaskTex  = R_BlurMakeTex( w, h, GL_LINEAR );
+	shadowFinalTex = R_BlurMakeTex( w, h, GL_NEAREST );
+	// the mask is sampled through its mip chain (rebuilt each frame) so the blur is a
+	// true area average; needs a mipmap min filter for trilinear LOD sampling
+	qglBindTexture( GL_TEXTURE_2D, shadowMaskTex );
+	qglTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR );
+	if ( !shadowBlurFBO ) pGenFramebuffers( 1, &shadowBlurFBO );
+	shadowBlurW = w; shadowBlurH = h;
+}
+
+// fullscreen NDC quad textured with tex, into the bound aux FBO/viewport
+static void R_BlurDrawTex( GLuint tex )
+{
+	qglBindTexture( GL_TEXTURE_2D, tex );
+	qglEnable( GL_TEXTURE_2D );
+	qglMatrixMode( GL_PROJECTION ); qglPushMatrix(); qglLoadIdentity();
+	qglMatrixMode( GL_MODELVIEW );  qglPushMatrix(); qglLoadIdentity();
+	qglBegin( GL_QUADS );
+		qglTexCoord2f( 0, 0 ); qglVertex3f( -1, -1, 0 );
+		qglTexCoord2f( 1, 0 ); qglVertex3f(  1, -1, 0 );
+		qglTexCoord2f( 1, 1 ); qglVertex3f(  1,  1, 0 );
+		qglTexCoord2f( 0, 1 ); qglVertex3f( -1,  1, 0 );
+	qglEnd();
+	qglMatrixMode( GL_PROJECTION ); qglPopMatrix();
+	qglMatrixMode( GL_MODELVIEW );  qglPopMatrix();
+}
+
+void RB_ShadowBlurFinish( void )
+{
+	int factor = r_shadowBlur->integer;
+	if ( factor < 1 ) factor = 1;
+	if ( factor > 64 ) factor = 64;
+
+	// find the eye framebuffer + its depth-stencil texture (and its size)
+	GLint eyeFbo = 0, dsTex = 0, w = 0, h = 0;
+	qglGetIntegerv( GL_DRAW_FRAMEBUFFER_BINDING, &eyeFbo );
+	pGetFramebufferAttachmentParameteriv( GL_DRAW_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
+		GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &dsTex );
+	if ( !dsTex ) {	// no shared depth-stencil texture; bail (stencil already holds the mask, nothing else darkens)
+		return;
+	}
+	qglBindTexture( GL_TEXTURE_2D, dsTex );
+	qglGetTexLevelParameteriv( GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &w );
+	qglGetTexLevelParameteriv( GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &h );
+	if ( w < 2 || h < 2 ) {
+		return;
+	}
+
+	R_ShadowBlurEnsureTargets( w, h );
+
+	float total = r_shadowAlpha->value;
+	if ( total < 0.0f ) total = 0.0f; else if ( total > 1.0f ) total = 1.0f;
+
+	GLint savedVp[4];
+	qglGetIntegerv( GL_VIEWPORT, savedVp );
+
+	// 1) capture the eye colour
+	qglBindTexture( GL_TEXTURE_2D, shadowSceneTex );
+	qglCopyTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, 0, 0, w, h, 0 );
+
+	// 2) draw the (alpha-scaled) mask where the stencil is set, into shadowMaskTex,
+	//    sharing the eye's depth-stencil so the stencil test works
+	pBindFramebuffer( GL_DRAW_FRAMEBUFFER, shadowBlurFBO );
+	pFramebufferTexture2D( GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, shadowMaskTex, 0 );
+	pFramebufferTexture2D( GL_DRAW_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, dsTex, 0 );
+	qglViewport( 0, 0, w, h );
+	qglDisable( GL_TEXTURE_2D );
+	qglClearColor( 0, 0, 0, 0 );
+	qglClear( GL_COLOR_BUFFER_BIT );
+	qglEnable( GL_STENCIL_TEST );
+	qglStencilFunc( GL_NOTEQUAL, 0, 255 );
+	qglStencilOp( GL_KEEP, GL_KEEP, GL_KEEP );
+	GL_State( GLS_DEPTHTEST_DISABLE );
+	qglColor4f( total, total, total, total );
+	qglMatrixMode( GL_PROJECTION ); qglPushMatrix(); qglLoadIdentity();
+	qglMatrixMode( GL_MODELVIEW );  qglPushMatrix(); qglLoadIdentity();
+	qglBegin( GL_QUADS );
+		qglVertex3f( -1, -1, 0 ); qglVertex3f( 1, -1, 0 );
+		qglVertex3f(  1,  1, 0 ); qglVertex3f( -1, 1, 0 );
+	qglEnd();
+	qglMatrixMode( GL_PROJECTION ); qglPopMatrix();
+	qglMatrixMode( GL_MODELVIEW );  qglPopMatrix();
+	qglDisable( GL_STENCIL_TEST );
+
+	// detach the shared depth-stencil AND the mask (attaching the composite target
+	// frees the mask so we can generate its mipmaps without a feedback loop)
+	pFramebufferTexture2D( GL_DRAW_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, 0, 0 );
+	pFramebufferTexture2D( GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, shadowFinalTex, 0 );
+
+	// 3) build the mask's mip chain (each level a true 2x2 average). We then sample a
+	//    blurred level with trilinear filtering for a smooth, area-averaged, temporally
+	//    stable penumbra - no undersampling jaggies like a single big downsample gave.
+	qglBindTexture( GL_TEXTURE_2D, shadowMaskTex );
+	pGenerateMipmap( GL_TEXTURE_2D );
+	float lod = logf( (float)factor ) / logf( 2.0f );	// r_shadowBlur ~ penumbra width in px
+	if ( lod < 0.0f ) lod = 0.0f;
+
+	// 4) composite scene * (1 - blurredMask) into shadowFinalTex. The eye colour's
+	//    ALPHA is the VR compositor's layer opacity, so it must stay = 1: clear alpha
+	//    to 1 and mask alpha out of both passes (darken RGB only). Otherwise the blit
+	//    writes scene*(1-mask) into alpha as well and the whole eye layer renders as a
+	//    translucent veil with bright effects (bolts, glow, water) washed out.
+	qglViewport( 0, 0, w, h );
+	qglClearColor( 0, 0, 0, 1 );
+	qglClear( GL_COLOR_BUFFER_BIT );
+	qglColorMask( GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE );
+	qglColor4f( 1, 1, 1, 1 );
+	GL_State( GLS_SRCBLEND_ONE | GLS_DSTBLEND_ZERO | GLS_DEPTHTEST_DISABLE );	// opaque copy of the scene
+	R_BlurDrawTex( shadowSceneTex );
+	// darken by the blurred mask; pin the LOD so the penumbra width is uniform on screen
+	qglBindTexture( GL_TEXTURE_2D, shadowMaskTex );
+	qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MIN_LOD, lod );
+	qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MAX_LOD, lod );
+	GL_State( GLS_SRCBLEND_ZERO | GLS_DSTBLEND_ONE_MINUS_SRC_COLOR | GLS_DEPTHTEST_DISABLE );	// darken by mask
+	R_BlurDrawTex( shadowMaskTex );
+	qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MIN_LOD, -1000.0f );
+	qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MAX_LOD, 1000.0f );
+	qglColorMask( GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE );
+
+	// 5) blit the composited result back over the eye colour, then restore state
+	pBindFramebuffer( GL_READ_FRAMEBUFFER, shadowBlurFBO );
+	pBindFramebuffer( GL_DRAW_FRAMEBUFFER, eyeFbo );
+	pBlitFramebuffer( 0, 0, w, h, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_NEAREST );
+	pBindFramebuffer( GL_FRAMEBUFFER, eyeFbo );	// restore both READ + DRAW to the eye fbo
+
+	qglViewport( savedVp[0], savedVp[1], savedVp[2], savedVp[3] );
+	qglColor4f( 1, 1, 1, 1 );
+	GL_Bind( tr.whiteImage );	// resync the renderer's texture-state tracking
+
+	// clear the stencil so the next frame's shadows start fresh
+	qglStencilMask( 0xFF );
+	qglClearStencil( 0 );
+	qglClear( GL_STENCIL_BUFFER_BIT );
+}
+
 void RB_ShadowDarkenTap( int tap, int numTaps )
 {
 	if ( glConfig.stencilBits < 4 ) {
 		return;
 	}
 	if ( r_shadows->integer != 2 && r_shadows->integer < 4 ) {
+		return;
+	}
+
+	// Blur mode: a single solid mask is in the stencil now; soften it in screen space
+	// instead of the flat solid darken.
+	if ( R_ShadowBlurActive() ) {
+		RB_ShadowBlurFinish();
 		return;
 	}
 

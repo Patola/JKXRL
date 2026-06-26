@@ -113,6 +113,7 @@ cvar_t	*r_shadows;
 cvar_t	*r_shadowAlpha;
 cvar_t	*r_shadowSoft;
 cvar_t	*r_shadowSoftSpread;
+cvar_t	*r_shadowBlur;
 cvar_t	*r_shadowRange;
 cvar_t	*r_flares;
 cvar_t	*r_nobind;
@@ -1647,6 +1648,7 @@ void R_Register( void )
 	r_shadowAlpha = ri.Cvar_Get( "r_shadowAlpha", "0.5", CVAR_ARCHIVE_ND );
 	r_shadowSoft = ri.Cvar_Get( "r_shadowSoft", "3", CVAR_ARCHIVE_ND );
 	r_shadowSoftSpread = ri.Cvar_Get( "r_shadowSoftSpread", "0.08", CVAR_ARCHIVE_ND );
+	r_shadowBlur = ri.Cvar_Get( "r_shadowBlur", "16", CVAR_ARCHIVE_ND );
 	r_shadowRange = ri.Cvar_Get( "r_shadowRange", "1000", CVAR_ARCHIVE_ND );
 
 /*
