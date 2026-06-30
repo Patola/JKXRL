@@ -160,8 +160,8 @@ at run time.
 
 ## 5. Technical notes / status
 
-- The Linux OpenXR glue lives in `JKXR/linux/` (ported from
-  `JKXR/windows/`); the OpenXR session is created with
+- The Linux OpenXR glue lives in `JKXR/linux/` (ported from the original
+  Windows OpenXR glue, since removed); the OpenXR session is created with
   `XrGraphicsBindingOpenGLXlibKHR` from the SDL-created GLX context.
 - The release build uses `-O1 -fno-strict-aliasing`. The latter is
   **required**: this Quake-derived code type-puns through incompatible

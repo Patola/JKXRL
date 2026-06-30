@@ -6,6 +6,7 @@ OpenJK/build-linux/
 # Build artifacts
 *.o
 *.d
+*.bak
 
 # Generated VR asset pk3s (built by make_z_vr_assets_pk3.sh from z_vr_assets_*/)
 assets/z_vr_assets_base.pk3
