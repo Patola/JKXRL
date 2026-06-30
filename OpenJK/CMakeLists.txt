@@ -64,14 +64,6 @@ set(UseInternalPNGDefault    OFF)
 set(UseInternalJPEGDefault   OFF)
 set(UseInternalSDL2Default   OFF)
 
-if(WIN32)
-  set(UseInternalOpenALDefault ON)
-  set(UseInternalZlibDefault   ON)
-  set(UseInternalPNGDefault    ON)
-  set(UseInternalJPEGDefault   ON)
-  set(UseInternalSDL2Default   ON)
-endif()
-
 if(APPLE)
   set(UseInternalJPEGDefault ON)
 endif()
@@ -204,21 +196,7 @@ if(CMAKE_SYSTEM_NAME MATCHES "BSD")
 endif()
 
 # Compiler settings
-if(MSVC)
-	set(SharedDefines ${SharedDefines} "NOMINMAX")
-	set(SharedDefines ${SharedDefines} "_CRT_SECURE_NO_WARNINGS")
-	set(SharedDefines ${SharedDefines} "_SCL_SECURE_NO_WARNINGS")
-	set(SharedDefines ${SharedDefines} "_CRT_NONSTDC_NO_DEPRECATE")
-
-	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /arch:SSE2")
-	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /MP")
-
-	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:SSE2")
-	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP")
-
-	# We don't try to control symbol visibility under MSVC.
-	set(OPENJK_VISIBILITY_FLAGS "")
-elseif (("${CMAKE_C_COMPILER_ID}" STREQUAL "GNU") OR ("${CMAKE_C_COMPILER_ID}" MATCHES "Clang"))
+if (("${CMAKE_C_COMPILER_ID}" STREQUAL "GNU") OR ("${CMAKE_C_COMPILER_ID}" MATCHES "Clang"))
 	# I hope this doesn't come back to bite me in the butt later on.
 	# Realistically though, can the C and CXX compilers be different?
 

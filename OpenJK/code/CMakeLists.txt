@@ -32,18 +32,12 @@ add_subdirectory("${SPDir}/rd-vanilla")
 #    Add Engine Project
 if(BuildSPEngine OR BuildJK2SPEngine)
 	# Libraries
-	if(WIN32)
-		set(SPEngineLibraries "winmm")
-	endif(WIN32)
 	# Defines
 	set(SPEngineDefines ${SharedDefines} "_JK2EXE") # it's called JK2EXE but it really just means Singleplayer Exe
 	
 	# OpenXR defines
 	set(SPEngineDefines ${SPEngineDefines} "JKXR_CLIENT")
 	set(SPEngineDefines ${SPEngineDefines} "XR_USE_GRAPHICS_API_OPENGL")
-	if(WIN32)
-		set(SPEngineDefines ${SPEngineDefines} "XR_USE_PLATFORM_WIN32")
-	endif()
 	# On Linux XR_USE_PLATFORM_XLIB is defined locally in JKXR/linux/TBXR_Common.cpp
 	# (the only TU that needs the X11/GLX graphics binding) to keep Xlib's macros
 	# out of the rest of the engine.
@@ -60,31 +54,6 @@ if(BuildSPEngine OR BuildJK2SPEngine)
 		)
 
 	#    Dependencies
-	# OpenAL (is optionally included for Windows)
-	if(MSVC)
-		if(UseInternalOpenAL)
-			# There's a libs/OpenAL32.lib
-			# (mrw) TODO Is this actually required on windows? It is loaded at runtime, should not be linked?
-			find_library(OpenALLibrary NAMES OpenAL32 PATHS "${OpenJKLibDir}")
-			if(NOT OpenALLibrary)
-				message(FATAL_ERROR "UseInternalOpenAL enabled, but lib/OpenAL32.lib not found!")
-			endif(NOT OpenALLibrary)
-			set(SPEngineLibraries ${SPEngineLibraries} ${OpenALLibrary})
-			set(SPEngineIncludeDirectories ${SPEngineIncludeDirectories} ${OpenALIncludeDirectory})
-		else(UseInternalOpenAL)
-			find_package(OpenAL REQUIRED)
-			set(SPEngineIncludeDirectories ${SPEngineIncludeDirectories} ${OPENAL_INCLUDE_DIR})
-			set(SPEngineLibraries ${SPEngineLibraries} ${OPENAL_LIBRARY})
-		endif(UseInternalOpenAL)
-
-		set(SPEngineEAXFiles
-			"${SPDir}/client/eax/eax.h"
-			"${SPDir}/client/eax/EaxMan.h"
-			)
-		source_group("eax" FILES ${SPEngineEAXFiles})
-		set(SPEngineFiles ${SPEngineFiles} ${SPEngineEAXFiles})
-	endif()
-
 	if(UseInternalSDL2)
 		if(CMAKE_SIZEOF_VOID_P EQUAL 4)
 			set(SPEngineLibraries
@@ -121,24 +90,15 @@ if(BuildSPEngine OR BuildJK2SPEngine)
 	set(SPEngineLibraries ${SPEngineLibraries} ${OPENGL_LIBRARIES})
 
 
-	# OpenXR loader
-	if(WIN32)
-		# Bundled loader - switch between debug/release
-		set(SPEngineLibraries
-			${SPEngineLibraries}
-			${OpenJKLibDir}/openxr/lib/x64/openxr_loader$<$<CONFIG:Debug>:d>.lib
-		)
-	else()
-		# Linux: use the system OpenXR loader plus X11 for the GLX graphics
-		# binding (the glX* entry points themselves live in libGL, linked above).
-		find_library(OPENXR_LOADER_LIBRARY NAMES openxr_loader REQUIRED)
-		find_package(X11 REQUIRED)
-		set(SPEngineLibraries
-			${SPEngineLibraries}
-			${OPENXR_LOADER_LIBRARY}
-			${X11_LIBRARIES}
-		)
-	endif()
+	# OpenXR loader: use the system OpenXR loader plus X11 for the GLX graphics
+	# binding (the glX* entry points themselves live in libGL, linked above).
+	find_library(OPENXR_LOADER_LIBRARY NAMES openxr_loader REQUIRED)
+	find_package(X11 REQUIRED)
+	set(SPEngineLibraries
+		${SPEngineLibraries}
+		${OPENXR_LOADER_LIBRARY}
+		${X11_LIBRARIES}
+	)
 
 
 	#    Source Files
@@ -357,12 +317,8 @@ if(BuildSPEngine OR BuildJK2SPEngine)
 	set(SPEngineFiles ${SPEngineFiles} ${SPEngineGhoul2Files})
 
 
-	# JKXR files
-	if(WIN32)
-		set(JKXRPlatformDir "${CMAKE_SOURCE_DIR}/JKXR/windows")
-	else()
-		set(JKXRPlatformDir "${CMAKE_SOURCE_DIR}/JKXR/linux")
-	endif()
+	# JKXR files (Linux OpenXR glue)
+	set(JKXRPlatformDir "${CMAKE_SOURCE_DIR}/JKXR/linux")
 	set(SPEngineJKXRFiles
 		"${JKXRPlatformDir}/JKXR_SurfaceView.cpp"
 		"${JKXRPlatformDir}/TBXR_Common.cpp"
@@ -389,16 +345,6 @@ if(BuildSPEngine OR BuildJK2SPEngine)
 	source_group("cgame" FILES ${SPEngineCGameFiles})
 	set(SPEngineFiles ${SPEngineFiles} ${SPEngineCGameFiles})
 
-	if(WIN32)
-		set(SPEngineWin32Files
-			"${SPDir}/win32/resource.h"
-			"${SPDir}/win32/winquake.rc"
-			"${SharedDir}/sys/win_manifest.manifest"
-			)
-		source_group("win32" FILES ${SPEngineWin32Files})
-		set(SPEngineFiles ${SPEngineFiles} ${SPEngineWin32Files})
-	endif()
-
 	set(SPEngineSysFiles
 		"${SharedDir}/sys/sys_main.cpp"
 		"${SharedDir}/sys/sys_event.cpp"
@@ -414,19 +360,11 @@ if(BuildSPEngine OR BuildJK2SPEngine)
 		"${SharedDir}/sdl/sdl_icon.h"
 		)
 
-	if(WIN32)
-		set(SPEngineSysFiles
-			${SPEngineSysFiles}
-			"${SharedDir}/sys/sys_win32.cpp"
-			"${SharedDir}/sys/con_passive.cpp"
-			)
-	else()
-		set(SPEngineSysFiles
-			${SPEngineSysFiles}
-			"${SharedDir}/sys/sys_unix.cpp"
-			"${SharedDir}/sys/con_tty.cpp"
-			)
-	endif()
+	set(SPEngineSysFiles
+		${SPEngineSysFiles}
+		"${SharedDir}/sys/sys_unix.cpp"
+		"${SharedDir}/sys/con_tty.cpp"
+		)
 
 	source_group("sys" FILES ${SPEngineSysFiles})
 	set(SPEngineFiles ${SPEngineFiles} ${SPEngineSysFiles})
@@ -448,27 +386,12 @@ if(BuildSPEngine OR BuildJK2SPEngine)
 			set(SPEngineFiles ${SPEngineFiles} ${SPDirName}/macosx/English.lproj/InfoPlist.strings)
 		endif(MakeApplicationBundles)
 
-		if(WIN32)
-			add_executable(${ProjectName} WIN32 ${SPEngineFiles})
-			if(UseInternalSDL2)
-				if(CMAKE_SIZEOF_VOID_P EQUAL 4)
-					set(SPEngineExtraInstallFiles
-						${OpenJKLibDir}/SDL2/bin/x86/SDL2.dll
-						)
-				else()
-					set(SPEngineExtraInstallFiles
-						${OpenJKLibDir}/SDL2/bin/x64/SDL2.dll
-						)
-				endif()
-			endif()
-		else(WIN32)
-			if(MakeApplicationBundles)
-				add_executable(${ProjectName} MACOSX_BUNDLE ${SPEngineFiles})
-				set_target_properties(${ProjectName} PROPERTIES MACOSX_BUNDLE_INFO_PLIST "${SPDirName}/macosx/OpenJKInfo.plist")
-			else(MakeApplicationBundles)
-				add_executable(${ProjectName} ${SPEngineFiles})
-			endif(MakeApplicationBundles)
-		endif(WIN32)
+		if(MakeApplicationBundles)
+			add_executable(${ProjectName} MACOSX_BUNDLE ${SPEngineFiles})
+			set_target_properties(${ProjectName} PROPERTIES MACOSX_BUNDLE_INFO_PLIST "${SPDirName}/macosx/OpenJKInfo.plist")
+		else(MakeApplicationBundles)
+			add_executable(${ProjectName} ${SPEngineFiles})
+		endif(MakeApplicationBundles)
 
 		if(MakeApplicationBundles)
 			install(CODE "
