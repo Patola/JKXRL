@@ -36,7 +36,7 @@ case "$GAME" in
 		RENDERER=code/rd-vanilla/rdsp-vanilla_x86_64.so
 		GAMECODE=code/game/jagamex86_64.so
 		GAME_PK3=assets/z_vr_assets_jka.pk3
-		WEAPONS_PK3=JKXR-PCVR-Installer/JKA/base/z_vr_weapons_jka_Crusty_and_Elin.pk3
+		WEAPONS_PK3=assets/weapons/z_vr_weapons_jka_Crusty_and_Elin.pk3
 		HOMENAME=openjk
 		;;
 	jko)
@@ -44,7 +44,7 @@ case "$GAME" in
 		RENDERER=code/rd-vanilla/rdjosp-vanilla_x86_64.so
 		GAMECODE=codeJK2/game/jospgamex86_64.so
 		GAME_PK3=assets/z_vr_assets_jko.pk3
-		WEAPONS_PK3=JKXR-PCVR-Installer/JKO/base/z_vr_weapons_jko_Crusty_and_Elin.pk3
+		WEAPONS_PK3=assets/weapons/z_vr_weapons_jko_Crusty_and_Elin.pk3
 		HOMENAME=openjo
 		;;
 	*)

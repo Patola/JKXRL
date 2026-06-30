@@ -62,11 +62,11 @@ package() {
 	install -Dm644 -t "$pkgdir/usr/share/jkxr/jka" \
 		JKXRL/assets/z_vr_assets_base.pk3 \
 		JKXRL/assets/z_vr_assets_jka.pk3 \
-		"JKXRL/JKXR-PCVR-Installer/JKA/base/z_vr_weapons_jka_Crusty_and_Elin.pk3"
+		"JKXRL/assets/weapons/z_vr_weapons_jka_Crusty_and_Elin.pk3"
 	install -Dm644 -t "$pkgdir/usr/share/jkxr/jko" \
 		JKXRL/assets/z_vr_assets_base.pk3 \
 		JKXRL/assets/z_vr_assets_jko.pk3 \
-		"JKXRL/JKXR-PCVR-Installer/JKO/base/z_vr_weapons_jko_Crusty_and_Elin.pk3"
+		"JKXRL/assets/weapons/z_vr_weapons_jko_Crusty_and_Elin.pk3"
 
 	# Launchers
 	install -Dm755 -t "$pkgdir/usr/bin" \
