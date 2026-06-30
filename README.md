@@ -3,12 +3,6 @@
 
 # JK XR
 
-[SideQuest Latest Version (Meta Headsets)](https://sidequestvr.com/app/15472)
-
-[SideQuest Latest Version (Pico Headsets)](https://sidequestvr.com/app/15541)
-
-[PCVR Installers (found on the latest release here)](https://github.com/DrBeef/JKXR/releases)
-
 JK XR is a VR port of the Jedi Knight games using OpenXR (the open standard for virtual and augmented reality devices) and is based on the excellent OpenJK port, originally forked from: https://github.com/JACoders/OpenJK
 
 ## Native Linux PCVR (this fork)
@@ -80,16 +74,6 @@ are then controlled by `r_shadowSoft` (number of taps) and `r_shadowSoftSpread`.
 
 [![JKXRL - Jedi Outcast on Linux](jkxrl-jedi-outcast.jpg)](https://www.youtube.com/watch?v=U9MpaD9U0Jc)
 
-## Quest/Pico builds
-
-The easiest way to install this on your device is using SideQuest. Download SideQuest here:
-https://sidequestvr.com/setup-howto
-
-
-### Jedi Knight: Jedi Outcast / Jedi Academy
-
-The public release of JK XR now supports the games Jedi Outcast and Jedi Academy.
-
 ## Team Beef Patreon
 [![Team Beef Patreon](https://github.com/DrBeef/JKXR/blob/main/assets/PatreonBanner.jpg)](https://www.patreon.com/teambeef)
 
@@ -131,23 +115,7 @@ The companion app will be installed at the same time when using the SideQuest of
 
 *This is just an engine port*; the apk does not contain any of the of Jedi Knight game assets. If you wish to play the full game you must purchase it yourself, steam is most straightforward:  https://store.steampowered.com/app/6030/STAR_WARS_Jedi_Knight_II__Jedi_Outcast/
 
-# Installation and Setup
-
-You can find the latest version, which also includes the Companion App hosted on Sidequest. Use the links at the top of the page (separated by headset). Before installing via SideQuest you must have enabled "Developer Mode" on your headset. You can find the details on how to do that below:
-
-Pico 3/4 Instructions
----------------------
-https://trello.com/c/Idb627uv/47-pico-4-installation-instructions
-
-Meta Quest Install Instructions
--------------------------------
-https://trello.com/c/C0YTFpvX/48-quest-quest-2-installation-instructions
-
-PCVR
-----
-Download the PCVR installers from the release page and use them to install to the game location.
-
-### OpenXR runtimes information for PCVR Headsets
+## OpenXR runtimes information for PCVR Headsets
 
 We recommend the following combinations to get the optimal experience while playing JKXR on PCVR:
 
@@ -165,31 +133,6 @@ When released the game must be played via unofficial PimaxXR OpenXR runtime (htt
 **Pico** - Virtual Desktop (VDXR or SteamVR) / Streaming Assistant (Currently Untested)
 
 
-## Copying the Full Game files to your Meta Quest / Pico
-
-Before you are able to run the full game of Jedi Knight: Jedi Outcast in VR you will need to:
-
-- Install JK XR thought SideQuest (this will also install the companion app)
-- Start JK XR for the first time, it will ask for appropriate permissions (which you must allow), create the necessary folders and then close down
-- You can now run the Companion App. This will check that it has the files for the full game. 
-- Copy only the assets files (assets0.pk3, assets1.pk3, assets2.pk3, assets5.pk3) from your PC install of JKO (Jedi Outcast\GameData\base) into the following folder on your device:
-
-\JKXR\JK2\base
-
-or 
-
-\JKXR\JK3\base
-
-
-- You must then use the Companion App to download any mods and start the game. It is possible to play the JK Demo without having copied across the full game assets. All other mods require the full game. 
-
-
-### Save Games File
-
-Save game files are stored on the internal memory of your device. This means that if you uninstall/reinstall JK XR all the saves are retained. If you change headset just make sure you copy your saves to the new device.
-Any update will not affect any of your save game files.
-
-
 ## Controls and configuration
 
 ### Tutorials 
@@ -203,26 +146,6 @@ You can find tutorial videos on how to use the special VR features in the in-gam
 This control scheme on how to play can also be found in the Controls -> JKXR HELP in the game.
 
 ![Control Scheme](https://github.com/DrBeef/JKXR/blob/main/z_vr_assets_base/gfx/menus/control_scheme.jpg)
-
-
-
-
-
-## Building from Source
-
-If you wish to build JK XR from source, then you need the following:
-
-* Android Developer Studio
-* Android SDK API level 24
-* Latest Android Native Development Kit
-* The OpenXR release archive for your headset
-
-There is no dependency on any specific headset native libraries, as this port uses OpenXR and links against the opensource Android openxr_loader.so. If you wish to build for a specific headset, then you need to place the openxr_loader.so for the headset into the following folder and rename it to:  openxr_loader_{device}.so  where {device} is either *meta* or *pico* (further device support hopefully in the future):
-
-JKXR\Projects\Android\libs\arm64-v8a
-
-
-PCVR instructions will follow in the future (when I get round to adding them), 
 
 ## Credits
 

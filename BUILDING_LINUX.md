@@ -53,8 +53,7 @@ VR asset `.pk3` files:
 ```
 
 (Manual CMake invocations: see the script — the project lives in
-`Projects/Android/jni/OpenJK`, despite the path name it is the full
-cross-platform source tree.)
+`OpenJK/`, the full cross-platform source tree.)
 
 Artifacts:
 
