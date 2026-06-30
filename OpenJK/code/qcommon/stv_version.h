@@ -21,7 +21,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 */
 
 // Current version of the single player game
-#include "../win32/AutoVersion.h"
+#include "AutoVersion.h"
 
 #define JKXR_VERSION		"1.2.0"
 

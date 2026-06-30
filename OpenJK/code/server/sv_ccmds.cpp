@@ -28,7 +28,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "../game/g_items.h"
 #include "../game/statindex.h"
 
-#include "../win32/AutoVersion.h"
+#include "../qcommon/AutoVersion.h"
 
 
 /*
