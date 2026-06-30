@@ -92,7 +92,6 @@ The Team Beef Patreon where you can find all the in-development early-access bui
 * Gesture based Force Actions (Push, Pull and Grab)
 * Weapon Scopes
 * Gesture Based Saber Throw 
-* Companion App
 
 ### Gameplay Modes (accessible via Setup -> Difficulty in the Menu)
 
@@ -102,18 +101,11 @@ This version uses faithful enemy speeds and aggression from the original game, w
 **Team Beef Directors Cut (TBDC) - Off**
 Projectile speeds are faithful to the original game, but enemy movement and aggression are toned back, where stormtroopers don't have an easy time to flank you. You may need to still "lead" shots slightly ahead of enemies when they are on the move. Recommended for a slower paced tactical encounter
 
-To switch between modes change the option and if already in-game, restart the level you are on.
-
-### Companion App
-
-The companion app will be installed at the same time when using the SideQuest official page. This allows you to download mods and addons and switch between launching single player missions and the main game. This also detects if you've correctly set up the main application and asset files so is a good place to look if you are having issues. 
-
-![image](https://user-images.githubusercontent.com/4569081/230429909-2df64bb6-e200-496f-ba5f-bda763539de0.png)
-
+To switch between modes change the option and if already in-game, restart the level you are on. 
 
 ## IMPORTANT NOTE
 
-*This is just an engine port*; the apk does not contain any of the of Jedi Knight game assets. If you wish to play the full game you must purchase it yourself, steam is most straightforward:  https://store.steampowered.com/app/6030/STAR_WARS_Jedi_Knight_II__Jedi_Outcast/
+*This is just an engine port*; the engine does not contain any of the Jedi Knight game assets. If you wish to play the full game you must purchase it yourself, steam is most straightforward:  https://store.steampowered.com/app/6030/STAR_WARS_Jedi_Knight_II__Jedi_Outcast/
 
 ## OpenXR runtimes information for PCVR Headsets
 
