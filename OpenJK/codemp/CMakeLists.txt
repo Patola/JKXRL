@@ -526,9 +526,6 @@ if(BuildMPEngine)
 
 	if(WIN32)
 		set(MPEngineWin32Files
-			"${MPDir}/win32/icon.ico"
-			"${MPDir}/win32/resource.h"
-			"${MPDir}/win32/openjk.rc"
 			"${SharedDir}/sys/win_manifest.manifest"
 			)
 
@@ -656,7 +653,6 @@ if(BuildMPDed)
 	set(MPDedFiles ${MPDedFiles} ${MPDedNullFiles})
 	if(WIN32)
 		set(MPDedWin32Files
-			"${MPDir}/win32/openjkded.rc"
 			)
 		source_group("win32" FILES ${MPDedWin32Files})
 		set(MPDedFiles ${MPDedFiles} ${MPDedWin32Files})

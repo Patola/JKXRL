@@ -278,13 +278,6 @@ set(JK2SPGameRuflFiles
 source_group("rufl" FILES ${JK2SPGameRuflFiles})
 set(JK2SPGameFiles ${JK2SPGameFiles} ${JK2SPGameRuflFiles})
 
-if(WIN32)
-	set(JK2SPGameWin32Files
-		"${JK2SPDir}/win32/game.rc")
-	source_group("win32" FILES ${JK2SPGameWin32Files})
-	set(JK2SPGameFiles ${JK2SPGameFiles} ${JK2SPGameWin32Files})
-endif(WIN32)
-
 add_library(${JK2SPGame} SHARED ${JK2SPGameFiles})
 
 if(NOT MSVC)

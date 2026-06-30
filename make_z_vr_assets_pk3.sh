@@ -1,6 +1,5 @@
 #!/bin/sh
-# Linux equivalent of make_z_vr_assets_pk3.bat:
-# packs the z_vr_assets_* source directories into .pk3 files (zip archives
+# Pack the z_vr_assets_* source directories into .pk3 files (zip archives
 # with the asset directories at the archive root) and places them in assets/.
 set -e
 
