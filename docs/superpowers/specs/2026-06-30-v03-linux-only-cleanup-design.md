@@ -87,12 +87,12 @@ is updated (see "Path reference updates" below).
   `Android_gles_ja.mk`, `Android_gles_jo.mk`, `Application.mk`).
 - `code/android/` — Android platform glue (input/sound/window/main).
 - `code/win32/` — Windows platform glue + resources.
+- `code/macosx/` — macOS platform glue; not a target, no need to keep.
 
 **Keep as dead reference (not compiled, removed from any build references):**
 
 - `code/rd-gles/` — shader-based GLES renderer with VR stereo replay features
   that `rd-vanilla` lacks. High reference value for the Vulkan port.
-- `code/macosx/` — harmless; not Windows or Android; left as-is.
 
 **Keep and actively use:**
 
