@@ -33,7 +33,7 @@ pkgver() {
 }
 
 build() {
-	cmake -S JKXRL/Projects/Android/jni/OpenJK -B build \
+	cmake -S JKXRL/OpenJK -B build \
 		-DCMAKE_BUILD_TYPE=Release \
 		-DBuildMPEngine=OFF -DBuildMPRdVanilla=OFF -DBuildMPDed=OFF \
 		-DBuildMPGame=OFF -DBuildMPCGame=OFF -DBuildMPUI=OFF \

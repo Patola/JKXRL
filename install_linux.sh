@@ -21,7 +21,7 @@ cd "$(dirname "$0")"
 
 GAME=$1
 DEST=$2
-BUILD=${BUILD_DIR:-Projects/Android/jni/OpenJK/build-linux}
+BUILD=${BUILD_DIR:-OpenJK/build-linux}
 
 usage() {
 	echo "usage: $0 jka|jko /path/to/GameData" >&2

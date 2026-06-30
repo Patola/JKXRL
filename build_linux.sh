@@ -3,12 +3,12 @@
 # and pack the VR asset .pk3 files.
 #
 # Output:
-#   Projects/Android/jni/OpenJK/build-linux/openjk_sp.x86_64              (JKA engine)
-#   Projects/Android/jni/OpenJK/build-linux/openjo_sp.x86_64              (JKO engine)
-#   Projects/Android/jni/OpenJK/build-linux/code/rd-vanilla/rdsp-vanilla_*.so
-#   Projects/Android/jni/OpenJK/build-linux/code/rd-vanilla/rdjosp-vanilla_*.so
-#   Projects/Android/jni/OpenJK/build-linux/code/game/jagame*.so
-#   Projects/Android/jni/OpenJK/build-linux/codeJK2/game/jospgame*.so
+#   OpenJK/build-linux/openjk_sp.x86_64              (JKA engine)
+#   OpenJK/build-linux/openjo_sp.x86_64              (JKO engine)
+#   OpenJK/build-linux/code/rd-vanilla/rdsp-vanilla_*.so
+#   OpenJK/build-linux/code/rd-vanilla/rdjosp-vanilla_*.so
+#   OpenJK/build-linux/code/game/jagame*.so
+#   OpenJK/build-linux/codeJK2/game/jospgame*.so
 #   assets/z_vr_assets_{base,jka,jko}.pk3
 #
 # Use install_linux.sh afterwards to copy everything into a game directory.
@@ -16,7 +16,7 @@ set -e
 
 cd "$(dirname "$0")"
 
-SRC=Projects/Android/jni/OpenJK
+SRC=OpenJK
 BUILD=${BUILD_DIR:-$SRC/build-linux}
 JOBS=$(nproc 2>/dev/null || echo 4)
 
