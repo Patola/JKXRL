@@ -1,1 +1,0 @@
-openjo_sp.x86_64.exe
