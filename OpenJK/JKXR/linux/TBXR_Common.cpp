@@ -18,7 +18,7 @@
 #include "VrInput.h"
 #include "VrCommon.h"
 
-#include <SDL.h>
+#include <SDL3/SDL.h>
 
 // Packed depth-stencil tokens (GL 3.0 / EXT_packed_depth_stencil). Some <GL/gl.h>
 // versions don't expose these, so define them defensively. Needed so the VR eye
