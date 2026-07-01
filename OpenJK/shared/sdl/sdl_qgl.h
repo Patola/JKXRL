@@ -21,7 +21,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 
 #pragma once
 
-#include <SDL_opengl.h>
+#include <SDL3/SDL_opengl.h>
 
 #define qglAccum glAccum
 #define qglAlphaFunc glAlphaFunc
