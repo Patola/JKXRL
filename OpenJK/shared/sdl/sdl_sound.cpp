@@ -23,14 +23,14 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include <stdlib.h>
 #include <stdio.h>
 
-#include <SDL.h>
+#include <SDL3/SDL.h>
 
 #include "qcommon/q_shared.h"
 #include "client/client.h"
 #include "client/snd_local.h"
 
 extern dma_t		dma;
-SDL_AudioDeviceID	dev;
+SDL_AudioStream	*dev = NULL;
 qboolean snd_inited = qfalse;
 
 cvar_t *s_sdlBits;
@@ -46,9 +46,20 @@ static int dmasize = 0;
 /*
 ===============
 SNDDMA_AudioCallback
+
+SDL3 stream-callback signature: SDL calls us on its audio thread when it
+needs more data. We push bytes from the engine's dma.buffer (the mixer
+output) into the stream via SDL_PutAudioStreamData(). The dmapos/wraparound
+copy logic is preserved verbatim from the SDL2 callback so the mix output is
+byte-for-byte equivalent.
+
+NB: The SDL3 stream's internal mutex is held while this callback runs (see
+SDL_audio.h docs for SDL_LockAudioStream), so SNDDMA_BeginPainting/Submit
+locking the stream serialises mixer writes against callback reads -- the same
+protection SDL2's SDL_LockAudioDevice gave us.
 ===============
 */
-static void SNDDMA_AudioCallback(void *userdata, Uint8 *stream, int len)
+static void SNDDMA_AudioCallback(void *userdata, SDL_AudioStream *stream, int additional_amount, int total_amount)
 {
 	int pos = (dmapos * (dma.samplebits/8));
 	if (pos >= dmasize)
@@ -56,26 +67,25 @@ static void SNDDMA_AudioCallback(void *userdata, Uint8 *stream, int len)
 
 	if (!snd_inited)  /* shouldn't happen, but just in case... */
 	{
-		memset(stream, '\0', len);
-		return;
+		return;  /* nothing pushed => SDL3 outputs silence */
 	}
 	else
 	{
 		int tobufend = dmasize - pos;  /* bytes to buffer's end. */
-		int len1 = len;
+		int len1 = additional_amount;
 		int len2 = 0;
 
 		if (len1 > tobufend)
 		{
 			len1 = tobufend;
-			len2 = len - len1;
+			len2 = additional_amount - len1;
 		}
-		memcpy(stream, dma.buffer + pos, len1);
+		SDL_PutAudioStreamData(stream, dma.buffer + pos, len1);
 		if (len2 <= 0)
 			dmapos += (len1 / (dma.samplebits/8));
 		else  /* wraparound? */
 		{
-			memcpy(stream+len1, dma.buffer, len2);
+			SDL_PutAudioStreamData(stream, dma.buffer, len2);
 			dmapos = (len2 / (dma.samplebits/8));
 		}
 	}
@@ -86,20 +96,18 @@ static void SNDDMA_AudioCallback(void *userdata, Uint8 *stream, int len)
 
 static struct
 {
-	Uint16		enumFormat;
+	SDL_AudioFormat	enumFormat;
 	const char	*stringFormat;
 } formatToStringTable[ ] =
 {
-	{ AUDIO_U8,     "AUDIO_U8" },
-	{ AUDIO_S8,     "AUDIO_S8" },
-	{ AUDIO_U16LSB, "AUDIO_U16LSB" },
-	{ AUDIO_S16LSB, "AUDIO_S16LSB" },
-	{ AUDIO_U16MSB, "AUDIO_U16MSB" },
-	{ AUDIO_S16MSB, "AUDIO_S16MSB" },
-	{ AUDIO_S32LSB, "AUDIO_S32LSB" },
-	{ AUDIO_S32MSB, "AUDIO_S32MSB" },
-	{ AUDIO_F32LSB, "AUDIO_F32LSB" },
-	{ AUDIO_F32MSB, "AUDIO_F32MSB" }
+	{ SDL_AUDIO_U8,    "SDL_AUDIO_U8" },
+	{ SDL_AUDIO_S8,    "SDL_AUDIO_S8" },
+	{ SDL_AUDIO_S16LE, "SDL_AUDIO_S16LE" },
+	{ SDL_AUDIO_S16BE, "SDL_AUDIO_S16BE" },
+	{ SDL_AUDIO_S32LE, "SDL_AUDIO_S32LE" },
+	{ SDL_AUDIO_S32BE, "SDL_AUDIO_S32BE" },
+	{ SDL_AUDIO_F32LE, "SDL_AUDIO_F32LE" },
+	{ SDL_AUDIO_F32BE, "SDL_AUDIO_F32BE" }
 };
 
 static const size_t formatToStringTableSize = ARRAY_LEN( formatToStringTable );
@@ -128,7 +136,6 @@ static void SNDDMA_PrintAudiospec(const char *str, const SDL_AudioSpec *spec)
 	}
 
 	Com_Printf( "  Freq:     %d\n", (int) spec->freq );
-	Com_Printf( "  Samples:  %d\n", (int) spec->samples );
 	Com_Printf( "  Channels: %d\n", (int) spec->channels );
 }
 
@@ -146,13 +153,19 @@ static int SNDDMA_ExpandSampleFrequencyKHzToHz(int khz)
 /*
 ===============
 SNDDMA_Init
+
+SDL3 opens an audio device as an SDL_AudioStream via SDL_OpenAudioDeviceStream().
+The requested SDL_AudioSpec (format/channels/freq) is honoured directly -- there
+is no separate "obtained" spec as in SDL2, so dma.* is derived from what we
+asked for. Devices open paused and must be resumed with SDL_ResumeAudioStreamDevice.
 ===============
 */
 qboolean SNDDMA_Init(int sampleFrequencyInKHz)
 {
 	SDL_AudioSpec desired;
-	SDL_AudioSpec obtained;
-	int tmp;
+	int bits;
+	int devSamples;
+	int mixSamples;
 
 	if (snd_inited)
 		return qtrue;
@@ -168,7 +181,7 @@ qboolean SNDDMA_Init(int sampleFrequencyInKHz)
 
 	if (!SDL_WasInit(SDL_INIT_AUDIO))
 	{
-		if (SDL_Init(SDL_INIT_AUDIO) == -1)
+		if (!SDL_Init(SDL_INIT_AUDIO))
 		{
 			Com_Printf( "FAILED (%s)\n", SDL_GetError( ) );
 			return qfalse;
@@ -180,44 +193,43 @@ qboolean SNDDMA_Init(int sampleFrequencyInKHz)
 	Com_Printf( "SDL audio driver is \"%s\".\n", SDL_GetCurrentAudioDriver( ) );
 
 	memset(&desired, '\0', sizeof (desired));
-	memset(&obtained, '\0', sizeof (obtained));
 
-	tmp = ((int) s_sdlBits->value);
-	if ((tmp != 16) && (tmp != 8))
-		tmp = 16;
+	bits = ((int) s_sdlBits->value);
+	if ((bits != 16) && (bits != 8))
+		bits = 16;
 
 	desired.freq = SNDDMA_ExpandSampleFrequencyKHzToHz(sampleFrequencyInKHz);
-	desired.format = ((tmp == 16) ? AUDIO_S16SYS : AUDIO_U8);
+	desired.format = ((bits == 16) ? SDL_AUDIO_S16 : SDL_AUDIO_U8);
+	desired.channels = (int) s_sdlChannels->value;
 
 	// I dunno if this is the best idea, but I'll give it a try...
 	//  should probably check a cvar for this...
 	if (s_sdlDevSamps->value)
-		desired.samples = s_sdlDevSamps->value;
+		devSamples = s_sdlDevSamps->value;
 	else
 	{
-		// just pick a sane default.
+		// just pick a sane default (sample frames per device period).
+		// SDL3 manages the device period internally; this is only used to
+		// size dma.samples so the mixer's ring buffer stays comfortably large.
 		if (desired.freq <= 11025)
-			desired.samples = 256;
+			devSamples = 256;
 		else if (desired.freq <= 22050)
-			desired.samples = 512;
+			devSamples = 512;
 		else if (desired.freq <= 44100)
-			desired.samples = 1024;
+			devSamples = 1024;
 		else
-			desired.samples = 2048;  // (*shrug*)
+			devSamples = 2048;  // (*shrug*)
 	}
 
-	desired.channels = (int) s_sdlChannels->value;
-	desired.callback = SNDDMA_AudioCallback;
-
-	dev = SDL_OpenAudioDevice( NULL, 0, &desired, &obtained, 0 );
-	if ( !dev )
+	dev = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &desired, SNDDMA_AudioCallback, NULL);
+	if (!dev)
 	{
-		Com_Printf("SDL_OpenAudioDevice() failed: %s\n", SDL_GetError());
+		Com_Printf("SDL_OpenAudioDeviceStream() failed: %s\n", SDL_GetError());
 		SDL_QuitSubSystem(SDL_INIT_AUDIO);
 		return qfalse;
 	}
 
-	SNDDMA_PrintAudiospec("SDL_AudioSpec", &obtained);
+	SNDDMA_PrintAudiospec("SDL_AudioSpec", &desired);
 
 	// dma.samples needs to be big, or id's mixer will just refuse to
 	//  work at all; we need to keep it significantly bigger than the
@@ -226,30 +238,30 @@ qboolean SNDDMA_Init(int sampleFrequencyInKHz)
 	// 32768 is what the OSS driver filled in here on my system. I don't
 	//  know if it's a good value overall, but at least we know it's
 	//  reasonable...this is why I let the user override.
-	tmp = s_sdlMixSamps->value;
-	if (!tmp)
-		tmp = (obtained.samples * obtained.channels) * 10;
+	mixSamples = s_sdlMixSamps->value;
+	if (!mixSamples)
+		mixSamples = (devSamples * desired.channels) * 10;
 
-	if (tmp & (tmp - 1))  // not a power of two? Seems to confuse something.
+	if (mixSamples & (mixSamples - 1))  // not a power of two? Seems to confuse something.
 	{
 		int val = 1;
-		while (val < tmp)
+		while (val < mixSamples)
 			val <<= 1;
 
-		tmp = val;
+		mixSamples = val;
 	}
 
 	dmapos = 0;
-	dma.samplebits = obtained.format & 0xFF;  // first byte of format is bits.
-	dma.channels = obtained.channels;
-	dma.samples = tmp;
+	dma.samplebits = bits;  // SDL3 format is an enum, not bits-encoded: set explicitly (16 or 8).
+	dma.channels = desired.channels;
+	dma.samples = mixSamples;
 	dma.submission_chunk = 1;
-	dma.speed = obtained.freq;
+	dma.speed = desired.freq;
 	dmasize = (dma.samples * (dma.samplebits/8));
 	dma.buffer = (byte *)calloc(1, dmasize);
 
 	Com_Printf("Starting SDL audio callback...\n");
-	SDL_PauseAudioDevice(dev, 0);  // start callback.
+	SDL_ResumeAudioStreamDevice(dev);  // SDL3 devices open paused; this starts the callback.
 
 	Com_Printf("SDL audio initialized.\n");
 	snd_inited = qtrue;
@@ -274,8 +286,9 @@ SNDDMA_Shutdown
 void SNDDMA_Shutdown(void)
 {
 	Com_Printf("Closing SDL audio device...\n");
-	SDL_PauseAudioDevice(dev, 1);
-	SDL_CloseAudioDevice(dev);
+	SDL_PauseAudioStreamDevice(dev);
+	SDL_DestroyAudioStream(dev);  // also closes the associated audio device.
+	dev = NULL;
 	SDL_QuitSubSystem(SDL_INIT_AUDIO);
 	free(dma.buffer);
 	dma.buffer = NULL;
@@ -288,22 +301,26 @@ void SNDDMA_Shutdown(void)
 ===============
 SNDDMA_Submit
 
-Send sound to device if buffer isn't really the dma buffer
+Send sound to device if buffer isn't really the dma buffer.
+SDL3: release the stream lock acquired by SNDDMA_BeginPainting so the audio
+thread callback may run again and consume the freshly mixed dma.buffer.
 ===============
 */
 void SNDDMA_Submit(void)
 {
-	SDL_UnlockAudioDevice(dev);
+	SDL_UnlockAudioStream(dev);
 }
 
 /*
 ===============
 SNDDMA_BeginPainting
+SDL3: lock the stream so the audio-thread callback cannot read dma.buffer
+while the mixer is writing it (the stream's mutex is held during callbacks).
 ===============
 */
 void SNDDMA_BeginPainting (void)
 {
-	SDL_LockAudioDevice(dev);
+	SDL_LockAudioStream(dev);
 }
 
 #ifdef USE_OPENAL
@@ -325,5 +342,8 @@ void SNDDMA_Activate( qboolean activate )
 		S_ClearSoundBuffer();
 	}
 
-	SDL_PauseAudioDevice( dev, !activate );
+	if ( activate )
+		SDL_ResumeAudioStreamDevice( dev );
+	else
+		SDL_PauseAudioStreamDevice( dev );
 }
