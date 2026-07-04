@@ -26,20 +26,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "sdl_icon.h"
 
 
-#if defined(_WIN32)
-
-// OpenXR Header
-#define XR_USE_GRAPHICS_API_OPENGL
-#define XR_USE_PLATFORM_WIN32
-#include <Unknwn.h>
-#include <openxr.h>
-#include <openxr_platform.h>
-#include <GL/gl.h>
-#include <GL/glext.h>
-
-#define GL_RGBA16F                        0x881A
-
-#elif defined(__linux__) && !defined(__ANDROID__)
+#if defined(__linux__) && !defined(__ANDROID__)
 
 // OpenXR Header - core types only (xr_result helper below). No platform
 // graphics binding is needed here, so XR_USE_PLATFORM_XLIB is deliberately
@@ -860,21 +847,10 @@ window_t WIN_Init( const windowDesc_t *windowDesc, glconfig_t *glConfig )
 
 	window.api = windowDesc->api;
 
-
-#if defined(_WIN32)
-	// SDL3 removed SDL_GetWindowWMInfo()/SDL_SysWMinfo. Read the native HWND via
-	// the window property set exposed by SDL_GetWindowProperties().
-	SDL_PropertiesID props = SDL_GetWindowProperties( screen );
-	if ( props != 0 )
-	{
-		window.handle = SDL_GetPointerProperty( props, SDL_PROP_WINDOW_WIN32_HWND_POINTER, NULL );
-	}
-#endif
-
 	// Bring up the OpenXR VR session now that an OpenGL context is current.
 	// On Linux the X11/GLX graphics binding reads the current context directly,
 	// so no native window handle is needed here.
-#if defined(_WIN32) || (defined(__linux__) && !defined(__ANDROID__))
+#if defined(__linux__) && !defined(__ANDROID__)
 	VR_Init();
 	TBXR_GetScreenRes(&glConfig->vidWidth, &glConfig->vidHeight);
 #endif

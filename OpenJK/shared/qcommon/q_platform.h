@@ -24,70 +24,12 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 
 #pragma once
 
-// for windows fastcall option
+// calling-convention macros (no-op on Linux; formerly Windows fastcall)
 #define QDECL
 #define QCALL
 
-// Win64
-#if defined(WIN64) || defined(_WIN64) || defined(__WIN64__)
-
-	#define idx64
-
-	#undef QDECL
-	#define QDECL __cdecl
-
-	#undef QCALL
-	#define QCALL __stdcall
-
-	#if defined(_MSC_VER)
-		#define OS_STRING "win_msvc"
-	#elif defined(__MINGW64__)
-		#define OS_STRING "win_mingw"
-	#endif
-
-	#define QINLINE __inline
-	#define PATH_SEP '\\'
-
-	#if defined(_M_ALPHA)
-		#define ARCH_STRING "AXP"
-	#else
-		#define ARCH_STRING "x86_64"
-	#endif
-
-	#define Q3_LITTLE_ENDIAN
-
-	#define DLL_EXT ".dll"
-
-// Win32
-#elif defined(_WIN32) || defined(__WIN32__)
-
-	#undef QDECL
-	#define	QDECL __cdecl
-
-	#undef QCALL
-	#define QCALL __stdcall
-
-	#if defined(_MSC_VER)
-		#define OS_STRING "win_msvc"
-	#elif defined(__MINGW32__)
-		#define OS_STRING "win_mingw"
-	#endif
-
-	#define QINLINE __inline
-	#define PATH_SEP '\\'
-
-	#if defined(_M_IX86) || defined(__i386__)
-		#define ARCH_STRING "x86"
-	#elif defined _M_ALPHA
-		#define ARCH_STRING "AXP"
-	#endif
-
-	#define Q3_LITTLE_ENDIAN
-
-	#define DLL_EXT ".dll"
-
 // MAC OS X
-#elif defined(MACOS_X) || defined(__APPLE_CC__)
+#if defined(MACOS_X) || defined(__APPLE_CC__)
 
 	// make sure this is defined, just for sanity's sake...
 	#ifndef MACOS_X
@@ -186,9 +128,8 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 	#define DLL_EXT ".so"
 #endif
 
-#if (defined( _MSC_VER ) && (_MSC_VER < 1900)) || (defined(__GNUC__))
-// VS2013, which for some reason we still support, does not support noexcept
-// GCC GNU has the same problem: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=52869
+#if defined(__GNUC__)
+// GCC GNU has a noexcept problem: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=52869
 #define NOEXCEPT
 #define NOEXCEPT_IF(x)
 #define IS_NOEXCEPT(x) false
@@ -201,10 +142,6 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #if defined(__GNUC__)
 #define NORETURN __attribute__((noreturn))
 #define NORETURN_PTR __attribute__((noreturn))
-#elif defined(_MSC_VER)
-#define NORETURN __declspec(noreturn)
-// __declspec doesn't work on function pointers
-#define NORETURN_PTR /* nothing */
 #else
 #define NORETURN /* nothing */
 #define NORETURN_PTR /* nothing */
@@ -224,25 +161,10 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 	#endif
 #endif
 
-#if defined (_MSC_VER)
-	#if _MSC_VER >= 1600
-		#include <stdint.h>
-	#else
-		typedef signed __int64 int64_t;
-		typedef signed __int32 int32_t;
-		typedef signed __int16 int16_t;
-		typedef signed __int8  int8_t;
-		typedef unsigned __int64 uint64_t;
-		typedef unsigned __int32 uint32_t;
-		typedef unsigned __int16 uint16_t;
-		typedef unsigned __int8  uint8_t;
-	#endif
-#else // not using MSVC
-	#if !defined(__STDC_LIMIT_MACROS)
-		#define __STDC_LIMIT_MACROS
-	#endif
-	#include <stdint.h>
+#if !defined(__STDC_LIMIT_MACROS)
+	#define __STDC_LIMIT_MACROS
 #endif
+#include <stdint.h>
 
 // catch missing defines in above blocks
 #if !defined(OS_STRING)
@@ -281,22 +203,6 @@ static inline uint32_t LongSwap(uint32_t v)
 {
     return __builtin_bswap32(v);
 }
-#elif defined(_MSC_VER)
-// MSVC
-
-// required for _byteswap_ushort/ulong
-#include <stdlib.h>
-
-static uint16_t ShortSwap(uint16_t v)
-{
-    return _byteswap_ushort(v);
-}
-
-static uint32_t LongSwap(uint32_t v)
-{
-    return _byteswap_ulong(v);
-}
-
 #else
 // clang, gcc < 4.3 and others
 

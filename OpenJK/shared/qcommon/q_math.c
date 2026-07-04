@@ -447,11 +447,7 @@ float Q_powf ( float x, int y )
 
 qboolean Q_isnan (float f)
 {
-#ifdef _MSC_VER
-	return (qboolean)(_isnan (f) != 0);
-#else
 	return (qboolean)(isnan (f) != 0);
-#endif
 }
 
 int Q_log2( int val )
@@ -1266,30 +1262,9 @@ qboolean VectorCompare2( const vec3_t v1, const vec3_t v2 )
 
 void SnapVector( float *v )
 {
-#if defined(_MSC_VER) && !defined(idx64)
-	// pitiful attempt to reduce _ftol2 calls -rww
-	static int i;
-	static float f;
-
-	f = *v;
-	__asm fld f
-	__asm fistp	i
-	*v = (float)i;
-	v++;
-	f = *v;
-	__asm fld f
-	__asm fistp i
-	*v = (float)i;
-	v++;
-	f = *v;
-	__asm fld f
-	__asm fistp i
-	*v = (float)i;
-#else // mac, linux, mingw
 	v[0] = (int)v[0];
 	v[1] = (int)v[1];
 	v[2] = (int)v[2];
-#endif
 }
 
 float DistanceHorizontal( const vec3_t p1, const vec3_t p2 )
@@ -1498,26 +1473,12 @@ SinCos
 */
 void SinCos( float radians, float *sine, float *cosine )
 {
-#if _MSC_VER == 1200
-	_asm
-	{
-		fld	dword ptr [radians]
-		fsincos
-
-		mov edx, dword ptr [cosine]
-		mov eax, dword ptr [sine]
-
-		fstp dword ptr [edx]
-		fstp dword ptr [eax]
-	}
-#else
 	// I think, better use math.h function, instead of ^
 #if defined (__linux__) && !defined (__ANDROID__)
 	sincosf(radians, sine, cosine);
 #else
 	*sine = sinf(radians);
 	*cosine = cosf(radians);
-#endif
 #endif
 }
 

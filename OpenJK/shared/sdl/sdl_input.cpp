@@ -173,19 +173,10 @@ static qboolean IN_IsConsoleKey( fakeAscii_t key, int character )
 	return qfalse;
 }
 
-#if defined(_WIN32)
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#endif
-
 static bool IN_NumLockEnabled( void )
 {
-#if defined(_WIN32)
-	return (GetKeyState( VK_NUMLOCK ) & 1) != 0;
-#else
 	// @fixme : doesn't give proper state if numlock is on before app startup
 	return (SDL_GetModState() & SDL_KMOD_NUM) != 0;
-#endif
 }
 
 static void IN_TranslateNumpad( SDL_KeyboardEvent *keysym, fakeAscii_t *key )

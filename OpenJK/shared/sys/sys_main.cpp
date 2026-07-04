@@ -100,21 +100,7 @@ Sys_GetClipboardData
 ==================
 */
 char *Sys_GetClipboardData( void ) {
-#ifndef _WIN32
 	return NULL;
-#else
-	if ( !SDL_HasClipboardText() )
-		return NULL;
-
-	char *cbText = SDL_GetClipboardText();
-	size_t len = strlen( cbText ) + 1;
-
-	char *buf = (char *)Z_Malloc( len, TAG_CLIPBOARD );
-	Q_strncpyz( buf, cbText, len );
-
-	SDL_free( cbText );
-	return buf;
-#endif
 }
 
 /*
@@ -168,9 +154,6 @@ void Sys_Init( void ) {
 
 static void NORETURN Sys_Exit( int ex ) {
 	IN_Shutdown();
-#ifdef _WIN32
-	SDL_Quit();
-#endif
 
 	NET_Shutdown();
 
@@ -290,9 +273,9 @@ void Sys_UnloadDll( void *dllHandle )
 	Sys_UnloadLibrary(dllHandle);
 }
 
-// Android supplies its own Sys_LoadDll; Windows and desktop (Linux/macOS) use
+// Android supplies its own Sys_LoadDll; desktop (Linux/macOS) uses
 // this generic implementation (Sys_LoadLibrary is dlopen() on Unix).
-#if defined(_WIN32) || (defined(__linux__) && !defined(__ANDROID__))
+#if defined(__linux__) && !defined(__ANDROID__)
 /*
 =================
 Sys_LoadDll
@@ -784,17 +767,6 @@ int main ( int argc, char* argv[] )
 	}
 
 	Com_Init (commandLine);
-
-#ifdef _WIN32
-	SDL_version compiled;
-	SDL_version linked;
-
-	SDL_VERSION( &compiled );
-	SDL_GetVersion( &linked );
-
-	Com_Printf( "SDL Version Compiled: %d.%d.%d\n", compiled.major, compiled.minor, compiled.patch );
-	Com_Printf( "SDL Version Linked: %d.%d.%d\n", linked.major, linked.minor, linked.patch );
-#endif
 
 	NET_Init();
 

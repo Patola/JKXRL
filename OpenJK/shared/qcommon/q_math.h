@@ -94,17 +94,10 @@ float erandom( float mean );
 #define Q_min(x,y) ((x)<(y)?(x):(y))
 #define Q_max(x,y) ((x)>(y)?(x):(y))
 
-#if defined(_MSC_VER)
-static __inline long Q_ftol( float f )
-{
-	return (long)f;
-}
-#else
 static inline long Q_ftol( float f )
 {
 	return (long)f;
 }
-#endif
 
 signed char ClampChar( int i );
 signed short ClampShort( int i );
