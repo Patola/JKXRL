@@ -169,11 +169,6 @@ if(BuildMPEngine OR BuildMPDed)
 
 	# libraries: Botlib
 	set(MPEngineAndDedLibraries ${MPBotLib})
-	# Platform-specific libraries
-	if(WIN32)
-		set(MPEngineAndDedLibraries ${MPEngineAndDedLibraries} "winmm" "wsock32")
-	endif(WIN32)
-
 	# Include directories
 	set(MPEngineAndDedIncludeDirectories ${MPDir} ${SharedDir} ${GSLIncludeDirectory} ${CMAKE_BINARY_DIR}/shared)
 
@@ -258,9 +253,6 @@ if(BuildMPEngine OR BuildMPDed)
 
 		${SharedCommonFiles}
 		)
-	if(WIN32)
-		set(MPEngineAndDedCommonFiles ${MPEngineAndDedCommonFiles})
-	endif(WIN32)
 	source_group("common" FILES ${MPEngineAndDedCommonFiles})
 	set(MPEngineAndDedFiles ${MPEngineAndDedFiles} ${MPEngineAndDedCommonFiles})
 	
@@ -359,62 +351,14 @@ if(BuildMPEngine)
 		set(MPEngineLibraries ${MPEngineLibraries} ${OPENGL_LIBRARIES})
 	endif()
 
-	# OpenAL (is optionally included for Windows)
-	if (MSVC AND NOT WIN64)
-		if(UseInternalOpenAL)
-			# There's a libs/OpenAL32.lib
-			# (mrw) TODO Is this actually required on windows? It is loaded at runtime, should not be linked?
-			find_library(OpenALLibrary NAMES OpenAL32 PATHS ${OpenJKLibDir})
-			if(NOT OpenALLibrary)
-				message(FATAL_ERROR "UseInternalOpenAL enabled, but lib/OpenAL32.lib not found!")
-			endif(NOT OpenALLibrary)
-			set(MPEngineLibraries ${MPEngineLibraries} ${OpenALLibrary})
-		else(UseInternalOpenAL)
-			find_package(OpenAL REQUIRED)
-			set(MPEngineIncludeDirectories ${MPEngineIncludeDirectories} ${OPENAL_INCLUDE_DIR})
-			set(MPEngineLibraries ${MPEngineLibraries} ${OPENAL_LIBRARY})
-		endif(UseInternalOpenAL)
+	find_package(SDL2 REQUIRED CONFIG)
+	if (TARGET SDL2::SDL2)
+		set(SDL2_INCLUDE_DIRS "")
+		set(SDL2_LIBRARIES SDL2::SDL2)
 	endif()
-
-	if(UseInternalSDL2)
-		if(CMAKE_SIZEOF_VOID_P EQUAL 4)
-			set(MPEngineLibraries
-				${MPEngineLibraries}
-				${OpenJKLibDir}/SDL2/lib/x86/SDL2main.lib
-				${OpenJKLibDir}/SDL2/lib/x86/SDL2.lib
-				)
-		else()
-			set(MPEngineLibraries
-				${MPEngineLibraries}
-				${OpenJKLibDir}/SDL2/lib/x64/SDL2main.lib
-				${OpenJKLibDir}/SDL2/lib/x64/SDL2.lib
-				)
-		endif()
-
-		set(MPEngineIncludeDirectories
-			${MPEngineIncludeDirectories}
-			${OpenJKLibDir}/SDL2/include
-			)
-	else()
-		find_package(SDL2 REQUIRED CONFIG)
-		if (TARGET SDL2::SDL2)
-			set(SDL2_INCLUDE_DIRS "")
-			set(SDL2_LIBRARIES SDL2::SDL2)
-		endif()
-		string(STRIP ${SDL2_LIBRARIES} SDL2_LIBRARIES)
-		set(MPEngineIncludeDirectories ${MPEngineIncludeDirectories} ${SDL2_INCLUDE_DIRS})
-		set(MPEngineLibraries ${MPEngineLibraries} ${SDL2_LIBRARIES})
-	endif()
-
-	# EAX is Windows-Only (right?)
-	if(MSVC)
-		set(MPEngineEAXFiles
-			"${MPDir}/client/eax/eax.h"
-			"${MPDir}/client/eax/EaxMan.h"
-			)
-		source_group("eax" FILES ${MPEngineEAXFiles})
-		set(MPEngineFiles ${MPEngineFiles} ${MPEngineEAXFiles})
-	endif(MSVC)
+	string(STRIP ${SDL2_LIBRARIES} SDL2_LIBRARIES)
+	set(MPEngineIncludeDirectories ${MPEngineIncludeDirectories} ${SDL2_INCLUDE_DIRS})
+	set(MPEngineLibraries ${MPEngineLibraries} ${SDL2_LIBRARIES})
 
 	#    Source Files
 
@@ -524,26 +468,11 @@ if(BuildMPEngine)
 		"${SharedDir}/sys/con_log.cpp"
 		)
 
-	if(WIN32)
-		set(MPEngineWin32Files
-			"${SharedDir}/sys/win_manifest.manifest"
-			)
-
-		set(MPEngineFiles ${MPEngineFiles} ${MPEngineWin32Files})
-		source_group("win32" FILES ${MPEngineWin32Files})
-
-		set(MPEngineSysFiles
-			${MPEngineSysFiles}
-			"${SharedDir}/sys/sys_win32.cpp"
-			"${SharedDir}/sys/con_passive.cpp"
-			)
-	else(WIN32)
-		set(MPEngineSysFiles
-			${MPEngineSysFiles}
-			"${SharedDir}/sys/sys_unix.cpp"
-			"${SharedDir}/sys/con_tty.cpp"
-			)
-	endif(WIN32)
+	set(MPEngineSysFiles
+		${MPEngineSysFiles}
+		"${SharedDir}/sys/sys_unix.cpp"
+		"${SharedDir}/sys/con_tty.cpp"
+		)
 
 	set(MPEngineFiles ${MPEngineFiles} ${MPEngineSysFiles})
 	source_group("sys" FILES ${MPEngineSysFiles})
@@ -558,27 +487,12 @@ if(BuildMPEngine)
 		set(MPEngineFiles ${MPEngineFiles} ${MPDir}/macosx/English.lproj/InfoPlist.strings)
 	endif(MakeApplicationBundles)
 
-	if(WIN32)
-		add_executable(${MPEngine} WIN32 ${MPEngineFiles})
-		if(UseInternalSDL2)
-			if(CMAKE_SIZEOF_VOID_P EQUAL 4)
-				set(MPEngineExtraInstallFiles
-					${OpenJKLibDir}/SDL2/bin/x86/SDL2.dll
-					)
-			else()
-				set(MPEngineExtraInstallFiles
-					${OpenJKLibDir}/SDL2/bin/x64/SDL2.dll
-					)
-			endif()
-		endif()
-	else(WIN32)
-		if(MakeApplicationBundles)
-			add_executable(${MPEngine} MACOSX_BUNDLE ${MPEngineFiles})
-			set_target_properties(${MPEngine} PROPERTIES MACOSX_BUNDLE_INFO_PLIST "${MPDir}/macosx/OpenJKInfo.plist")
-		else(MakeApplicationBundles)
-			add_executable(${MPEngine} ${MPEngineFiles})
-		endif(MakeApplicationBundles)
-	endif(WIN32)
+	if(MakeApplicationBundles)
+		add_executable(${MPEngine} MACOSX_BUNDLE ${MPEngineFiles})
+		set_target_properties(${MPEngine} PROPERTIES MACOSX_BUNDLE_INFO_PLIST "${MPDir}/macosx/OpenJKInfo.plist")
+	else(MakeApplicationBundles)
+		add_executable(${MPEngine} ${MPEngineFiles})
+	endif(MakeApplicationBundles)
 
 	if(MakeApplicationBundles)
 		install(CODE "
@@ -651,42 +565,20 @@ if(BuildMPDed)
 		)
 	source_group("null" FILES ${MPDedNullFiles})
 	set(MPDedFiles ${MPDedFiles} ${MPDedNullFiles})
-	if(WIN32)
-		set(MPDedWin32Files
-			)
-		source_group("win32" FILES ${MPDedWin32Files})
-		set(MPDedFiles ${MPDedFiles} ${MPDedWin32Files})
-
-		set(MPDedSysFiles
-			"${SharedDir}/sys/sys_loadlib.h"
-			"${SharedDir}/sys/sys_local.h"
-			"${SharedDir}/sys/sys_main.cpp"
-			"${SharedDir}/sys/sys_event.cpp"
-			"${SharedDir}/sys/sys_public.h"
-			"${SharedDir}/sys/sys_win32.cpp"
-			"${SharedDir}/sys/con_local.h"
-			"${SharedDir}/sys/con_log.cpp"
-			"${SharedDir}/sys/con_win32.cpp"
-			)
-		set(MPDedLibraries ${MPDedLibraries} ${CMAKE_DL_LIBS})
-		source_group("sys" FILES ${MPDedSysFiles})
-		set(MPDedFiles ${MPDedFiles} ${MPDedSysFiles})
-	else(WIN32)
-		set(MPDedSysFiles
-			"${SharedDir}/sys/sys_loadlib.h"
-			"${SharedDir}/sys/sys_local.h"
-			"${SharedDir}/sys/sys_main.cpp"
-			"${SharedDir}/sys/sys_event.cpp"
-			"${SharedDir}/sys/sys_public.h"
-			"${SharedDir}/sys/sys_unix.cpp"
-			"${SharedDir}/sys/con_local.h"
-			"${SharedDir}/sys/con_log.cpp"
-			"${SharedDir}/sys/con_tty.cpp"
-			)
-		set(MPDedLibraries ${MPDedLibraries} ${CMAKE_DL_LIBS})
-		source_group("sys" FILES ${MPDedSysFiles})
-		set(MPDedFiles ${MPDedFiles} ${MPDedSysFiles})
-	endif(WIN32)
+	set(MPDedSysFiles
+		"${SharedDir}/sys/sys_loadlib.h"
+		"${SharedDir}/sys/sys_local.h"
+		"${SharedDir}/sys/sys_main.cpp"
+		"${SharedDir}/sys/sys_event.cpp"
+		"${SharedDir}/sys/sys_public.h"
+		"${SharedDir}/sys/sys_unix.cpp"
+		"${SharedDir}/sys/con_local.h"
+		"${SharedDir}/sys/con_log.cpp"
+		"${SharedDir}/sys/con_tty.cpp"
+		)
+	set(MPDedLibraries ${MPDedLibraries} ${CMAKE_DL_LIBS})
+	source_group("sys" FILES ${MPDedSysFiles})
+	set(MPDedFiles ${MPDedFiles} ${MPDedSysFiles})
 
 	add_executable(${MPDed} ${MPDedFiles})
 	install(TARGETS ${MPDed}

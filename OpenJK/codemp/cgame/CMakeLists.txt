@@ -26,9 +26,6 @@ set(MPCGameIncludeDirectories
 	"${SharedDir}"
 	"${GSLIncludeDirectory}"
 	)
-if(WIN32)
-	set(MPCGameLibraries "odbc32" "odbccp32") # what are these even?
-endif(WIN32)
 set(MPCGameDefines ${MPSharedDefines} "_CGAME" )
 set(MPCGameGameFiles
 	"${MPDir}/game/AnimalNPC.c"
@@ -155,19 +152,6 @@ if(MakeApplicationBundles AND BuildMPEngine)
 		LIBRARY
 		DESTINATION "${JKAInstallDir}/${MPEngine}.app/Contents/MacOS/base"
 		COMPONENT ${JKAMPCoreComponent})
-elseif(WIN32)
-	install(TARGETS ${MPCGame}
-		RUNTIME
-		DESTINATION "${JKAInstallDir}/OpenJK"
-		COMPONENT ${JKAMPCoreComponent})
-	if (WIN64)
-		# Don't do this on 32-bit Windows to avoid overwriting
-		# vanilla JKA's DLLs
-		install(TARGETS ${MPCGame}
-			RUNTIME
-			DESTINATION "${JKAInstallDir}/base"
-			COMPONENT ${JKAMPCoreComponent})
-	endif()
 else()
 	install(TARGETS ${MPCGame}
 		LIBRARY

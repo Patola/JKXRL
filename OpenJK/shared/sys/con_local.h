@@ -23,7 +23,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 
 #include <cstdio>
 
-/* con_passive.cpp | con_win32.cpp | con_tty.cpp */
+/* con_tty.cpp */
 void CON_Shutdown( void );
 void CON_Init( void );
 char *CON_Input( void );

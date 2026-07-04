@@ -31,10 +31,6 @@ set(JK2SPGameIncludeDirectories
 	"${JKXRDir}"
 	"${CMAKE_BINARY_DIR}/shared"
 	)
-if(WIN32)
-	set(JK2SPGameLibraries "winmm")
-endif(WIN32)
-
 set(JK2SPGameGameFiles
 	"${JK2SPDir}/game/AI_Atst.cpp"
 	"${JK2SPDir}/game/AI_Default.cpp"
@@ -285,15 +281,11 @@ if(NOT MSVC)
 	set_target_properties(${JK2SPGame} PROPERTIES PREFIX "")
 endif()
 
-if(WIN32)
-	install(TARGETS ${JK2SPGame} RUNTIME DESTINATION "${JK2InstallDir}/OpenJK")
-else(WIN32)
-	if(MakeApplicationBundles AND BuildJK2SPEngine)
-		install(TARGETS ${JK2SPGame} LIBRARY DESTINATION "${JK2InstallDir}/${JK2SPEngine}.app/Contents/MacOS/OpenJK")
-	else(MakeApplicationBundles AND BuildJK2SPEngine)
-		install(TARGETS ${JK2SPGame} LIBRARY DESTINATION "${JK2InstallDir}/OpenJK")
-	endif(MakeApplicationBundles AND BuildJK2SPEngine)
-endif(WIN32)
+if(MakeApplicationBundles AND BuildJK2SPEngine)
+	install(TARGETS ${JK2SPGame} LIBRARY DESTINATION "${JK2InstallDir}/${JK2SPEngine}.app/Contents/MacOS/OpenJK")
+else(MakeApplicationBundles AND BuildJK2SPEngine)
+	install(TARGETS ${JK2SPGame} LIBRARY DESTINATION "${JK2InstallDir}/OpenJK")
+endif(MakeApplicationBundles AND BuildJK2SPEngine)
 
 set_target_properties(${JK2SPGame} PROPERTIES COMPILE_DEFINITIONS "${JK2SPGameDefines}")
 

@@ -23,13 +23,6 @@
 
 # This only has effect in this directory (lib/png).
 include_directories(include/)
-if(WIN32)
-	include_directories(../zlib/include/)
-endif()
-
-if(MSVC)
-	add_definitions(-D_CRT_SECURE_NO_WARNINGS)
-endif(MSVC)
 
 add_library(bundled_libpng STATIC include/png.h
                                   include/pngconf.h

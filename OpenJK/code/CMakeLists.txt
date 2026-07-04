@@ -54,35 +54,14 @@ if(BuildSPEngine OR BuildJK2SPEngine)
 		)
 
 	#    Dependencies
-	if(UseInternalSDL2)
-		if(CMAKE_SIZEOF_VOID_P EQUAL 4)
-			set(SPEngineLibraries
-				${SPEngineLibraries}
-				${OpenJKLibDir}/SDL2/lib/x86/SDL2main.lib
-				${OpenJKLibDir}/SDL2/lib/x86/SDL2.lib
-				)
-		else()
-			set(SPEngineLibraries
-				${SPEngineLibraries}
-				${OpenJKLibDir}/SDL2/lib/x64/SDL2main.lib
-				${OpenJKLibDir}/SDL2/lib/x64/SDL2.lib
-				)
-		endif()
-
-		set(SPEngineIncludeDirectories
-			${SPEngineIncludeDirectories}
-			${OpenJKLibDir}/SDL2/include
-			)
-	else()
-		find_package(SDL3 REQUIRED CONFIG)
-		if (TARGET SDL3::SDL3)
-			set(SDL3_INCLUDE_DIRS "")
-			set(SDL3_LIBRARIES SDL3::SDL3)
-		endif()
-		string(STRIP ${SDL3_LIBRARIES} SDL3_LIBRARIES)
-		set(SPEngineIncludeDirectories ${SPEngineIncludeDirectories} ${SDL3_INCLUDE_DIRS})
-		set(SPEngineLibraries ${SPEngineLibraries} ${SDL3_LIBRARIES})
+	find_package(SDL3 REQUIRED CONFIG)
+	if (TARGET SDL3::SDL3)
+		set(SDL3_INCLUDE_DIRS "")
+		set(SDL3_LIBRARIES SDL3::SDL3)
 	endif()
+	string(STRIP ${SDL3_LIBRARIES} SDL3_LIBRARIES)
+	set(SPEngineIncludeDirectories ${SPEngineIncludeDirectories} ${SDL3_INCLUDE_DIRS})
+	set(SPEngineLibraries ${SPEngineLibraries} ${SDL3_LIBRARIES})
 	
 	# OpenGL needed in the SP engine now for JKXR
 	find_package(OpenGL REQUIRED)

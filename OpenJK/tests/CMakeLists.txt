@@ -27,19 +27,10 @@ set(TestFiles
 	"safe/limited_vector.cpp"
 	"${SharedDir}/qcommon/safe/string.cpp"
 	)
-if(MSVC)
-	set(TestFiles
-		${TestFiles}
-		"${SharedDir}/openjk.natvis"
-		)
-endif()
 source_group( "tests" REGULAR_EXPRESSION ".*")
 source_group( "tests\\safe" REGULAR_EXPRESSION "safe/.*" )
 source_group( "qcommon\\safe" REGULAR_EXPRESSION "${SharedDir}/qcommon/safe/.*" )
 
-if(MSVC)
-	set( Boost_USE_STATIC_LIBS ON )
-endif()
 find_package( Boost COMPONENTS unit_test_framework REQUIRED )
 
 set(TestTarget "UnitTests")

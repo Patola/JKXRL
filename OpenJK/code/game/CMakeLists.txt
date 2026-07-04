@@ -31,10 +31,6 @@ set(SPGameIncludeDirectories
 	"${CMAKE_BINARY_DIR}/shared"
 	)
 
-if(WIN32)
-	set(SPGameLibraries "winmm")
-endif(WIN32)
-
 set(SPGameGameFiles
 	"${SPDir}/game/AI_Animal.cpp"
 	"${SPDir}/game/AI_AssassinDroid.cpp"
@@ -377,23 +373,16 @@ if(NOT MSVC)
 	set_target_properties(${SPGame} PROPERTIES PREFIX "")
 endif()
 
-if(WIN32)
+if(MakeApplicationBundles AND BuildSPEngine)
 	install(TARGETS ${SPGame}
-		RUNTIME
+		LIBRARY
+		DESTINATION "${JKAInstallDir}/${SPEngine}.app/Contents/MacOS/OpenJK"
+		COMPONENT ${JKASPClientComponent})
+else()
+	install(TARGETS ${SPGame}
+		LIBRARY
 		DESTINATION "${JKAInstallDir}/OpenJK"
 		COMPONENT ${JKASPClientComponent})
-else(WIN32)
-	if(MakeApplicationBundles AND BuildSPEngine)
-		install(TARGETS ${SPGame}
-			LIBRARY
-			DESTINATION "${JKAInstallDir}/${SPEngine}.app/Contents/MacOS/OpenJK"
-			COMPONENT ${JKASPClientComponent})
-	else()
-		install(TARGETS ${SPGame}
-			LIBRARY
-			DESTINATION "${JKAInstallDir}/OpenJK"
-			COMPONENT ${JKASPClientComponent})
-	endif()
 endif()
 
 set_target_properties(${SPGame} PROPERTIES COMPILE_DEFINITIONS "${SPGameDefines}")
