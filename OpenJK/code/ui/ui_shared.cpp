@@ -1038,7 +1038,6 @@ Hacks to fix issues with Team Arena menu scripts
 ===============
 */
 static void Item_ApplyHacks( itemDef_t *item ) {
-#if !defined(_WIN32) || ( defined(_WIN32) && defined(idx64) )
 	// Fix length of favorite address in createfavorite.menu
 	if ( item->type == ITEM_TYPE_MULTI && item->cvar && !Q_stricmp( item->cvar, "s_UseOpenAL" ) ) {
 		if( item->parent )
@@ -1051,7 +1050,7 @@ static void Item_ApplyHacks( itemDef_t *item ) {
 			Com_Printf( "Disabling eax field because current platform does not support EAX.\n");
 		}
 	}
-	
+
 	if ( item->type == ITEM_TYPE_TEXT && item->window.name && !Q_stricmp( item->window.name, "eax_icon") && item->cvarTest && !Q_stricmp( item->cvarTest, "s_UseOpenAL" ) && item->enableCvar && (item->cvarFlags & CVAR_HIDE) ) {
 		if( item->parent )
 		{
@@ -1063,7 +1062,6 @@ static void Item_ApplyHacks( itemDef_t *item ) {
 			Com_Printf( "Hiding eax_icon object because current platform does not support EAX.\n");
 		}
 	}
-#endif
 
 	if ( item->type == ITEM_TYPE_MULTI && item->window.name && !Q_stricmp( item->window.name, "sound_quality") ) {
 		multiDef_t *multiPtr = (multiDef_t *)item->typeData;

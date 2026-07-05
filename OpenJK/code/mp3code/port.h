@@ -50,10 +50,6 @@ ____________________________________________________________________________*/
     #undef LITTLE_SHORT16
     #define LITTLE_SHORT16
   #endif
-  #ifdef WIN32
-    #undef LITTLE_SHORT16
-    #define LITTLE_SHORT16
-  #endif
   #ifdef _M_IX86
     #undef LITTLE_SHORT16
     #define LITTLE_SHORT16

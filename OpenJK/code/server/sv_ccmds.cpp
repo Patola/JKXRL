@@ -374,9 +374,7 @@ static void SV_Status_f( void ) {
 		return;
 	}
 
-#if defined(_WIN32)
-#define STATUS_OS "Windows"
-#elif defined(__linux__)
+#if defined(__linux__)
 #define STATUS_OS "Linux"
 #elif defined(MACOS_X)
 #define STATUS_OS "OSX"

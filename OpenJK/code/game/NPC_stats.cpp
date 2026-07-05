@@ -2053,9 +2053,6 @@ qboolean NPC_ParseParms( const char *NPCName, gentity_t *NPC )
 	{
 		p = NPCParms;
 		COM_BeginParseSession();
-#ifdef _WIN32
-#pragma region(NPC Stats)
-#endif
 		// look for the right NPC
 		while ( p )
 		{
@@ -3993,9 +3990,6 @@ qboolean NPC_ParseParms( const char *NPCName, gentity_t *NPC )
 			}
 			SkipRestOfLine( &p );
 		}
-#ifdef _WIN32
-#pragma endregion
-#endif
 		COM_EndParseSession(  );
 	}
 

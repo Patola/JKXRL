@@ -29,9 +29,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "client_ui.h"
 #include <VrCommon.h>
 
-#ifndef _WIN32
 #include <cmath>
-#endif
 
 unsigned	frame_msec;
 int			old_com_frameTime;

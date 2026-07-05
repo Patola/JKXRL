@@ -86,9 +86,6 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #if !defined(FINAL_BUILD)
 	#if !defined(RAGL_PROFILE_INC)
 		#define  RAGL_PROFILE_INC
-        #ifdef _WIN32
-            #include "windows.h"
-        #endif
 	#endif
 #endif
 #if !defined(RAVL_VEC_INC)

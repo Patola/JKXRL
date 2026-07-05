@@ -1,12 +1,6 @@
 #include "cm_local.h"
 #include "hstring.h"
 
-#if defined (_DEBUG) && defined (_WIN32)
-#define WIN32_LEAN_AND_MEAN 1
-//#include <windows.h>	// for Sleep for Z_Malloc recovery attempy
-#include "platform.h"
-#endif
-
 // mapPoolBlockCount is defined differently in the executable (sv_main.cpp) and the game dll (g_main.cpp) cuz
 //we likely don't need as many blocks in the executable as we do in the game
 extern int		mapPoolBlockCount;

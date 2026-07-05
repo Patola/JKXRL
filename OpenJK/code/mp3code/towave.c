@@ -129,9 +129,6 @@ decode (standard decoder) reduction_code:
 #include <float.h>
 #include <math.h>
 #include <string.h>
-#ifdef WIN32
-#include <io.h>
-#endif
 #include <fcntl.h>		/* file open flags */
 #include <sys/types.h>		/* someone wants for port */
 #include <sys/stat.h>		/* forward slash for portability */
@@ -142,9 +139,6 @@ decode (standard decoder) reduction_code:
 // JDW
 #ifdef __linux__
 #include <sys/ioctl.h>
-#ifdef _WIN32
-#include <sys/soundcard.h>
-#endif
 #include <fcntl.h>
 #include <errno.h>
 #endif

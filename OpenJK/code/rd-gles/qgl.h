@@ -9,17 +9,6 @@
 
 #include <GL/gl.h>
 
-#elif defined( _WIN32 )
-
-#pragma warning (disable: 4201)
-#pragma warning (disable: 4214)
-#pragma warning (disable: 4514)
-#pragma warning (disable: 4032)
-#pragma warning (disable: 4201)
-#pragma warning (disable: 4214)
-#include <windows.h>
-#include <gl/gl.h>
-
 #elif defined( __APPLE__ ) && defined( __MACH__ )
 
 #include <MesaGL/gl.h>
@@ -394,7 +383,7 @@ extern	void ( APIENTRY * qglPointParameterivNV)( GLenum, const GLint *);
 //===========================================================================
 
 // non-windows systems will just redefine qgl* to gl*
-#if (!defined( _WIN32 ) && !defined( __linux__ )) || defined(HAVE_GLES)
+#if (!defined( __linux__ )) || defined(HAVE_GLES)
 
 #include "qgl_linked.h"
 
@@ -739,35 +728,6 @@ extern  void ( APIENTRY * qglVertex4sv )(const GLshort *v);
 extern  void ( APIENTRY * qglVertexPointer )(GLint size, GLenum type, GLsizei stride, const GLvoid *pointer);
 extern  void ( APIENTRY * qglViewport )(GLint x, GLint y, GLsizei width, GLsizei height);
 
-#if defined( _WIN32 )
-
-extern BOOL  ( WINAPI * qwglCopyContext)(HGLRC, HGLRC, UINT);
-extern HGLRC ( WINAPI * qwglCreateContext)(HDC);
-extern HGLRC ( WINAPI * qwglCreateLayerContext)(HDC, int);
-extern BOOL  ( WINAPI * qwglDeleteContext)(HGLRC);
-extern HGLRC ( WINAPI * qwglGetCurrentContext)(VOID);
-extern HDC   ( WINAPI * qwglGetCurrentDC)(VOID);
-extern PROC  ( WINAPI * qwglGetProcAddress)(LPCSTR);
-extern BOOL  ( WINAPI * qwglMakeCurrent)(HDC, HGLRC);
-extern BOOL  ( WINAPI * qwglShareLists)(HGLRC, HGLRC);
-extern BOOL  ( WINAPI * qwglUseFontBitmaps)(HDC, DWORD, DWORD, DWORD);
-
-extern BOOL  ( WINAPI * qwglUseFontOutlines)(HDC, DWORD, DWORD, DWORD, FLOAT,
-                                           FLOAT, int, LPGLYPHMETRICSFLOAT);
-
-extern BOOL ( WINAPI * qwglDescribeLayerPlane)(HDC, int, int, UINT,
-                                            LPLAYERPLANEDESCRIPTOR);
-extern int  ( WINAPI * qwglSetLayerPaletteEntries)(HDC, int, int, int,
-                                                CONST COLORREF *);
-extern int  ( WINAPI * qwglGetLayerPaletteEntries)(HDC, int, int, int,
-                                                COLORREF *);
-extern BOOL ( WINAPI * qwglRealizeLayerPalette)(HDC, int, BOOL);
-extern BOOL ( WINAPI * qwglSwapLayerBuffers)(HDC, UINT);
-
-extern BOOL ( WINAPI * qwglSwapIntervalEXT)( int interval );
-
-#endif	// _WIN32
-
 #if defined( __linux__ )
 
 //FX Mesa Functions
@@ -791,4 +751,4 @@ extern Bool (*qglXSwapIntervalEXT) (int interval);
 
 #endif // __linux__
 
-#endif	// _WIN32 && __linux__
+#endif	// non-Linux || HAVE_GLES

@@ -139,11 +139,7 @@ void Con_Dump_f (void)
 			break;
 	}
 
-#ifdef _WIN32
-	bufferlen = con.linewidth + 3 * sizeof ( char );
-#else
 	bufferlen = con.linewidth + 2 * sizeof ( char );
-#endif
 
 	buffer = (char *)Z_Malloc( bufferlen, TAG_TEMP_WORKSPACE, qfalse );
 
@@ -161,11 +157,7 @@ void Con_Dump_f (void)
 			else
 				break;
 		}
-#ifdef _WIN32
-		Q_strcat(buffer, bufferlen, "\r\n");
-#else
 		Q_strcat(buffer, bufferlen, "\n");
-#endif
 		FS_Write(buffer, strlen(buffer), f);
 	}
 

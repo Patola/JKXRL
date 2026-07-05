@@ -31,10 +31,6 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "snd_public.h"
 #include "../mp3code/mp3struct.h"
 
-#if defined(_MSC_VER)
-#define USE_OPENAL
-#endif
-
 // Open AL Specific
 #ifdef USE_OPENAL
 #include "al.h"

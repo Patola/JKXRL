@@ -125,17 +125,10 @@ namespace	mem
 // unsigned character array
 //
 ////////////////////////////////////////////////////////////////////////////////////////
-#if defined(_MSC_VER) && !defined(__MWERKS__)
-	struct alignStruct
-	{
-		int space;
-	};
-#else
 	struct alignStruct
 	{
 		unsigned char space[16];
 	} __attribute__ ((aligned(16)));
-#endif
 
 	inline void*	cpy( void *dest, const void *src, size_t count )
 	{

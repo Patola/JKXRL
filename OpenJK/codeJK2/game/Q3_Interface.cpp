@@ -44,9 +44,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "g_icarus.h"
 #include "wp_saber.h"
 
-#ifndef _WIN32
 #include <cstdlib>
-#endif
 
 extern int ICARUS_LinkEntity( int entID, CSequencer *sequencer, CTaskManager *taskManager );
 

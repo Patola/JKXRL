@@ -24,9 +24,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 
 #include "g_headers.h"
 
-#ifndef _WIN32
 #include <unistd.h>
-#endif
 #include "g_local.h"
 #include "fields.h"
 #include "objectives.h"

@@ -30,7 +30,3 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "../client/client.h"
 #include "../server/server.h"
 
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
-

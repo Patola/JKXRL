@@ -32,10 +32,6 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "stringed_ingame.h"
 #include "stv_version.h"
 #include "../shared/sys/sys_local.h"
-#if defined(_WIN32)
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#endif
 
 // Because renderer.
 #include "../rd-common/tr_public.h"
@@ -63,9 +59,7 @@ cvar_t	*sv_paused;
 cvar_t	*com_skippingcin;
 cvar_t	*com_speedslog;		// 1 = buffer log, 2 = flush after each print
 cvar_t  *com_homepath;
-#ifndef _WIN32
 cvar_t	*com_ansiColor = NULL;
-#endif
 cvar_t	*com_busyWait;
 
 #ifdef G2_PERFORMANCE_ANALYSIS
@@ -121,9 +115,6 @@ void Com_EndRedirect (void)
 	rd_buffersize = 0;
 	rd_flush = NULL;
 }
-#if !defined(FINAL_BUILD) && defined(_WIN32)
-#define OUTPUT_TO_BUILD_WINDOW
-#endif
 
 /*
 =============
@@ -1134,11 +1125,7 @@ void Com_Init( char *commandLine ) {
 			Cmd_AddCommand ("freeze", Com_Freeze_f);
 		}
 
-#ifdef _WIN32
-		s = va("%s %s %s", Q3_VERSION, PLATFORM_STRING, SOURCE_DATE );
-#else
 		s = va("%s   %s", Q3_VERSION, SOURCE_DATE );
-#endif		
 		com_version = Cvar_Get ("version", s, CVAR_ROM | CVAR_SERVERINFO );
 
 #ifdef JK2_MODE

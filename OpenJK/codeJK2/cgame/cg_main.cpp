@@ -387,11 +387,7 @@ static cvarTable_t cvarTable[] = {
 	{ &cg_stereoSeparation, "cg_stereoSeparation", "0.065", CVAR_ARCHIVE  },
 	{ &cg_worldScale, "cg_worldScale", "33.5", CVAR_ARCHIVE  },
 	{ &cg_heightAdjust, "cg_heightAdjust", "0.0", CVAR_ARCHIVE  },
-#ifdef _WIN32
-	{ &cg_shadows, "cg_shadows", "2", CVAR_ARCHIVE  },
-#else
 	{ &cg_shadows, "cg_shadows", "1", CVAR_ARCHIVE  },
-#endif
 	{ &cg_shadowAlpha, "cg_shadowAlpha", "1.0", CVAR_ARCHIVE },	// max opacity of the soft (cg_shadows 1) blob shadow
 	{ &cg_shadowScale, "cg_shadowScale", "1.0", CVAR_ARCHIVE },	// radius multiplier for the soft (cg_shadows 1) blob shadow
 	{ &cg_hudScale, "cg_hudScale", "2.5", CVAR_ARCHIVE  },

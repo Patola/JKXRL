@@ -38,15 +38,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include <minizip/unzip.h>
 
 // for rmdir
-#if defined (_MSC_VER)
-	#include <direct.h>
-#else
-	#include <unistd.h>
-#endif
-
-#if defined(_WIN32)
-#include <windows.h>
-#endif
+#include <unistd.h>
 
 /*
 =============================================================================
@@ -278,7 +270,7 @@ char lastValidGame[MAX_OSPATH];
 
 /* C99 defines __func__ */
 #if __STDC_VERSION__ < 199901L
-#  if __GNUC__ >= 2 || _MSC_VER >= 1300
+#  if __GNUC__ >= 2
 #    define __func__ __FUNCTION__
 #  else
 #    define __func__ "(unknown)"
@@ -751,17 +743,10 @@ qboolean FS_FileExists( const char *file )
 	return FS_FileInPathExists(FS_BuildOSPath(fs_homepath->string, fs_gamedir, file));
 }
 
-#ifdef _WIN32
-qboolean FS_BaseFileExists(const char* file)
-{
-	return FS_FileInPathExists(FS_BuildOSPath(fs_basepath->string, fs_gamedir, file));
-}
-#else
 qboolean FS_BaseFileExists( const char *file )
 {
 	return FS_FileInPathExists(FS_BuildOSPath(fs_homepath->string, BASEGAME, file));
 }
-#endif
 
 /*
 ================
@@ -1171,74 +1156,6 @@ qboolean FS_IsDemoExt(const char *filename, int namelen)
 	return qfalse;
 }
 
-#ifdef _WIN32
-
-bool Sys_GetFileTime(LPCSTR psFileName, FILETIME &ft)
-{
-	bool bSuccess = false;
-	HANDLE hFile = INVALID_HANDLE_VALUE;
-
-	hFile = CreateFile(	psFileName,	// LPCTSTR lpFileName,          // pointer to name of the file
-						GENERIC_READ,			// DWORD dwDesiredAccess,       // access (read-write) mode
-						FILE_SHARE_READ,		// DWORD dwShareMode,           // share mode
-						NULL,					// LPSECURITY_ATTRIBUTES lpSecurityAttributes,	// pointer to security attributes
-						OPEN_EXISTING,			// DWORD dwCreationDisposition,  // how to create
-						FILE_FLAG_NO_BUFFERING,// DWORD dwFlagsAndAttributes,   // file attributes
-						NULL					// HANDLE hTemplateFile          // handle to file with attributes to
-						);
-
-	if (hFile != INVALID_HANDLE_VALUE)
-	{
-		if (GetFileTime(hFile,	// handle to file
-						NULL,	// LPFILETIME lpCreationTime
-						NULL,	// LPFILETIME lpLastAccessTime
-						&ft		// LPFILETIME lpLastWriteTime
-						)
-			)
-		{
-			bSuccess = true;
-		}
-
-		CloseHandle(hFile);
-	}
-
-	return bSuccess;
-}
-
-bool Sys_FileOutOfDate( LPCSTR psFinalFileName /* dest */, LPCSTR psDataFileName /* src */ )
-{
-	FILETIME ftFinalFile, ftDataFile;
-
-	if (Sys_GetFileTime(psFinalFileName, ftFinalFile) && Sys_GetFileTime(psDataFileName, ftDataFile))
-	{
-		// timer res only accurate to within 2 seconds on FAT, so can't do exact compare...
-		//
-		//LONG l = CompareFileTime( &ftFinalFile, &ftDataFile );
-		if (  (abs((double)(ftFinalFile.dwLowDateTime - ftDataFile.dwLowDateTime)) <= 20000000 ) &&
-				  ftFinalFile.dwHighDateTime == ftDataFile.dwHighDateTime
-			)
-		{
-			return false;	// file not out of date, ie use it.
-		}
-		return true;	// flag return code to copy over a replacement version of this file
-	}
-
-
-	// extra error check, report as suspicious if you find a file locally but not out on the net.,.
-	//
-	if (com_developer->integer)
-	{
-		if (!Sys_GetFileTime(psDataFileName, ftDataFile))
-		{
-			Com_Printf( "Sys_FileOutOfDate: reading %s but it's not on the net!\n", psFinalFileName);
-		}
-	}
-
-	return false;
-}
-
-#endif // _WIN32
-
 bool FS_FileCacheable(const char* const filename)
 {
 	extern	cvar_t	*com_buildScript;
@@ -1397,22 +1314,6 @@ long FS_FOpenFileRead( const char *filename, fileHandle_t *file, qboolean unique
 					continue;
 				}
 
-#ifdef _WIN32
-				// if running with fs_copyfiles 2, and search path == local, then we need to fail to open
-				//	if the time/date stamp != the network version (so it'll loop round again and use the network path,
-				//	which comes later in the search order)
-				//
-				if ( fs_copyfiles->integer == 2 && fs_cdpath->string[0] && !Q_stricmp( dir->path, fs_basepath->string )
-					&& FS_FileCacheable(filename) )
-				{
-					if ( Sys_FileOutOfDate( netpath, FS_BuildOSPath( fs_cdpath->string, dir->gamedir, filename ) ))
-					{
-						fclose(fsh[*file].handleFiles.file.o);
-						fsh[*file].handleFiles.file.o = 0;
-						continue;	//carry on to find the cdpath version.
-					}
-				}
-#endif
 				Q_strncpyz( fsh[*file].name, filename, sizeof( fsh[*file].name ) );
 				fsh[*file].zipFile = qfalse;
 				if ( fs_debug->integer ) {
@@ -1420,55 +1321,6 @@ long FS_FOpenFileRead( const char *filename, fileHandle_t *file, qboolean unique
 						dir->path, PATH_SEP, dir->gamedir );
 				}
 
-#ifdef _WIN32
-				// if we are getting it from the cdpath, optionally copy it
-				//  to the basepath
-				if ( fs_copyfiles->integer && !Q_stricmp( dir->path, fs_cdpath->string ) ) {
-					char	*copypath;
-
-					copypath = FS_BuildOSPath( fs_basepath->string, dir->gamedir, filename );
-					switch ( fs_copyfiles->integer )
-					{
-						default:
-						case 1:
-						{
-							FS_CopyFile( netpath, copypath );
-						}
-						break;
-
-						case 2:
-						{
-
-							if (FS_FileCacheable(filename) )
-							{
-								// maybe change this to Com_DPrintf?   On the other hand...
-								//
-								Com_Printf( "fs_copyfiles(2), Copying: %s to %s\n", netpath, copypath );
-
-								FS_CreatePath( copypath );
-
-								bool bOk = true;
-								if (!CopyFile( netpath, copypath, FALSE ))
-								{
-									DWORD dwAttrs = GetFileAttributes(copypath);
-									SetFileAttributes(copypath, dwAttrs & ~FILE_ATTRIBUTE_READONLY);
-									bOk = !!CopyFile( netpath, copypath, FALSE );
-								}
-
-								if (bOk)
-								{
-									// clear this handle and setup for re-opening of the new local copy...
-									//
-									bFasterToReOpenUsingNewLocalFile = qtrue;
-									fclose(fsh[*file].handleFiles.file.o);
-									fsh[*file].handleFiles.file.o = NULL;
-								}
-							}
-						}
-						break;
-					}
-				}
-#endif
 				if (bFasterToReOpenUsingNewLocalFile)
 				{
 					break;	// and re-read the local copy, not the net version

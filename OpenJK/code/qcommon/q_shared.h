@@ -32,34 +32,6 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "qcommon/q_color.h"
 #include "qcommon/q_string.h"
 
-#ifdef _MSC_VER
-
-#pragma warning(disable : 4018)     // signed/unsigned mismatch
-//#pragma warning(disable : 4032)		//formal parameter 'number' has different type when promoted
-//#pragma warning(disable : 4051)		//type conversion; possible loss of data
-//#pragma warning(disable : 4057)		// slightly different base types
-#pragma warning(disable : 4100)		// unreferenced formal parameter
-//#pragma warning(disable : 4115)		//'type' : named type definition in parentheses
-#pragma warning(disable : 4125)		// decimal digit terminates octal escape sequence
-#pragma warning(disable : 4127)		// conditional expression is constant
-//#pragma warning(disable : 4136)		//conversion between different floating-point types
-//#pragma warning(disable : 4201)		//nonstandard extension used : nameless struct/union
-//#pragma warning(disable : 4214)		//nonstandard extension used : bit field types other than int
-//#pragma warning(disable : 4220)		// varargs matches remaining parameters
-#pragma warning(disable : 4244)		//'conversion' conversion from 'type1' to 'type2', possible loss of data
-#pragma warning(disable : 4284)		// return type not UDT
-//#pragma warning(disable : 4305)		// truncation from const double to float
-#pragma warning(disable : 4310)		// cast truncates constant value
-#pragma warning(disable : 4514)		//unreferenced inline/local function has been removed
-#pragma warning(disable : 4710)		// not inlined
-#pragma warning(disable : 4711)		// selected for automatic inline expansion
-#pragma warning(disable : 4786)		// identifier was truncated
-#pragma warning(disable : 5208)		// unnamed class used in typedef name cannot declare members other than non-static data members, member enumerations, or member classes
-
-#pragma warning(disable : 4996)		// This function or variable may be unsafe.
-
-#endif
-
 //rww - conveniently toggle "gore" code, for model decals and stuff.
 #ifndef JK2_MODE
 #define _G2_GORE
@@ -97,12 +69,6 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #define STRING( a ) #a
 #define XSTRING( a ) STRING( a )
 
-#ifndef FINAL_BUILD
-#ifdef _WIN32
-#define G2_PERFORMANCE_ANALYSIS
-#endif
-#endif
-
 #include <assert.h>
 #include <math.h>
 #include <float.h>
@@ -132,9 +98,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 	#define UNUSED_VAR
 #endif
 
-#if (defined _MSC_VER)
-	#define Q_EXPORT __declspec(dllexport)
-#elif (defined __SUNPRO_C)
+#if (defined __SUNPRO_C)
 	#define Q_EXPORT __global
 #elif ((__GNUC__ >= 3) && (!__EMX__) && (!sun))
 	#define Q_EXPORT __attribute__((visibility("default")))

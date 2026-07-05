@@ -42,15 +42,6 @@ ____________________________________________________________________________*/
 #include <endian.h>
 #endif
 
-#ifdef WIN32
-#define __LITTLE_ENDIAN 1234
-#define __BIG_ENDIAN    4321
-#define __PDP_ENDIAN    3412
-#define __BYTE_ORDER    __LITTLE_ENDIAN
-#define usleep(x) ::Sleep(x/1000)
-typedef int socklen_t;
-#endif
-
 #ifndef _MAX_PATH
 #define _MAX_PATH 260
 #endif
@@ -105,21 +96,21 @@ typedef short			int32;
 
 // What character marks the end of a directory entry? For DOS and
 // Windows, it is "\"; in UNIX it is "/".
-#if defined(WIN32) || defined(OS2) || defined(__DOS__)
+#if defined(OS2) || defined(__DOS__)
 #define DIR_MARKER '\\'
 #define DIR_MARKER_STR "\\"
 #else
 #define DIR_MARKER '/'
 #define DIR_MARKER_STR "/"
-#endif /* WIN32 */
+#endif
 
 // What character(s) marks the end of a line in a text file?
 // For DOS and Windows, it is "\r\n"; in UNIX it is "\r".
-#if defined(WIN32) || defined(OS2) || defined(__DOS__)
+#if defined(OS2) || defined(__DOS__)
 #define LINE_END_MARKER_STR "\r\n"
 #else
 #define LINE_END_MARKER_STR "\n"
-#endif /* WIN32 */
+#endif
 
 #ifndef NULL
 #ifdef  __cplusplus

@@ -1078,7 +1078,7 @@ static CMiniHeap *GetG2VertSpaceServer( void ) {
 
 // Windows and desktop (Linux/macOS) use the vanilla renderer; only Android
 // uses the GLES renderer.
-#if defined(_WIN32) || (defined(__linux__) && !defined(__ANDROID__))
+#if (defined(__linux__) && !defined(__ANDROID__))
 #ifdef JK2_MODE
 #define DEFAULT_RENDER_LIBRARY	"rdjosp-vanilla"
 #else

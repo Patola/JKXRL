@@ -36,9 +36,6 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "snd_music.h"
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
-#if defined(_WIN32)
-#include <windows.h>
-#endif
 
 static void S_Play_f(void);
 static void S_SoundList_f(void);
@@ -557,13 +554,10 @@ void S_Init( void ) {
 
 				unsigned long ulFlags = 0;
 
-				if (s_eaxSet(&EAXPROPERTYID_EAX40_Source, EAXSOURCE_FLAGS,
+			if (s_eaxSet(&EAXPROPERTYID_EAX40_Source, EAXSOURCE_FLAGS,
 							s_channels[i].alSource, &ulFlags, sizeof(ulFlags))!=AL_NO_ERROR)
-				{
-#ifdef _WIN32
-					OutputDebugString("Failed to to remove Source flags\n");
-#endif
-				}
+			{
+			}
 			}
 
 			s_numChannels++;
@@ -2434,10 +2428,6 @@ static int S_CheckAmplitude(channel_t	*ch, const int s_oldpaintedtime )
 			sample = 4;
 		}
 
-#ifdef _MSC_VER
-//		OutputDebugString(va("Returning sample %d\n",sample));
-#endif
-
 		// store away the value we got into the back up table
 		s_entityWavVol_back[ ch->entnum ] = sample;
 		return (sample);
@@ -2925,13 +2915,6 @@ void S_Update_(void) {
 							}
 							else
 							{
-#ifdef _DEBUG
-#ifdef _MSC_VER
-								char szString[256];
-								sprintf(szString, "Missing lip-sync info. for %s\n", ch->thesfx->sSoundName);
-								OutputDebugString(szString);
-#endif
-#endif
 							}
 						}
 						nTotalBytesDecoded += nBytesDecoded;
@@ -2985,13 +2968,6 @@ void S_Update_(void) {
 					}
 					else
 					{
-#ifdef _DEBUG
-#ifdef _MSC_VER
-						char szString[256];
-						sprintf(szString, "Missing lip-sync info. for %s\n", ch->thesfx->sSoundName);
-						OutputDebugString(szString);
-#endif
-#endif
 					}
 				}
 
@@ -3586,18 +3562,9 @@ void S_SetLipSyncs()
 	unsigned int samples;
 	int currentTime, timePlayed;
 	channel_t *ch;
-#ifdef _DEBUG
-#ifdef _MSC_VER
-	char szString[256];
-#endif
-#endif
 
-#ifdef _WIN32
-	currentTime = timeGetTime();
-#else
     // FIXME: alternative to timeGetTime ?
     currentTime = 0;
-#endif
 
 	memset(s_entityWavVol, 0, sizeof(s_entityWavVol));
 
@@ -3620,12 +3587,6 @@ void S_SetLipSyncs()
 
 				if (ch->thesfx->lipSyncData == NULL)
 				{
-#ifdef _DEBUG
-#ifdef _MSC_VER
-					sprintf(szString, "Missing lip-sync info. for %s\n", ch->thesfx->sSoundName);
-					OutputDebugString(szString);
-#endif
-#endif
 				}
 
 				if ((ch->thesfx->lipSyncData) && (samples < (unsigned)ch->thesfx->iSoundLengthInSamples))
@@ -3649,12 +3610,6 @@ void S_SetLipSyncs()
 
 				if (ch->thesfx->lipSyncData == NULL)
 				{
-#ifdef _DEBUG
-#ifdef _MSC_VER
-					sprintf(szString, "Missing lip-sync info. for %s\n", ch->thesfx->sSoundName);
-					OutputDebugString(szString);
-#endif
-#endif
 				}
 
 				if ((ch->thesfx->lipSyncData) && (samples < (unsigned)ch->thesfx->iSoundLengthInSamples))
@@ -5105,16 +5060,6 @@ static int SND_FreeSFXMem(sfx_t *sfx)
 		if (sfx->Buffer)
 		{
 			alDeleteBuffers(1, &(sfx->Buffer));
-#ifdef _DEBUG
-#ifdef _MSC_VER
-			char szString[256];
-			if (alGetError() != AL_NO_ERROR)
-			{
-				sprintf(szString, "Failed to delete AL Buffer (%s) ... !\n", sfx->sSoundName);
-				OutputDebugString(szString);
-			}
-#endif
-#endif
 			sfx->Buffer = 0;
 		}
 
