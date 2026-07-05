@@ -76,7 +76,6 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 //	for (TestSearch.path_begin(); !TestSearch.path_end(); TestSearch.path_inc())
 //	{
 //		sprintf(Buf, "(%d)", TestSearch.path_at());
-//		OutputDebugString(Buf);
 //	}
 //
 //

@@ -8,17 +8,6 @@
 
 #include <GL/gl.h>
 
-#elif defined( _WIN32 )
-
-#pragma warning (disable: 4201)
-#pragma warning (disable: 4214)
-#pragma warning (disable: 4514)
-#pragma warning (disable: 4032)
-#pragma warning (disable: 4201)
-#pragma warning (disable: 4214)
-#include <windows.h>
-#include <gl/gl.h>
-
 #elif defined(MACOS_X)
 
 #include "../macosx/macosx_glimp.h"
@@ -182,78 +171,6 @@ extern PFNGLGETFINALCOMBINERINPUTPARAMETERFVNV	qglGetFinalCombinerInputParameter
 extern PFNGLGETFINALCOMBINERINPUTPARAMETERIVNV	qglGetFinalCombinerInputParameterivNV;
 
 
-#ifdef _WIN32
-
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Pixel Format extension definitions. - AReis
-/***********************************************************************************************************/
-#define WGL_COLOR_BITS_ARB             0x2014
-#define WGL_ALPHA_BITS_ARB             0x201B
-#define WGL_DEPTH_BITS_ARB             0x2022
-#define WGL_STENCIL_BITS_ARB           0x2023
-
-typedef BOOL (WINAPI * PFNWGLGETPIXELFORMATATTRIBIVARBPROC) (HDC hdc, int iPixelFormat, int iLayerPlane, UINT nAttributes, const int *piAttributes, int *piValues);
-typedef BOOL (WINAPI * PFNWGLGETPIXELFORMATATTRIBFVARBPROC) (HDC hdc, int iPixelFormat, int iLayerPlane, UINT nAttributes, const int *piAttributes, FLOAT *pfValues);
-typedef BOOL (WINAPI * PFNWGLCHOOSEPIXELFORMATARBPROC) (HDC hdc, const int *piAttribIList, const FLOAT *pfAttribFList, UINT nMaxFormats, int *piFormats, UINT *nNumFormats);
-/***********************************************************************************************************/
-
-// Declare Pixel Format function pointers.
-extern PFNWGLGETPIXELFORMATATTRIBIVARBPROC		qwglGetPixelFormatAttribivARB;
-extern PFNWGLGETPIXELFORMATATTRIBFVARBPROC		qwglGetPixelFormatAttribfvARB;
-extern PFNWGLCHOOSEPIXELFORMATARBPROC			qwglChoosePixelFormatARB;
-
-
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Pixel Buffer extension definitions. - AReis
-/***********************************************************************************************************/
-DECLARE_HANDLE(HPBUFFERARB);
-
-#define WGL_SUPPORT_OPENGL_ARB         0x2010
-#define WGL_DOUBLE_BUFFER_ARB          0x2011
-#define WGL_DRAW_TO_PBUFFER_ARB        0x202D
-#define WGL_PBUFFER_WIDTH_ARB          0x2034
-#define WGL_PBUFFER_HEIGHT_ARB         0x2035
-#define WGL_RED_BITS_ARB               0x2015
-#define WGL_GREEN_BITS_ARB             0x2017
-#define WGL_BLUE_BITS_ARB              0x2019
-
-typedef HPBUFFERARB (WINAPI * PFNWGLCREATEPBUFFERARBPROC) (HDC hDC, int iPixelFormat, int iWidth, int iHeight, const int *piAttribList);
-typedef HDC (WINAPI * PFNWGLGETPBUFFERDCARBPROC) (HPBUFFERARB hPbuffer);
-typedef int (WINAPI * PFNWGLRELEASEPBUFFERDCARBPROC) (HPBUFFERARB hPbuffer, HDC hDC);
-typedef BOOL (WINAPI * PFNWGLDESTROYPBUFFERARBPROC) (HPBUFFERARB hPbuffer);
-typedef BOOL (WINAPI * PFNWGLQUERYPBUFFERARBPROC) (HPBUFFERARB hPbuffer, int iAttribute, int *piValue);
-/***********************************************************************************************************/
-
-// Declare Pixel Buffer function pointers.
-extern PFNWGLCREATEPBUFFERARBPROC				qwglCreatePbufferARB;
-extern PFNWGLGETPBUFFERDCARBPROC				qwglGetPbufferDCARB;
-extern PFNWGLRELEASEPBUFFERDCARBPROC			qwglReleasePbufferDCARB;
-extern PFNWGLDESTROYPBUFFERARBPROC				qwglDestroyPbufferARB;
-extern PFNWGLQUERYPBUFFERARBPROC				qwglQueryPbufferARB;
-
-
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Render-Texture extension definitions. - AReis
-/***********************************************************************************************************/
-#define WGL_BIND_TO_TEXTURE_RGBA_ARB       0x2071
-#define WGL_TEXTURE_FORMAT_ARB             0x2072
-#define WGL_TEXTURE_TARGET_ARB             0x2073
-#define WGL_TEXTURE_RGB_ARB                0x2075
-#define WGL_TEXTURE_RGBA_ARB               0x2076
-#define WGL_TEXTURE_2D_ARB                 0x207A
-#define WGL_FRONT_LEFT_ARB                 0x2083
-
-typedef BOOL (WINAPI * PFNWGLBINDTEXIMAGEARBPROC) (HPBUFFERARB hPbuffer, int iBuffer);
-typedef BOOL (WINAPI * PFNWGLRELEASETEXIMAGEARBPROC) (HPBUFFERARB hPbuffer, int iBuffer);
-typedef BOOL (WINAPI * PFNWGLSETPBUFFERATTRIBARBPROC) (HPBUFFERARB hPbuffer, const int * piAttribList);
-/***********************************************************************************************************/
-
-// Declare Render-Texture function pointers.
-extern PFNWGLBINDTEXIMAGEARBPROC			qwglBindTexImageARB;
-extern PFNWGLRELEASETEXIMAGEARBPROC			qwglReleaseTexImageARB;
-extern PFNWGLSETPBUFFERATTRIBARBPROC		qwglSetPbufferAttribARB;
-
-#endif //_WIN32
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Vertex and Fragment Program extension definitions. - AReis
@@ -346,7 +263,7 @@ extern	void ( APIENTRY * qglUnlockArraysEXT) (void);
 //===========================================================================
 
 // non-windows systems will just redefine qgl* to gl*
-#if !defined( _WIN32 ) && !defined(MACOS_X) && !defined( __linux__ ) && !defined( __FreeBSD__ ) // rb010123
+#if !defined(MACOS_X) && !defined( __linux__ ) && !defined( __FreeBSD__ ) // rb010123
 
 #include "qgl_linked.h"
 
@@ -695,34 +612,6 @@ extern  void ( APIENTRY * qglVertex4sv )(const GLshort *v);
 extern  void ( APIENTRY * qglVertexPointer )(GLint size, GLenum type, GLsizei stride, const GLvoid *pointer);
 extern  void ( APIENTRY * qglViewport )(GLint x, GLint y, GLsizei width, GLsizei height);
 
-#if defined( _WIN32 )
-
-extern BOOL  ( WINAPI * qwglCopyContext)(HGLRC, HGLRC, UINT);
-extern HGLRC ( WINAPI * qwglCreateContext)(HDC);
-extern HGLRC ( WINAPI * qwglCreateLayerContext)(HDC, int);
-extern BOOL  ( WINAPI * qwglDeleteContext)(HGLRC);
-extern HGLRC ( WINAPI * qwglGetCurrentContext)(VOID);
-extern HDC   ( WINAPI * qwglGetCurrentDC)(VOID);
-extern PROC  ( WINAPI * qwglGetProcAddress)(LPCSTR);
-extern BOOL  ( WINAPI * qwglMakeCurrent)(HDC, HGLRC);
-extern BOOL  ( WINAPI * qwglShareLists)(HGLRC, HGLRC);
-extern BOOL  ( WINAPI * qwglUseFontBitmaps)(HDC, DWORD, DWORD, DWORD);
-
-extern BOOL  ( WINAPI * qwglUseFontOutlines)(HDC, DWORD, DWORD, DWORD, FLOAT,
-                                           FLOAT, int, LPGLYPHMETRICSFLOAT);
-
-extern BOOL ( WINAPI * qwglDescribeLayerPlane)(HDC, int, int, UINT,
-                                            LPLAYERPLANEDESCRIPTOR);
-extern int  ( WINAPI * qwglSetLayerPaletteEntries)(HDC, int, int, int,
-                                                CONST COLORREF *);
-extern int  ( WINAPI * qwglGetLayerPaletteEntries)(HDC, int, int, int,
-                                                COLORREF *);
-extern BOOL ( WINAPI * qwglRealizeLayerPalette)(HDC, int, BOOL);
-extern BOOL ( WINAPI * qwglSwapLayerBuffers)(HDC, UINT);
-
-extern BOOL ( WINAPI * qwglSwapIntervalEXT)( int interval );
-
-#endif	// _WIN32
 
 #if ( (defined __linux__ )  || (defined __FreeBSD__ ) ) // rb010123
 
@@ -747,4 +636,4 @@ extern void (*qglXSwapBuffers)( Display *dpy, GLXDrawable drawable );
 
 #endif // __linux__ || __FreeBSD__ // rb010123
 
-#endif	// _WIN32 && __linux__
+#endif

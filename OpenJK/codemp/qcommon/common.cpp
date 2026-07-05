@@ -30,10 +30,6 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "qcommon/q_version.h"
 #include "../server/NPCNav/navigator.h"
 #include "../shared/sys/sys_local.h"
-#if defined(_WIN32)
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#endif
 
 FILE *debuglogfile;
 fileHandle_t logfile;
@@ -65,9 +61,7 @@ cvar_t	*cl_paused;
 cvar_t	*sv_paused;
 cvar_t	*com_cameraMode;
 cvar_t  *com_homepath;
-#ifndef _WIN32
 cvar_t	*com_ansiColor = NULL;
-#endif
 cvar_t	*com_busyWait;
 
 cvar_t *com_affinity;
@@ -186,15 +180,6 @@ void QDECL Com_Printf( const char *fmt, ... ) {
 			FS_Write(msg, strlen(msg), logfile);
 		}
 	}
-
-
-#if defined(_WIN32) && defined(_DEBUG)
-	if ( *msg )
-	{
-		OutputDebugString ( Q_CleanStr(msg) );
-		OutputDebugString ("\n");
-	}
-#endif
 }
 
 
@@ -229,11 +214,7 @@ void QDECL Com_OPrintf( const char *fmt, ...)
 	va_start (argptr,fmt);
 	Q_vsnprintf (msg, sizeof(msg), fmt, argptr);
 	va_end (argptr);
-#ifdef _WIN32
-	OutputDebugString(msg);
-#else
 	printf("%s", msg);
-#endif
 }
 
 /*
@@ -1229,9 +1210,7 @@ void Com_Init( char *commandLine ) {
 		com_sv_running = Cvar_Get ("sv_running", "0", CVAR_ROM, "Is a server running?" );
 		com_cl_running = Cvar_Get ("cl_running", "0", CVAR_ROM, "Is the client running?" );
 		com_buildScript = Cvar_Get( "com_buildScript", "0", 0 );
-#ifndef _WIN32
 		com_ansiColor = Cvar_Get( "com_ansiColor", "0", CVAR_ARCHIVE_ND );
-#endif
 
 #ifdef G2_PERFORMANCE_ANALYSIS
 		com_G2Report = Cvar_Get("com_G2Report", "0", 0);
@@ -1678,15 +1657,6 @@ void Com_Shutdown (void)
 	}
 
 	MSG_shutdownHuffman();
-/*
-	// Only used for testing changes to huffman frequency table when tuning.
-	{
-		extern float Huff_GetCR(void);
-		char mess[256];
-		sprintf(mess,"Eff. CR = %f\n",Huff_GetCR());
-		OutputDebugString(mess);
-	}
-*/
 }
 
 /*

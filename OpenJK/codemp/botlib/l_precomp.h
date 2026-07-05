@@ -41,18 +41,10 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #endif
 
 #ifndef PATH_SEPERATORSTR
-	#ifdef _WIN32
-		#define PATHSEPERATOR_STR		"\\"
-	#else
-		#define PATHSEPERATOR_STR		"/"
-	#endif
+	#define PATHSEPERATOR_STR		"/"
 #endif
 #ifndef PATH_SEPERATORCHAR
-	#ifdef _WIN32
-		#define PATHSEPERATOR_CHAR		'\\'
-	#else
-		#define PATHSEPERATOR_CHAR		'/'
-	#endif
+	#define PATHSEPERATOR_CHAR		'/'
 #endif
 
 #if defined(BSPC) && !defined(QDECL)

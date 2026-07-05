@@ -985,7 +985,6 @@ float Music_GetRandomEntryTime( MusicState_e eMusicState )
 			}
 			iPrevRandomNumber = iRandomEntryNum;
 
-//			OutputDebugString(va("Music_GetRandomEntryTime(): Entry %d\n",iRandomEntryNum));
 
 			for (MusicEntryTimes_t::iterator itEntryTime = MusicFile.MusicEntryTimes.begin(); itEntryTime != MusicFile.MusicEntryTimes.end(); ++itEntryTime)
 			{

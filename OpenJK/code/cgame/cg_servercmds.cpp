@@ -142,7 +142,6 @@ static void CG_ConfigStringModified( void ) {
 		CG_ParseServerinfo();
 	} else if ( num >= CS_MODELS && num < CS_MODELS+MAX_MODELS ) {
 		cgs.model_draw[ num-CS_MODELS ] = cgi_R_RegisterModel( str );
-//		OutputDebugString(va("### CG_ConfigStringModified(): cgs.model_draw[%d] = \"%s\"\n",num-CS_MODELS,str));
 // GHOUL2 Insert start
 	} else if ( num >= CS_CHARSKINS && num < CS_CHARSKINS+MAX_CHARSKINS ) {
 		cgs.skins[ num-CS_CHARSKINS ] = cgi_R_RegisterSkin( str );

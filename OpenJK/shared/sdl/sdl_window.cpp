@@ -26,7 +26,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "sdl_icon.h"
 
 
-#if defined(__linux__) && !defined(__ANDROID__)
+#if defined(__linux__)
 
 // OpenXR Header - core types only (xr_result helper below). No platform
 // graphics binding is needed here, so XR_USE_PLATFORM_XLIB is deliberately
@@ -850,7 +850,7 @@ window_t WIN_Init( const windowDesc_t *windowDesc, glconfig_t *glConfig )
 	// Bring up the OpenXR VR session now that an OpenGL context is current.
 	// On Linux the X11/GLX graphics binding reads the current context directly,
 	// so no native window handle is needed here.
-#if defined(__linux__) && !defined(__ANDROID__)
+#if defined(__linux__)
 	VR_Init();
 	TBXR_GetScreenRes(&glConfig->vidWidth, &glConfig->vidHeight);
 #endif

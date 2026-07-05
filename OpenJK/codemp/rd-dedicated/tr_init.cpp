@@ -297,11 +297,7 @@ static const size_t numCommands = ARRAY_LEN( commands );
 #endif
 #define MAX_PRIMITIVES 3
 
-#ifdef _WIN32
-#define SWAPINTERVAL_FLAGS CVAR_ARCHIVE_ND
-#else
 #define SWAPINTERVAL_FLAGS CVAR_ARCHIVE_ND | CVAR_LATCH
-#endif
 
 /*
 ===============

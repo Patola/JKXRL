@@ -140,9 +140,6 @@ void sendButtonAction(const char* action, long buttonDown)
     Cbuf_AddText( command );
 }
 
-#ifdef __ANDROID__
-void PortableMouseAbs(float x,float y);
-#else
 void PortableMouseAbs(float x, float y)
 {
     int absx = 0, absy = 0;
@@ -151,7 +148,6 @@ void PortableMouseAbs(float x, float y)
 
     CL_MouseEvent(absx, absy, 0);
 }
-#endif
 
 float clamp(float _min, float _val, float _max)
 {

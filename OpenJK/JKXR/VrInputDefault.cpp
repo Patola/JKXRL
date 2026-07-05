@@ -14,12 +14,6 @@ Authors		:	Simon Brown
 #include <qcommon/qcommon.h>
 #include <client/client.h>
 
-#ifdef __ANDROID__
-#include <android/keycodes.h>
-#include <statindex.h>
-#include "android/sys_local.h"
-#endif
-
 #include "VrTBDC.h"
 
 #include "game/weapons.h"

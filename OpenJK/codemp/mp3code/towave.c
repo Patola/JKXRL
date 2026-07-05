@@ -129,9 +129,6 @@ decode (standard decoder) reduction_code:
 #include <float.h>
 #include <math.h>
 #include <string.h>
-#ifdef WIN32
-#include <io.h>
-#endif
 #include <fcntl.h>		/* file open flags */
 #include <sys/types.h>		/* someone wants for port */
 #include <sys/stat.h>		/* forward slash for portability */

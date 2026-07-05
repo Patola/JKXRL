@@ -811,7 +811,6 @@ void CL_Frame ( int msec,float fractionMsec ) {
 		if(!(frameCount&0x1f))
 		{
 			sprintf(mess,"Frame rate=%f\n\n",1000.0f*(1.0/(avgFrametime/32.0f)));
-	//		OutputDebugString(mess);
 			Com_Printf(mess);
 			avgFrametime=0.0f;
 		}
@@ -1078,7 +1077,7 @@ static CMiniHeap *GetG2VertSpaceServer( void ) {
 
 // Windows and desktop (Linux/macOS) use the vanilla renderer; only Android
 // uses the GLES renderer.
-#if (defined(__linux__) && !defined(__ANDROID__))
+#if (defined(__linux__))
 #ifdef JK2_MODE
 #define DEFAULT_RENDER_LIBRARY	"rdjosp-vanilla"
 #else

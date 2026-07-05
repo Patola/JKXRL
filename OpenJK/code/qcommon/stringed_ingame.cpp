@@ -56,7 +56,6 @@ cvar_t	*se_language = NULL;
 cvar_t	*se_debug = NULL;
 cvar_t  *sp_leet = NULL;	// kept as 'sp_' for JK2 compat.
 
-#define __DEBUGOUT(_string)	OutputDebugString(_string)
 #define __ASSERT(_blah)		assert(_blah)
 
 typedef struct SE_Entry_s

@@ -149,12 +149,6 @@ void QDECL Com_Printf( const char *fmt, ... ) {
 	Sys_Print( msg );
 
 
-#ifdef OUTPUT_TO_BUILD_WINDOW
-	char cmsg[MAXPRINTMSG] = { 0 };
-	snprintf(cmsg, sizeof(cmsg), "%s\n", msg);
-	OutputDebugString(cmsg);
-#endif
-
 	// logfile
 	if ( com_logfile && com_logfile->integer ) {
 		if ( !logfile && FS_Initialized() ) {

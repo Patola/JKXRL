@@ -63,35 +63,6 @@ CMapPoolLow::CMapPoolLow()
 
 CMapPoolLow::~CMapPoolLow()
 {
-#if _DEBUG
-	char mess[1000];
-#if _GAME
-	if(mFreeList.size()<mMapBlocks.size()*MAPBLOCK_SIZE_NODES)
-	{
-		sprintf(mess,"[MEM][GAME]  !!!! Map Pool Leaked %d nodes\n",(MAPBLOCK_SIZE_NODES*mMapBlocks.size())-mFreeList.size());
-		OutputDebugString(mess);
-	}
-	sprintf(mess, "[MEM][GAME]  Map Pool max. mem used = %d\n",mMapBlocks.size()*MAPBLOCK_SIZE_NODES*MAP_NODE_SIZE);
-	OutputDebugString(mess);
-#elif _CGAME
-	if (mFreeList.size()<mMapBlocks.size()*MAPBLOCK_SIZE_NODES)
-	{
-		sprintf(mess, "[MEM][CGAME]  !!!! Map Pool Leaked %d nodes\n",(MAPBLOCK_SIZE_NODES*mMapBlocks.size())-mFreeList.size());
-		OutputDebugString(mess);
-	}
-	sprintf(mess, "[MEM][CGAME] Map Pool max. mem used = %d\n",mMapBlocks.size()*MAPBLOCK_SIZE_NODES*MAP_NODE_SIZE);
-	OutputDebugString(mess);
-#else
-	if (mFreeList.size()<mMapBlocks.size()*MAPBLOCK_SIZE_NODES)
-	{
-		sprintf(mess, "[MEM][EXE]  !!!! Map Pool Leaked %d nodes\n",(MAPBLOCK_SIZE_NODES*mMapBlocks.size())-mFreeList.size());
-		OutputDebugString(mess);
-	}
-	sprintf(mess, "[MEM][EXE] Map Pool max. mem used = %d\n",mMapBlocks.size()*MAPBLOCK_SIZE_NODES*MAP_NODE_SIZE);
-	OutputDebugString(mess);
-#endif
-#endif
-
 	int i;
 	for (i=0;i<mMapBlocks.size();i++)
 	{
@@ -405,25 +376,6 @@ public:
 	}
 	~CPoolChecker()
 	{
-#if 0
-		int i;
-		for (i=1;i<ThePool().mNextStringId;i++)
-		{
-			OutputDebugString(gCharPtrs[i]);
-			OutputDebugString("\n");
-		}
-#endif
-#if _DEBUG
-		char mess[1000];
-#if _GAME
-		sprintf(mess,"[MEM][GAME]  String Pool %d unique strings, %dK\n",ThePool().mNextStringId,(ThePool().mLastBlockNum+1)*BLOCK_SIZE/1024);
-#elif _CGAME
-		sprintf(mess,"[MEM][CGAME]  String Pool %d unique strings, %dK\n",ThePool().mNextStringId,(ThePool().mLastBlockNum+1)*BLOCK_SIZE/1024);
-#else
-		sprintf(mess,"[MEM][EXE]  String Pool %d unique strings, %dK\n",ThePool().mNextStringId,(ThePool().mLastBlockNum+1)*BLOCK_SIZE/1024);
-#endif
-		OutputDebugString(mess);
-#endif
 		// if this fails it means the string storage is CORRUPTED, let someone know
 		assert(TheDebugPool()==ThePool());
 	}

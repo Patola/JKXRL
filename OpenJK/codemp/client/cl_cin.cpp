@@ -40,9 +40,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "client.h"
 #include "cl_uiapi.h"
 #include "snd_local.h"
-#ifndef _WIN32
 #include <cmath>
-#endif
 
 #define MAXSIZE				8
 #define MINSIZE				4

@@ -36,10 +36,6 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
 
-#if defined(_WIN32)
-#include <windows.h>
-#endif
-
 qboolean s_shutUp = qfalse;
 
 static void S_Play_f(void);
@@ -970,7 +966,6 @@ void EALFileInit(const char *level)
 
 	if (s_bEALFileLoaded)
 	{
-		s_lLastEnvUpdate = timeGetTime();
 	}
 	else
 	{
@@ -3030,7 +3025,6 @@ void S_Update_(void) {
 					if (ch->thesfx->lipSyncData)
 					{
 						// Record start time for Lip-syncing
-						s_channels[source].iStartTime = timeGetTime();
 
 						// Prepare lipsync value(s)
 						s_entityWavVol[ ch->entnum ] = ch->thesfx->lipSyncData[0];
@@ -3063,7 +3057,6 @@ void S_Update_(void) {
 					if (ch->thesfx->lipSyncData)
 					{
 						// Record start time for Lip-syncing
-						s_channels[source].iStartTime = timeGetTime();
 
 						// Prepare lipsync value(s)
 						s_entityWavVol[ ch->entnum ] = ch->thesfx->lipSyncData[0];
@@ -3620,12 +3613,7 @@ void S_SetLipSyncs()
 	int currentTime, timePlayed;
 	channel_t *ch;
 
-#ifdef _WIN32
-	currentTime = timeGetTime();
-#else
-	// FIXME: alternative to timeGetTime ?
 	currentTime = 0;
-#endif
 
 	memset(s_entityWavVol, 0, sizeof(s_entityWavVol));
 
@@ -5771,7 +5759,6 @@ void UpdateEAXListener()
 	if ((!s_lpEAXManager) || (!s_bEAX))
 		return;
 
-	lCurTime = timeGetTime();
 
 	if ((s_lLastEnvUpdate + ENV_UPDATE_RATE) < lCurTime)
 	{

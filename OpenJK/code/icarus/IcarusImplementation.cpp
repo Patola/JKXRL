@@ -58,7 +58,6 @@ IIcarusInterface* IIcarusInterface::GetIcarus(int flavor,bool constructIfNecessa
 		for (int index = 0; index < CIcarus::s_flavorsAvailable; index++)
 		{
 			CIcarus::s_instances[index] = new CIcarus(index);
-			//OutputDebugString( "ICARUS flavor successfully created\n" );
 		}
 	}
 

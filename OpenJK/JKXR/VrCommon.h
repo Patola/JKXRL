@@ -6,13 +6,7 @@
 
 #include "VrClientInfo.h"
 
-#ifdef _WIN32
-#include "windows/TBXR_Common.h"
-#elif defined(__ANDROID__)
-#include "android/TBXR_Common.h"
-#else
 #include "linux/TBXR_Common.h"
-#endif
 
 
 extern long long global_time;

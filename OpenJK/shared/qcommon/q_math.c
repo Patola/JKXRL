@@ -23,7 +23,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 
 // Desktop Linux uses glibc's sincosf() below, which is a GNU extension and
 // needs _GNU_SOURCE defined before any system header is pulled in.
-#if defined(__linux__) && !defined(__ANDROID__) && !defined(_GNU_SOURCE)
+#if defined(__linux__) && !defined(_GNU_SOURCE)
 #define _GNU_SOURCE
 #endif
 
@@ -1474,7 +1474,7 @@ SinCos
 void SinCos( float radians, float *sine, float *cosine )
 {
 	// I think, better use math.h function, instead of ^
-#if defined (__linux__) && !defined (__ANDROID__)
+#if defined (__linux__)
 	sincosf(radians, sine, cosine);
 #else
 	*sine = sinf(radians);

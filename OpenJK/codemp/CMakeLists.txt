@@ -344,12 +344,10 @@ if(BuildMPEngine)
 
 	#    Dependencies
 
-	if (NOT WIN32)
-		# OpenGL
-		find_package(OpenGL REQUIRED)
-		set(MPEngineIncludeDirectories ${MPEngineIncludeDirectories} ${OPENGL_INCLUDE_DIR})
-		set(MPEngineLibraries ${MPEngineLibraries} ${OPENGL_LIBRARIES})
-	endif()
+	# OpenGL
+	find_package(OpenGL REQUIRED)
+	set(MPEngineIncludeDirectories ${MPEngineIncludeDirectories} ${OPENGL_INCLUDE_DIR})
+	set(MPEngineLibraries ${MPEngineLibraries} ${OPENGL_LIBRARIES})
 
 	find_package(SDL2 REQUIRED CONFIG)
 	if (TARGET SDL2::SDL2)

@@ -1420,7 +1420,6 @@ void G2_TransformBone (int child,CBoneCache &BC)
 		{
 			sprintf(mess,"a %2d %5d   %4d %4d            %f\n",boneListIndex,BC.incomingTime,TB.newFrame,TB.currentFrame,TB.backlerp);
 		}
-		OutputDebugString(mess);
 		const boneInfo_t &bone=boneList[boneListIndex];
 		if (bone.flags&BONE_ANIM_BLEND)
 		{
@@ -1450,7 +1449,6 @@ void G2_TransformBone (int child,CBoneCache &BC)
 				bone.flags
 				);
 		}
-//		OutputDebugString(mess);
 	}
 #endif
 //	boldFrame = (mdxaFrame_t *)((byte *)BC.header + BC.header->ofsFrames + TB.blendOldFrame * BC.frameSize );

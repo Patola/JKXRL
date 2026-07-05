@@ -39,16 +39,8 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #endif
 #include <minizip/unzip.h>
 
-#if defined(_WIN32)
-#include <windows.h>
-#endif
-
 // for rmdir
-#if defined (_MSC_VER)
-	#include <direct.h>
-#else
-	#include <unistd.h>
-#endif
+#include <unistd.h>
 
 /*
 =============================================================================
@@ -288,28 +280,12 @@ static int		fs_numServerReferencedPaks;
 static int		fs_serverReferencedPaks[MAX_SEARCH_PATHS];			// checksums
 static char	*fs_serverReferencedPakNames[MAX_SEARCH_PATHS];		// pk3 names
 
-#if defined(_WIN32)
-// temporary files - store them in a circular buffer. We're pretty
-// much guaranteed to not need more than 8 temp files at a time.
-static int		fs_temporaryFileWriteIdx = 0;
-static char		fs_temporaryFileNames[8][MAX_OSPATH];
-#endif
-
 // last valid game folder used
 char lastValidBase[MAX_OSPATH];
 char lastValidGame[MAX_OSPATH];
 
 #ifdef FS_MISSING
 FILE*		missingFiles = NULL;
-#endif
-
-/* C99 defines __func__ */
-#if __STDC_VERSION__ < 199901L
-#  if __GNUC__ >= 2 || _MSC_VER >= 1300
-#    define __func__ __FUNCTION__
-#  else
-#    define __func__ "(unknown)"
-#  endif
 #endif
 
 /*
@@ -1207,74 +1183,6 @@ qboolean FS_IsDemoExt(const char *filename, int namelen)
 	return qfalse;
 }
 
-#ifdef _WIN32
-
-bool Sys_GetFileTime(LPCSTR psFileName, FILETIME &ft)
-{
-	bool bSuccess = false;
-	HANDLE hFile = INVALID_HANDLE_VALUE;
-
-	hFile = CreateFile(	psFileName,	// LPCTSTR lpFileName,          // pointer to name of the file
-						GENERIC_READ,			// DWORD dwDesiredAccess,       // access (read-write) mode
-						FILE_SHARE_READ,		// DWORD dwShareMode,           // share mode
-						NULL,					// LPSECURITY_ATTRIBUTES lpSecurityAttributes,	// pointer to security attributes
-						OPEN_EXISTING,			// DWORD dwCreationDisposition,  // how to create
-						FILE_FLAG_NO_BUFFERING,// DWORD dwFlagsAndAttributes,   // file attributes
-						NULL					// HANDLE hTemplateFile          // handle to file with attributes to
-						);
-
-	if (hFile != INVALID_HANDLE_VALUE)
-	{
-		if (GetFileTime(hFile,	// handle to file
-						NULL,	// LPFILETIME lpCreationTime
-						NULL,	// LPFILETIME lpLastAccessTime
-						&ft		// LPFILETIME lpLastWriteTime
-						)
-			)
-		{
-			bSuccess = true;
-		}
-
-		CloseHandle(hFile);
-	}
-
-	return bSuccess;
-}
-
-bool Sys_FileOutOfDate( LPCSTR psFinalFileName /* dest */, LPCSTR psDataFileName /* src */ )
-{
-	FILETIME ftFinalFile, ftDataFile;
-
-	if (Sys_GetFileTime(psFinalFileName, ftFinalFile) && Sys_GetFileTime(psDataFileName, ftDataFile))
-	{
-		// timer res only accurate to within 2 seconds on FAT, so can't do exact compare...
-		//
-		//LONG l = CompareFileTime( &ftFinalFile, &ftDataFile );
-		if (  (fabs((double)(ftFinalFile.dwLowDateTime - ftDataFile.dwLowDateTime)) <= 20000000 ) &&
-				  ftFinalFile.dwHighDateTime == ftDataFile.dwHighDateTime
-			)
-		{
-			return false;	// file not out of date, ie use it.
-		}
-		return true;	// flag return code to copy over a replacement version of this file
-	}
-
-
-	// extra error check, report as suspicious if you find a file locally but not out on the net.,.
-	//
-	if (com_developer->integer)
-	{
-		if (!Sys_GetFileTime(psDataFileName, ftDataFile))
-		{
-			Com_Printf( "Sys_FileOutOfDate: reading %s but it's not on the net!\n", psFinalFileName);
-		}
-	}
-
-	return false;
-}
-
-#endif // _WIN32
-
 bool FS_FileCacheable(const char* const filename)
 {
 	extern	cvar_t	*com_buildScript;
@@ -1518,81 +1426,16 @@ long FS_FOpenFileRead( const char *filename, fileHandle_t *file, qboolean unique
 					!FS_IsExt( filename, ".game", l ) &&		// menu files
 					!FS_IsExt( filename, ".dat", l ) &&		// for journal files
 					!FS_IsDemoExt( filename, l ) ) {			// demos
-					fs_fakeChkSum = Q_flrand(0.0f, 1.0f);
-				}
-#ifdef _WIN32
-				// if running with fs_copyfiles 2, and search path == local, then we need to fail to open
-				//	if the time/date stamp != the network version (so it'll loop round again and use the network path,
-				//	which comes later in the search order)
-				//
-				if ( fs_copyfiles->integer == 2 && fs_cdpath->string[0] && !Q_stricmp( dir->path, fs_basepath->string )
-					&& FS_FileCacheable(filename) )
-				{
-					if ( Sys_FileOutOfDate( netpath, FS_BuildOSPath( fs_cdpath->string, dir->gamedir, filename ) ))
-					{
-						fclose(fsh[*file].handleFiles.file.o);
-						fsh[*file].handleFiles.file.o = 0;
-						continue;	//carry on to find the cdpath version.
-					}
-				}
-#endif
-				Q_strncpyz( fsh[*file].name, filename, sizeof( fsh[*file].name ) );
+				fs_fakeChkSum = Q_flrand(0.0f, 1.0f);
+			}
+			Q_strncpyz( fsh[*file].name, filename, sizeof( fsh[*file].name ) );
 				fsh[*file].zipFile = qfalse;
 				if ( fs_debug->integer ) {
 					Com_Printf( "FS_FOpenFileRead: %s (found in '%s%c%s')\n", filename,
 						dir->path, PATH_SEP, dir->gamedir );
 				}
 
-#ifdef _WIN32
-				// if we are getting it from the cdpath, optionally copy it
-				//  to the basepath
-				if ( fs_copyfiles->integer && !Q_stricmp( dir->path, fs_cdpath->string ) ) {
-					char	*copypath;
-
-					copypath = FS_BuildOSPath( fs_basepath->string, dir->gamedir, filename );
-					switch ( fs_copyfiles->integer )
-					{
-						default:
-						case 1:
-						{
-							FS_CopyFile( netpath, copypath );
-						}
-						break;
-
-						case 2:
-						{
-
-							if (FS_FileCacheable(filename) )
-							{
-								// maybe change this to Com_DPrintf?   On the other hand...
-								//
-								Com_Printf( "fs_copyfiles(2), Copying: %s to %s\n", netpath, copypath );
-
-								FS_CreatePath( copypath );
-
-								bool bOk = true;
-								if (!CopyFile( netpath, copypath, FALSE ))
-								{
-									DWORD dwAttrs = GetFileAttributes(copypath);
-									SetFileAttributes(copypath, dwAttrs & ~FILE_ATTRIBUTE_READONLY);
-									bOk = !!CopyFile( netpath, copypath, FALSE );
-								}
-
-								if (bOk)
-								{
-									// clear this handle and setup for re-opening of the new local copy...
-									//
-									bFasterToReOpenUsingNewLocalFile = qtrue;
-									fclose(fsh[*file].handleFiles.file.o);
-									fsh[*file].handleFiles.file.o = NULL;
-								}
-							}
-						}
-						break;
-					}
-				}
-#endif
-				if (bFasterToReOpenUsingNewLocalFile)
+			if (bFasterToReOpenUsingNewLocalFile)
 				{
 					break;	// and re-read the local copy, not the net version
 				}
@@ -3249,26 +3092,6 @@ void FS_Shutdown( qboolean closemfp ) {
 	searchpath_t	*p, *next;
 	int	i;
 
-#if defined(_WIN32)
-	// Delete temporary files
-	fs_temporaryFileWriteIdx = 0;
-	for ( size_t i = 0; i < ARRAY_LEN(fs_temporaryFileNames); i++ )
-	{
-		if (fs_temporaryFileNames[i][0] != '\0')
-		{
-			if ( !DeleteFile(fs_temporaryFileNames[i]) )
-			{
-				DWORD error = GetLastError();
-				Com_DPrintf("FS_Shutdown: failed to delete '%s'. "
-							"Win32 error code: 0x08x",
-							fs_temporaryFileNames[i],
-							error);
-			}
-
-			fs_temporaryFileNames[i][0] = '\0';
-		}
-	}
-#endif
 
 	for(i = 0; i < MAX_FILE_HANDLES; i++) {
 		if (fsh[i].fileSize) {
@@ -3845,10 +3668,6 @@ void FS_InitFilesystem( void ) {
 	Q_strncpyz(lastValidBase, fs_basepath->string, sizeof(lastValidBase));
 	Q_strncpyz(lastValidGame, fs_gamedirvar->string, sizeof(lastValidGame));
 
-#if defined(_WIN32)
-	Com_Memset(fs_temporaryFileNames, 0, sizeof(fs_temporaryFileNames));
-#endif
-
   // bk001208 - SafeMode see below, FIXME?
 }
 
@@ -4137,99 +3956,5 @@ bool FS_LoadMachOBundle( const char *name )
 
 qboolean FS_WriteToTemporaryFile( const void *data, size_t dataLength, char **tempFilePath )
 {
-#if defined(_WIN32)
-	DWORD error;
-	TCHAR tempPath[MAX_PATH];
-	DWORD tempPathResult = GetTempPath(MAX_PATH, tempPath);
-	if ( tempPathResult )
-	{
-		TCHAR tempFileName[MAX_PATH];
-		UINT tempFileNameResult = GetTempFileName(tempPath, "OJK", 0, tempFileName);
-		if ( tempFileNameResult )
-		{
-			HANDLE file = CreateFile(
-				tempFileName, GENERIC_WRITE, 0, NULL,
-				CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
-			if ( file != INVALID_HANDLE_VALUE )
-			{
-				DWORD bytesWritten = 0;
-				if (WriteFile(file, data, dataLength, &bytesWritten, NULL))
-				{
-					int deletesRemaining = ARRAY_LEN(fs_temporaryFileNames);
-
-					CloseHandle(file);
-
-					while ( deletesRemaining > 0 &&
-							fs_temporaryFileNames[fs_temporaryFileWriteIdx][0] != '\0' )
-					{
-						// Delete old temporary file as we need to
-						if ( DeleteFile(fs_temporaryFileNames[fs_temporaryFileWriteIdx]) )
-						{
-							break;
-						}
-
-						error = GetLastError();
-						Com_DPrintf("FS_WriteToTemporaryFile failed for '%s'. "
-									"Win32 error code: 0x%08x\n",
-									fs_temporaryFileNames[fs_temporaryFileWriteIdx],
-									error);
-
-						// Failed to delete, possibly because DLL was still in use. This can
-						// happen when running a listen server and you continually restart
-						// the map. The game DLL is reloaded, but cgame and ui DLLs are not.
-						fs_temporaryFileWriteIdx =
-							(fs_temporaryFileWriteIdx + 1) % ARRAY_LEN(fs_temporaryFileNames);
-						deletesRemaining--;
-					}
-
-					// If this happened, then all slots are used and we some how have 8 DLLs
-					// loaded at once?!
-					assert(deletesRemaining > 0);
-
-					Q_strncpyz(fs_temporaryFileNames[fs_temporaryFileWriteIdx],
-								tempFileName, sizeof(fs_temporaryFileNames[0]));
-					fs_temporaryFileWriteIdx =
-						(fs_temporaryFileWriteIdx + 1) % ARRAY_LEN(fs_temporaryFileNames);
-
-					if ( tempFilePath )
-					{
-						size_t fileNameLen = strlen(tempFileName);
-						*tempFilePath = (char *)Z_Malloc(fileNameLen + 1, TAG_FILESYS);
-						Q_strncpyz(*tempFilePath, tempFileName, fileNameLen + 1);
-					}
-
-					return qtrue;
-				}
-				else
-				{
-					error = GetLastError();
-					Com_DPrintf("FS_WriteToTemporaryFile failed to write '%s'. "
-								"Win32 error code: 0x%08x\n",
-								tempFileName, error);
-				}
-			}
-			else
-			{
-				error = GetLastError();
-				Com_DPrintf("FS_WriteToTemporaryFile failed to create '%s'. "
-							"Win32 error code: 0x%08x\n",
-							tempFileName, error);
-			}
-		}
-		else
-		{
-			error = GetLastError();
-			Com_DPrintf("FS_WriteToTemporaryFile failed to generate temporary file name. "
-						"Win32 error code: 0x%08x\n", error);
-		}
-	}
-	else
-	{
-		error = GetLastError();
-		Com_DPrintf("FS_WriteToTemporaryFile failed to get temporary file folder. "
-						"Win32 error code: 0x%08x\n", error);
-	}
-#endif
-
 	return qfalse;
 }

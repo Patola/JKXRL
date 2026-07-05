@@ -275,7 +275,7 @@ void Sys_UnloadDll( void *dllHandle )
 
 // Android supplies its own Sys_LoadDll; desktop (Linux/macOS) uses
 // this generic implementation (Sys_LoadLibrary is dlopen() on Unix).
-#if defined(__linux__) && !defined(__ANDROID__)
+#if defined(__linux__)
 /*
 =================
 Sys_LoadDll

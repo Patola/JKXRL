@@ -143,13 +143,7 @@ include(InstallConfig)
 #=============================================================================
 
 # Operating system settings
-if (APPLE)
-	set(SharedDefines "MACOS_X")
-endif()
-
-if (NOT WIN32 AND NOT APPLE)
-	set(SharedDefines "ARCH_STRING=\"${Architecture}\"")
-endif()
+set(SharedDefines "ARCH_STRING=\"${Architecture}\"")
 
 if(CMAKE_SYSTEM_NAME MATCHES "BSD")
   add_definitions(-DIOAPI_NO_64)

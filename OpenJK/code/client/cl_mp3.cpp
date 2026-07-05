@@ -504,8 +504,6 @@ qboolean MP3Stream_GetSamples( channel_t *ch, int startingSampleNum, int count, 
 		return qfalse;
 	}
 
-//	OutputDebugString(va("\nRequest: startingSampleNum %d, count %d\n",startingSampleNum,count));
-//	OutputDebugString(va("WindowPos %d, WindowWritePos %d\n",ch->iMP3SlidingDecodeWindowPos,ch->iMP3SlidingDecodeWritePos));
 
 //	qboolean _bDecoded = qfalse;
 
@@ -522,16 +520,13 @@ qboolean MP3Stream_GetSamples( channel_t *ch, int startingSampleNum, int count, 
 //			Com_Printf(S_COLOR_YELLOW"Decode needed!\n");
 //		}
 //		_bDecoded = qtrue;
-//		OutputDebugString("Scrolling...");
 
 		int _iBytesDecoded = MP3Stream_Decode( (LP_MP3STREAM) &ch->MP3StreamHeader, bStereo );	// stereo only for music, so this is safe
-//		OutputDebugString(va("%d bytes decoded\n",_iBytesDecoded));
 		if (_iBytesDecoded == 0)
 		{
 			// no more source data left so clear the remainder of the buffer...
 			//
 			memset(ch->MP3SlidingDecodeBuffer + ch->iMP3SlidingDecodeWritePos, 0, sizeof(ch->MP3SlidingDecodeBuffer)-ch->iMP3SlidingDecodeWritePos);
-//			OutputDebugString("Finished\n");
 			qbStreamStillGoing = qfalse;
 			break;
 		}
@@ -550,7 +545,6 @@ qboolean MP3Stream_GetSamples( channel_t *ch, int startingSampleNum, int count, 
 				ch->iMP3SlidingDecodeWindowPos+= iQuarterOfSlidingBuffer;
 			}
 		}
-//		OutputDebugString(va("WindowPos %d, WindowWritePos %d\n",ch->iMP3SlidingDecodeWindowPos,ch->iMP3SlidingDecodeWritePos));
 	}
 
 //	if (!_bDecoded)
@@ -561,7 +555,6 @@ qboolean MP3Stream_GetSamples( channel_t *ch, int startingSampleNum, int count, 
 	assert(startingSampleNum >= ch->iMP3SlidingDecodeWindowPos);
 	memcpy( buf, ch->MP3SlidingDecodeBuffer + (startingSampleNum-ch->iMP3SlidingDecodeWindowPos), count);
 
-//	OutputDebugString("OK\n\n");
 
 	return qbStreamStillGoing;
 }

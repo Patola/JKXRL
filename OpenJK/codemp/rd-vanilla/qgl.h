@@ -25,9 +25,6 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 
 #if defined( __LINT__ )
 #	include <GL/gl.h>
-#elif defined( _WIN32 )
-#	include <windows.h>
-#	include <GL/gl.h>
 #elif defined(MACOS_X)
 // Prevent OS X from including its own out-of-date glext.h
 #	define GL_GLEXT_LEGACY

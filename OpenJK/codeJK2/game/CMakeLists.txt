@@ -276,10 +276,8 @@ set(JK2SPGameFiles ${JK2SPGameFiles} ${JK2SPGameRuflFiles})
 
 add_library(${JK2SPGame} SHARED ${JK2SPGameFiles})
 
-if(NOT MSVC)
-	# remove "lib" prefix for .so/.dylib files
-	set_target_properties(${JK2SPGame} PROPERTIES PREFIX "")
-endif()
+# remove "lib" prefix for .so/.dylib files
+set_target_properties(${JK2SPGame} PROPERTIES PREFIX "")
 
 if(MakeApplicationBundles AND BuildJK2SPEngine)
 	install(TARGETS ${JK2SPGame} LIBRARY DESTINATION "${JK2InstallDir}/${JK2SPEngine}.app/Contents/MacOS/OpenJK")

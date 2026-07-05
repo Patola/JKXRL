@@ -22,10 +22,6 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 
 #pragma once
 
-#ifdef _WIN32
-#include <intrin.h>
-#endif
-
 class timing_c
 {
 private:
@@ -39,22 +35,14 @@ public:
 
 	void Start()
 	{
-#ifdef _WIN32
-		start = __rdtsc();
-#else
 		start = 0;
-#endif
 	}
 
 	int End()
 	{
 		int64_t	time;
 
-#ifdef _WIN32
-		end = __rdtsc();
-#else
 		end = 0;
-#endif
 
 		time = end - start;
 		if (time < 0)

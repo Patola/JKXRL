@@ -1697,7 +1697,6 @@ static void CG_RegisterGraphics( void ) {
 			break;
 		}
 		cgs.model_draw[i] = cgi_R_RegisterModel( modelName );
-//		OutputDebugString(va("### CG_RegisterGraphics(): cgs.model_draw[%d] = \"%s\"\n",i,modelName));
 	}
 
 	cg.loadLCARSStage = 8;

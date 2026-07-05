@@ -33,7 +33,7 @@ short	*snd_out;
 
 
 // FIXME: proper fix for that ?
-#if !defined(_MSC_VER) || !id386
+#if 1
 void S_WriteLinearBlastStereo16 (void)
 {
 	int		i;

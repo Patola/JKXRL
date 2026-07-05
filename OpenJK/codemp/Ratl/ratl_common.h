@@ -70,7 +70,6 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 ////////////////////////////////////////////////////////////////////////////////////////
 // In VC++, Don't Bother With These Warnings
 ////////////////////////////////////////////////////////////////////////////////////////
-#if defined(_MSC_VER) && !defined(__MWERKS__)
 	#pragma warning ( disable : 4786 )			// Truncated to 255 characters warning
 	#pragma warning ( disable : 4284 )			// nevamind what this is
 	#pragma warning ( disable : 4100 )			// unreferenced formal parameter
@@ -78,7 +77,6 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 	#pragma warning ( disable : 4130 )			// logical operation on address of string constant
 	#pragma warning ( disable : 4127 )			// conditional expression is constant
 	#pragma warning ( disable : 4996 )			// This function or variable may be unsafe.
-#endif
 
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -139,17 +137,10 @@ namespace	mem
 // unsigned character array
 //
 ////////////////////////////////////////////////////////////////////////////////////////
-#if defined(_MSC_VER) && !defined(__MWERKS__)
-	struct alignStruct
-	{
-		int space;
-	};
-#else
 	struct alignStruct
 	{
 		unsigned char space[16];
 	} __attribute__ ((aligned(16)));
-#endif
 
 	inline void*	cpy( void *dest, const void *src, size_t count )
 	{

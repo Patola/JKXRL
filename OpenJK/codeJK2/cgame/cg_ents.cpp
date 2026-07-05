@@ -1487,7 +1487,6 @@ CG_CalcEntityLerpPositions
 ===============
 */
 extern char	*vtos( const vec3_t v );
-#if 1
 void CG_CalcEntityLerpPositions( centity_t *cent ) {
 	if ( cent->currentState.number == cg.snap->ps.clientNum)
 	{
@@ -1636,107 +1635,6 @@ Ghoul2 Insert End
 */
 	// FIXME: perform general error decay?
 }
-#else
-void CG_CalcEntityLerpPositions( centity_t *cent ) 
-{
-	if ( cent->currentState.number == cg.snap->ps.clientNum)
-	{
-		// if the player, take position from prediction
-		VectorCopy( cg.predicted_player_state.origin, cent->lerpOrigin );
-		VectorCopy( cg.predicted_player_state.viewangles, cent->lerpAngles );
-OutputDebugString(va("b=(%6.2f,%6.2f,%6.2f)\n",cent->lerpOrigin[0],cent->lerpOrigin[1],cent->lerpOrigin[2]));
-		return;
-	}
-
-
-if (cent->currentState.number != cg.snap->ps.clientNum&&cent->interpolate && cent->currentState.pos.trType == TR_INTERPOLATE)
-{
-	if (cent->interpolate)
-	{
-OutputDebugString(va("[%3d] interp %4.2f t=%6d  st = %6d  nst = %6d     b=%6.2f   nb=%6.2f\n",
-		cent->currentState.number,
-		cg.frameInterpolation,
-		cg.time,
-		cg.snap->serverTime,
-		cg.nextSnap->serverTime,
-		cent->currentState.pos.trBase[0],
-		cent->nextState.pos.trBase[0]));
-	}
-	else
-	{
-OutputDebugString(va("[%3d] nonext %4.2f t=%6d  st = %6d  nst = %6d     b=%6.2f   nb=%6.2f\n",
-		cent->currentState.number,
-		cg.frameInterpolation,
-		cg.time,
-		cg.snap->serverTime,
-		0,
-		cent->currentState.pos.trBase[0],
-		0.0f));
-	}
-}
-
-	//FIXME: prediction on clients in timescale results in jerky positional translation
-	if (cent->interpolate && 
-		(cent->currentState.number == cg.snap->ps.clientNum ||
-		cent->interpolate && cent->currentState.pos.trType == TR_INTERPOLATE ) )
-	{
-		vec3_t		current, next;
-		float		f;
-
-		// it would be an internal error to find an entity that interpolates without
-		// a snapshot ahead of the current one
-		if ( cg.nextSnap == NULL ) 
-		{
-			CG_Error( "CG_AddCEntity: cg.nextSnap == NULL" );
-		}
-
-		f = cg.frameInterpolation;
-
-		EvaluateTrajectory( &cent->currentState.apos, cg.snap->serverTime, current );
-		EvaluateTrajectory( &cent->nextState.apos, cg.nextSnap->serverTime, next );
-
-		cent->lerpAngles[0] = LerpAngle( current[0], next[0], f );
-		cent->lerpAngles[1] = LerpAngle( current[1], next[1], f );
-		cent->lerpAngles[2] = LerpAngle( current[2], next[2], f );
-
-		EvaluateTrajectory( &cent->currentState.pos, cg.snap->serverTime, current );
-		EvaluateTrajectory( &cent->nextState.pos, cg.nextSnap->serverTime, next );
-
-		cent->lerpOrigin[0] = current[0] + f * ( next[0] - current[0] );
-		cent->lerpOrigin[1] = current[1] + f * ( next[1] - current[1] );
-		cent->lerpOrigin[2] = current[2] + f * ( next[2] - current[2] );
-		return;
-	}
-	// just use the current frame and evaluate as best we can
-	trajectory_t *posData = &cent->currentState.pos;
-	{
-		gentity_t *ent = &g_entities[cent->currentState.number];
-
-		if ( ent && ent->inuse)
-		{
-			if ( ent->s.eFlags & EF_BLOCKED_MOVER || ent->s.pos.trType == TR_STATIONARY )
-			{//this mover has stopped moving and is going to wig out if we predict it
-				//based on last frame's info- cut across the network and use the currentOrigin
-				VectorCopy( ent->currentOrigin, cent->lerpOrigin );
-				posData = NULL;
-			}
-			else
-			{
-				posData = &ent->s.pos;
-				EvaluateTrajectory(&ent->s.pos,cg.time, cent->lerpOrigin );
-			}
-		}
-		else
-		{
-			EvaluateTrajectory( &cent->currentState.pos, cg.snap->serverTime, cent->lerpOrigin );
-		}
-	}
-	EvaluateTrajectory( &cent->currentState.apos, cg.time, cent->lerpAngles );
-
-	// adjust for riding a mover
-	CG_AdjustPositionForMover( cent->lerpOrigin, cent->currentState.groundEntityNum, cg.time, cent->lerpOrigin );
-}
-#endif
 /*
 ===============
 CG_AddLocalSet
@@ -2181,13 +2079,11 @@ void CG_AddPacketEntities( void ) {
 		{
 			cg.frameInterpolation = (float)( cg.time - cg.snap->serverTime ) / delta;
 		}
-//OutputDebugString(va("interp %4.2f ct=%6d nt=%6d st=%6d\n",cg.frameInterpolation,cg.time,cg.nextSnap->serverTime,cg.snap->serverTime));
 	} 
 	else 
 	{
 		cg.frameInterpolation = 0;	// actually, it should never be used, because 
 									// no entities should be marked as interpolating
-//OutputDebugString(va("noterp %4.2f ct=%6d nt=%6d st=%6d\n",cg.frameInterpolation,cg.time,0,cg.snap->serverTime));
 	}
 
 	// the auto-rotating items will all have the same axis

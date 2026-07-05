@@ -429,7 +429,6 @@ void R_CheckMP3s( const char *psDir )
 								pSFX->bDefaultSound = false;
 							}
 
-//							OutputDebugString(va("File: \"%s\"   MaxVol %f\n",sFilename,pSFX->fVolRange));
 
 							// other stuff...
 							//

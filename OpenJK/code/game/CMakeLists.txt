@@ -368,10 +368,8 @@ add_library(${SPGame} SHARED ${SPGameFiles})
 # Hide symbols not explicitly marked public.
 set_property(TARGET ${SPGame} APPEND PROPERTY COMPILE_OPTIONS ${OPENJK_VISIBILITY_FLAGS})
 
-if(NOT MSVC)
-	# remove "lib" prefix for .so/.dylib files
-	set_target_properties(${SPGame} PROPERTIES PREFIX "")
-endif()
+# remove "lib" prefix for .so/.dylib files
+set_target_properties(${SPGame} PROPERTIES PREFIX "")
 
 if(MakeApplicationBundles AND BuildSPEngine)
 	install(TARGETS ${SPGame}

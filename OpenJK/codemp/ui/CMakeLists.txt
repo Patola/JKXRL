@@ -91,10 +91,8 @@ set(MPUIFiles ${MPUIFiles} ${MPUIRendererFiles})
 
 add_library(${MPUI} SHARED ${MPUIFiles})
 
-if(NOT MSVC)
-	# remove "lib" prefix for .so/.dylib files
-	set_target_properties(${MPUI} PROPERTIES PREFIX "")
-endif()
+# remove "lib" prefix for .so/.dylib files
+set_target_properties(${MPUI} PROPERTIES PREFIX "")
 
 if(MakeApplicationBundles AND BuildMPEngine)
 	install(TARGETS ${MPUI}

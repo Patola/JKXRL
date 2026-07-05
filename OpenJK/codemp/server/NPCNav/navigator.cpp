@@ -28,7 +28,6 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "game/g_nav.h"
 #include <time.h>
 #ifdef __linux__
-unsigned int timeGetTime(void);
 #endif
 
 #include "../sv_gameapi.h"
@@ -69,10 +68,8 @@ int GetTime ( int lastTime )
 	static qboolean	initialized = qfalse;
 
 	if (!initialized) {
-		timeBase = timeGetTime();
 		initialized = qtrue;
 	}
-	curtime = timeGetTime() - timeBase - lastTime;
 
 	return curtime;
 }

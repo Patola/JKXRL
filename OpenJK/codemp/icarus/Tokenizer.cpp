@@ -14,10 +14,8 @@
 #pragma warning(disable : 4189) //local variable is initialized but not referenced
 #pragma warning(disable : 4244) //conversion from x to x, possible loss of data
 
-#ifndef _WIN32
 #include <stdio.h>
 #include <stdlib.h>
-#endif
 
 enum
 {
@@ -460,12 +458,7 @@ void CParseFile::Delete()
 	}
 	if (m_ownsFile && (m_fileHandle != NULL))
 	{
-#ifdef _WIN32
-		CloseHandle(m_fileHandle);
-#else
 		fclose(m_fileHandle);
-#endif
-		m_fileHandle = NULL;
 	}
 	if (m_fileName != NULL)
 	{
@@ -488,26 +481,16 @@ bool CParseFile::Init()
 
 unsigned int CParseFile::GetFileSize()
 {
-#ifdef _WIN32
-	unsigned int dwCur = SetFilePointer(m_fileHandle, 0L, NULL, FILE_CURRENT);
-	unsigned int dwLen = SetFilePointer(m_fileHandle, 0, NULL, FILE_END);
-	SetFilePointer(m_fileHandle, dwCur, NULL, FILE_BEGIN);
-#else
 	fseek(m_fileHandle, 0L, SEEK_END);
 	unsigned int dwLen = ftell(m_fileHandle);
 	fseek(m_fileHandle, 0L, SEEK_SET);
-#endif
 	return dwLen;
 }
 
 void CParseFile::Read(void* buff, UINT buffsize)
 {
 	unsigned int bytesRead;
-#ifdef _WIN32
-	ReadFile(m_fileHandle, buff, buffsize, &bytesRead, NULL);
-#else
 	fread(buff, buffsize, 1, m_fileHandle);
-#endif
 }
 
 bool CParseFile::Init(LPCTSTR filename, CTokenizer* tokenizer)
@@ -516,25 +499,6 @@ bool CParseFile::Init(LPCTSTR filename, CTokenizer* tokenizer)
 	m_fileName = (char*)malloc(strlen(filename) + 1);
 	strcpy(m_fileName, filename);
 
-#ifdef _WIN32
-		unsigned int dwAccess = GENERIC_READ;
-		unsigned int dwShareMode = FILE_SHARE_WRITE | FILE_SHARE_READ;
-		SECURITY_ATTRIBUTES sa;
-		sa.nLength = sizeof(sa);
-		sa.lpSecurityDescriptor = NULL;
-		sa.bInheritHandle = 0;
-		unsigned int dwCreateFlag = OPEN_EXISTING;
-
-		m_fileHandle = CreateFile(filename, dwAccess, dwShareMode, &sa, dwCreateFlag, FILE_ATTRIBUTE_NORMAL, NULL);
-
-		if (m_fileHandle == (HANDLE)-1)
-		{
-			tokenizer->Error(TKERR_INCLUDE_FILE_NOTFOUND);
-			Init();
-
-			return false;
-		}
-#else
 		m_fileHandle = fopen(filename, "r+");
 
 		if (m_fileHandle == NULL)
@@ -544,7 +508,6 @@ bool CParseFile::Init(LPCTSTR filename, CTokenizer* tokenizer)
 
 			return false;
 		}
-#endif
 		m_filesize = GetFileSize();
 		m_buff = (byte*)malloc(m_filesize);
 		if (m_buff == NULL)

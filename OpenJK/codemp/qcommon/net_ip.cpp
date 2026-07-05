@@ -24,27 +24,6 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 
 #include "qcommon/qcommon.h"
 
-#ifdef _WIN32
-	#include <winsock.h>
-
-	typedef int socklen_t;
-
-	#undef EAGAIN
-	#undef EADDRNOTAVAIL
-	#undef EAFNOSUPPORT
-	#undef ECONNRESET
-
-	#define EAGAIN WSAEWOULDBLOCK
-	#define EADDRNOTAVAIL WSAEADDRNOTAVAIL
-	#define EAFNOSUPPORT WSAEAFNOSUPPORT
-	#define ECONNRESET WSAECONNRESET
-
-	#define socketError WSAGetLastError( )
-
-	static WSADATA	winsockdata;
-	static qboolean	winsockInitialized = qfalse;
-#else
-
 #if MAC_OS_X_VERSION_MIN_REQUIRED == 1020
         // needed for socklen_t on OSX 10.2
 #        define _BSD_SOCKLEN_T_
@@ -77,8 +56,6 @@ typedef int SOCKET;
 #define closesocket                                close
 #define ioctlsocket                                ioctl
 #define socketError                                errno
-
-#endif
 
 static qboolean usingSocks = qfalse;
 static qboolean networkingEnabled = qfalse;
@@ -114,58 +91,7 @@ NET_ErrorString
 ====================
 */
 char *NET_ErrorString( void ) {
-#ifdef _WIN32
-	switch( socketError ) {
-	case WSAEINTR: return "WSAEINTR";
-	case WSAEBADF: return "WSAEBADF";
-	case WSAEACCES: return "WSAEACCES";
-	case WSAEDISCON: return "WSAEDISCON";
-	case WSAEFAULT: return "WSAEFAULT";
-	case WSAEINVAL: return "WSAEINVAL";
-	case WSAEMFILE: return "WSAEMFILE";
-	case WSAEWOULDBLOCK: return "WSAEWOULDBLOCK";
-	case WSAEINPROGRESS: return "WSAEINPROGRESS";
-	case WSAEALREADY: return "WSAEALREADY";
-	case WSAENOTSOCK: return "WSAENOTSOCK";
-	case WSAEDESTADDRREQ: return "WSAEDESTADDRREQ";
-	case WSAEMSGSIZE: return "WSAEMSGSIZE";
-	case WSAEPROTOTYPE: return "WSAEPROTOTYPE";
-	case WSAENOPROTOOPT: return "WSAENOPROTOOPT";
-	case WSAEPROTONOSUPPORT: return "WSAEPROTONOSUPPORT";
-	case WSAESOCKTNOSUPPORT: return "WSAESOCKTNOSUPPORT";
-	case WSAEOPNOTSUPP: return "WSAEOPNOTSUPP";
-	case WSAEPFNOSUPPORT: return "WSAEPFNOSUPPORT";
-	case WSAEAFNOSUPPORT: return "WSAEAFNOSUPPORT";
-	case WSAEADDRINUSE: return "WSAEADDRINUSE";
-	case WSAEADDRNOTAVAIL: return "WSAEADDRNOTAVAIL";
-	case WSAENETDOWN: return "WSAENETDOWN";
-	case WSAENETUNREACH: return "WSAENETUNREACH";
-	case WSAENETRESET: return "WSAENETRESET";
-	case WSAECONNABORTED: return "WSWSAECONNABORTEDAEINTR";
-	case WSAECONNRESET: return "WSAECONNRESET";
-	case WSAENOBUFS: return "WSAENOBUFS";
-	case WSAEISCONN: return "WSAEISCONN";
-	case WSAENOTCONN: return "WSAENOTCONN";
-	case WSAESHUTDOWN: return "WSAESHUTDOWN";
-	case WSAETOOMANYREFS: return "WSAETOOMANYREFS";
-	case WSAETIMEDOUT: return "WSAETIMEDOUT";
-	case WSAECONNREFUSED: return "WSAECONNREFUSED";
-	case WSAELOOP: return "WSAELOOP";
-	case WSAENAMETOOLONG: return "WSAENAMETOOLONG";
-	case WSAEHOSTDOWN: return "WSAEHOSTDOWN";
-	case WSASYSNOTREADY: return "WSASYSNOTREADY";
-	case WSAVERNOTSUPPORTED: return "WSAVERNOTSUPPORTED";
-	case WSANOTINITIALISED: return "WSANOTINITIALISED";
-	case WSAHOST_NOT_FOUND: return "WSAHOST_NOT_FOUND";
-	case WSATRY_AGAIN: return "WSATRY_AGAIN";
-	case WSANO_RECOVERY: return "WSANO_RECOVERY";
-	case WSANO_DATA: return "WSANO_DATA";
-	case WSAEHOSTUNREACH: return "WSAEHOSTUNREACH";
-	default: return "NO ERROR";
-	}
-#else
 	return strerror ( socketError );
-#endif
 }
 
 static void NetadrToSockadr( netadr_t *a, struct sockaddr_in *s ) {
@@ -962,16 +888,6 @@ NET_Init
 ====================
 */
 void NET_Init( void ) {
-#ifdef _WIN32
-	int r = WSAStartup( MAKEWORD( 1, 1 ), &winsockdata );
-	if( r ) {
-		Com_Printf( "WARNING: Winsock initialization failed, returned %d\n", r );
-		return;
-	}
-
-	winsockInitialized = qtrue;
-	Com_Printf( "Winsock Initialized\n" );
-#endif
 
 	NET_Config( qtrue );
 
@@ -989,10 +905,6 @@ void NET_Shutdown( void ) {
 	}
 
 	NET_Config( qfalse );
-#ifdef _WIN32
-	WSACleanup();
-	winsockInitialized = qfalse;
-#endif
 }
 
 /*
@@ -1053,16 +965,6 @@ void NET_Sleep( int msec ) {
 		FD_SET(ip_socket, &fdset); // network socket
 		highestfd = ip_socket;
 	}
-
-#ifdef _WIN32
-	if(highestfd == INVALID_SOCKET)
-	{
-		// windows ain't happy when select is called without valid FDs
-
-		SleepEx(msec, 0);
-		return;
-	}
-#endif
 
 	timeout.tv_sec = msec/1000;
 	timeout.tv_usec = (msec%1000)*1000;

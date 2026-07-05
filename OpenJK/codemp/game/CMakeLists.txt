@@ -207,10 +207,8 @@ set(MPGameFiles ${MPGameFiles} ${MPGameUiFiles})
 
 add_library(${MPGame} SHARED ${MPGameFiles})
 
-if(NOT MSVC)
-	# remove "lib" prefix for .so/.dylib files
-	set_target_properties(${MPGame} PROPERTIES PREFIX "")
-endif()
+# remove "lib" prefix for .so/.dylib files
+set_target_properties(${MPGame} PROPERTIES PREFIX "")
 
 if(MakeApplicationBundles AND BuildMPEngine)
 	install(TARGETS ${MPGame}

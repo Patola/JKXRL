@@ -33,7 +33,6 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 
 void GEntity_ThinkFunc(gentity_t *self)
 {
-//#define THINKCASE(blah) case thinkF_ ## blah: blah(self); OutputDebugString(va("%s\n",#blah));break;
 #define THINKCASE(blah) case thinkF_ ## blah: blah(self); break;
 
 	switch (self->e_ThinkFunc)
@@ -141,7 +140,6 @@ void GEntity_ThinkFunc(gentity_t *self)
 //
 void CEntity_ThinkFunc(centity_s *cent)
 {
-//#define CLTHINKCASE(blah) case clThinkF_ ## blah: blah(cent); OutputDebugString(va("%s\n",#blah));break;
 #define CLTHINKCASE(blah) case clThinkF_ ## blah: blah(cent); break;
 
 	switch (cent->gent->e_clThinkFunc)
@@ -162,7 +160,6 @@ void CEntity_ThinkFunc(centity_s *cent)
 
 void GEntity_ReachedFunc(gentity_t *self)
 {	
-//#define REACHEDCASE(blah) case reachedF_ ## blah: blah(self); OutputDebugString(va("%s\n",#blah));break;
 #define REACHEDCASE(blah) case reachedF_ ## blah: blah(self); break;
 
 	switch (self->e_ReachedFunc)
@@ -185,7 +182,6 @@ void GEntity_ReachedFunc(gentity_t *self)
 
 void GEntity_BlockedFunc(gentity_t *self, gentity_t *other)
 {
-//#define BLOCKEDCASE(blah) case blockedF_ ## blah: blah(self,other); OutputDebugString(va("%s\n",#blah));break;
 #define BLOCKEDCASE(blah) case blockedF_ ## blah: blah(self,other); break;
 
 	switch (self->e_BlockedFunc)
@@ -204,7 +200,6 @@ void GEntity_BlockedFunc(gentity_t *self, gentity_t *other)
 
 void GEntity_TouchFunc(gentity_t *self, gentity_t *other, trace_t *trace)
 {
-//#define TOUCHCASE(blah) case touchF_ ## blah: blah(self,other,trace); OutputDebugString(va("%s\n",#blah));break;
 #define TOUCHCASE(blah) case touchF_ ## blah: blah(self,other,trace); break;
 
 	switch (self->e_TouchFunc)
@@ -241,7 +236,6 @@ void GEntity_UseFunc(gentity_t *self, gentity_t *other, gentity_t *activator)
 	{
 		return;
 	}
-//#define USECASE(blah) case useF_ ## blah: blah(self,other,activator); OutputDebugString(va("%s\n",#blah));break;
 #define USECASE(blah) case useF_ ## blah: blah(self,other,activator); break;
 
 	switch (self->e_UseFunc)
@@ -328,7 +322,6 @@ void GEntity_UseFunc(gentity_t *self, gentity_t *other, gentity_t *activator)
 
 void GEntity_PainFunc(gentity_t *self, gentity_t *inflictor, gentity_t *attacker, vec3_t point, int damage, int mod,int hitLoc)
 {
-//#define PAINCASE(blah) case painF_ ## blah: blah(self,attacker,damage); OutputDebugString(va("%s\n",#blah));break;
 #define PAINCASE(blah) case painF_ ## blah: blah(self,inflictor,attacker,point,damage,mod,hitLoc); break;
 
 	switch (self->e_PainFunc)
@@ -368,7 +361,6 @@ void GEntity_PainFunc(gentity_t *self, gentity_t *inflictor, gentity_t *attacker
 
 void GEntity_DieFunc(gentity_t *self, gentity_t *inflictor, gentity_t *attacker, int damage, int mod, int dFlags, int hitLoc)
 {
-//#define DIECASE(blah) case dieF_ ## blah: blah(self,inflictor,attacker,damage,mod); OutputDebugString(va("%s\n",#blah));break;
 #define DIECASE(blah) case dieF_ ## blah: blah(self,inflictor,attacker,damage,mod,dFlags,hitLoc); break;
 
 	switch (self->e_DieFunc)

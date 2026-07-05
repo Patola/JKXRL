@@ -157,10 +157,8 @@ if(BuildSPRdVanilla OR BuildJK2SPRdVanilla)
 
 	function(add_sp_renderer_project ProjectName Label EngineName InstallDir Component)
 		add_library(${ProjectName} SHARED ${SPRDVanillaFiles})
-		if(NOT MSVC)
-			# remove "lib" prefix for .so/.dylib files
-			set_target_properties(${ProjectName} PROPERTIES PREFIX "")
-		endif()
+		# remove "lib" prefix for .so/.dylib files
+		set_target_properties(${ProjectName} PROPERTIES PREFIX "")
 
 		if(MakeApplicationBundles AND (BuildSPEngine OR BuildJK2SPEngine))
 			install(TARGETS ${ProjectName}

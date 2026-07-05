@@ -533,7 +533,6 @@ qboolean CG_Credits_Draw( void )
 				// fading up...
 				//
 				gv4Color[3] = fSecondsElapsed / fCARD_FADESECONDS;
-//				OutputDebugString(va("fade up: %f\n",gv4Color[3]));
 			}
 			else
 			if (fSecondsElapsed > fCARD_FADESECONDS + fCARD_SUSTAINSECONDS)
@@ -542,12 +541,10 @@ qboolean CG_Credits_Draw( void )
 				//
 				const float fFadeDownSeconds = fSecondsElapsed - (fCARD_FADESECONDS + fCARD_SUSTAINSECONDS);
 				gv4Color[3] = 1.0f - (fFadeDownSeconds / fCARD_FADESECONDS);
-//				OutputDebugString(va("fade dw: %f\n",gv4Color[3]));
 			}
 			else
 			{
 				gv4Color[3] = 1.0f;
-//				OutputDebugString(va("normal: %f\n",gv4Color[3]));
 			}
 			if (gv4Color[3] < 0.0f)
 				gv4Color[3] = 0.0f;	// ... otherwise numbers that have dipped slightly -ve flash up fullbright after fade down

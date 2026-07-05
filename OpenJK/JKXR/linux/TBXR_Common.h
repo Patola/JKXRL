@@ -1,7 +1,7 @@
 #if !defined(tbxr_common_h)
 #define tbxr_common_h
 
-#if defined(__linux__) && !defined(__ANDROID__)
+#if defined(__linux__)
 
 // OpenXR Header
 #include <GL/gl.h>

@@ -453,8 +453,6 @@ int SV_AreaEntities( const vec3_t mins, const vec3_t maxs, gentity_t **elist, in
 SV_SectorList_f
 ===============
 */
-#if 1
-
 void SV_SectorList_f( void ) {
 	int				i, c;
 	worldSector_t	*sec;
@@ -470,93 +468,6 @@ void SV_SectorList_f( void ) {
 		Com_Printf( "sector %i: %i entities\n", i, c );
 	}
 }
-
-#else
-
-#pragma warning (push, 3)	//go back down to 3 for the stl include
-#include <list>
-#include <map>
-#pragma warning (pop)
-
-class CBBox
-{
-public:
-	float mMins[3];
-	float mMaxs[3];
-
-	CBBox(vec3_t mins,vec3_t maxs)
-	{
-		VectorCopy(mins,mMins);
-		VectorCopy(maxs,mMaxs);
-	}
-};
-
-static multimap<int,pair<int,list<CBBox> > > entStats;
-
-void SV_AreaEntitiesTree( worldSector_t *node, areaParms_t *ap, int level )
-{
-	svEntity_t		*check, *next;
-	gentity_t		*gcheck;
-	int				count;
-	list<CBBox>	bblist;
-
-	count = 0;
-
-	for ( check = node->entities  ; check ; check = next )
-	{
-		next = check->nextEntityInWorldSector;
-
-		gcheck = SV_GEntityForSvEntity( check );
-
-		CBBox bBox(gcheck->absmin,gcheck->absmax);
-		bblist.push_back(bBox);
-		count++;
-	}
-
-	entStats.insert(pair<int,pair<int,list<CBBox> > >(level,pair<int,list<CBBox> >(count,bblist)));
-	if (node->axis == -1)
-	{
-		return;		// terminal node
-	}
-
-	// recurse down both sides
-	SV_AreaEntitiesTree ( node->children[0], ap, level+1 );
-	SV_AreaEntitiesTree ( node->children[1], ap, level+1 );
-}
-
-void SV_SectorList_f( void )
-{
-	areaParms_t		ap;
-
-//	ap.mins = mins;
-//	ap.maxs = maxs;
-//	ap.list = list;
-//	ap.count = 0;
-//	ap.maxcount = maxcount;
-
-	entStats.clear();
-	SV_AreaEntitiesTree(sv_worldSectors,&ap,0);
-	char mess[1000];
-	multimap<int,pair<int,list<CBBox> > >::iterator j;
-	for(j=entStats.begin();j!=entStats.end();j++)
-	{
-		sprintf(mess,"**************************************************\n");
-		Sleep(5);
-		OutputDebugString(mess);
-		sprintf(mess,"level=%i, count=%i\n",(*j).first,(*j).second.first);
-		Sleep(5);
-		OutputDebugString(mess);
-		list<CBBox>::iterator k;
-		for(k=(*j).second.second.begin();k!=(*j).second.second.end();k++)
-		{
-			sprintf(mess,"mins=%f %f %f, maxs=%f %f %f\n",
-					(*k).mMins[0],(*k).mMins[1],(*k).mMins[2],(*k).mMaxs[0],(*k).mMaxs[1],(*k).mMaxs[2]);
-			OutputDebugString(mess);
-		}
-	}
-
-}
-#endif
 
 //===========================================================================
 

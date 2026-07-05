@@ -25,7 +25,6 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 
 // hide these nasty warnings
 
-#ifdef _MSC_VER
 	#pragma warning( disable : 4018 )	// signed/unsigned mismatch
 	#pragma warning( disable : 4032 )	//
 	#pragma warning( disable : 4051 )	//
@@ -57,4 +56,3 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 	#pragma warning( disable : 4711 )	// selected for automatic inline expansion
 	#pragma warning( disable : 4786 )	// identifier was truncated
 	#pragma warning( disable : 4996 )	// This function or variable may be unsafe.
-#endif
