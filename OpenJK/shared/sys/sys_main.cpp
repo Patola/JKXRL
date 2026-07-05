@@ -187,30 +187,12 @@ static void Sys_ErrorDialog( const char *error )
 	{
 		ConsoleLogWriteOut( fp );
 		fclose( fp );
-
-		const char *errorMessage = va( "%s\n\nThe crash log was written to %s", error, crashLogPath );
-#ifdef _win32		
-		if ( SDL_ShowSimpleMessageBox( SDL_MESSAGEBOX_ERROR, "Error", errorMessage, NULL ) < 0 )
-		{
-			fprintf( stderr, "%s", errorMessage );
-		}
-#endif
 	}
 	else
 	{
 		// Getting pretty desperate now
 		ConsoleLogWriteOut( stderr );
 		fflush( stderr );
-
-		const char *errorMessage = va( "%s\nCould not write the crash log file, but we printed it to stderr.\n"
-										"Try running the game using a command line interface.", error );
-#ifdef _win32		
-		if ( SDL_ShowSimpleMessageBox( SDL_MESSAGEBOX_ERROR, "Error", errorMessage, NULL ) < 0 )
-		{
-			// We really have hit rock bottom here :(
-			fprintf( stderr, "%s", errorMessage );
-		}
-#endif		
 	}
 }
 #endif

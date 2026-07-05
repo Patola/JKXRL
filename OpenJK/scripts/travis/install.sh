@@ -23,14 +23,6 @@ case "${host}" in
 			libpng-dev
 		;;
 
-	(i686-w64-mingw32)
-		${APT_INSTALL} g++-mingw-w64-i686
-		;;
-
-	(x86_64-w64-mingw32)
-		${APT_INSTALL} g++-mingw-w64-x86-64
-		;;
-
 	(i?86-linux-gnu)
 		${APT_INSTALL} \
 			libglib2.0-dev:i386 \
