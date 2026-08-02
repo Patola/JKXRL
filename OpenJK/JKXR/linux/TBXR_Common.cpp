@@ -1050,6 +1050,10 @@ static void TBXR_GetHMDOrientation() {
 //All the stuff we want to do each frame
 void TBXR_FrameSetup()
 {
+	// This game-side state update is renderer-independent. In Vulkan mode the
+	// legacy GL OpenXR app below is intentionally uninitialized.
+	VR_FrameSetup();
+
 	if (!gAppState.Initialised)
 	{
 		return;
@@ -1103,9 +1107,6 @@ void TBXR_FrameSetup()
 	beginFrameDesc.type = XR_TYPE_FRAME_BEGIN_INFO;
 	beginFrameDesc.next = NULL;
 	OXR(xrBeginFrame(gAppState.Session, &beginFrameDesc));
-
-	//Game specific frame setup stuff called here
-	VR_FrameSetup();
 
 	TBXR_updateProjections();
 	TBXR_GetHMDOrientation();
@@ -1218,6 +1219,7 @@ void TBXR_submitFrame()
 	//Calculate the maximum extent fov for use in culling in the engine (we won't want to cull inside this fov)
 	vr.fov_x = (fabs(gAppState.Views[0].fov.angleLeft) + fabs(gAppState.Views[1].fov.angleRight)) * 180.0f / M_PI;
 	vr.fov_y = (fabs(gAppState.Views[0].fov.angleUp) + fabs(gAppState.Views[0].fov.angleDown)) * 180.0f / M_PI;
+	vr.fov_valid = true;
 
 
 	XrFrameEndInfo endFrameInfo = {};

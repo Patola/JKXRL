@@ -7,6 +7,8 @@
 #   OpenJK/build-linux/openjo_sp.x86_64              (JKO engine)
 #   OpenJK/build-linux/code/rd-vanilla/rdsp-vanilla_*.so
 #   OpenJK/build-linux/code/rd-vanilla/rdjosp-vanilla_*.so
+#   OpenJK/build-linux/code/rd-vulkan/rdsp-vulkan_*.so
+#   OpenJK/build-linux/code/rd-vulkan/rdjosp-vulkan_*.so
 #   OpenJK/build-linux/code/game/jagame*.so
 #   OpenJK/build-linux/codeJK2/game/jospgame*.so
 #   assets/z_vr_assets_{base,jka,jko}.pk3
@@ -23,8 +25,8 @@ JOBS=$(nproc 2>/dev/null || echo 4)
 cmake -S "$SRC" -B "$BUILD" -DCMAKE_BUILD_TYPE=Release \
 	-DBuildMPEngine=OFF -DBuildMPRdVanilla=OFF -DBuildMPDed=OFF \
 	-DBuildMPGame=OFF -DBuildMPCGame=OFF -DBuildMPUI=OFF \
-	-DBuildSPEngine=ON -DBuildSPGame=ON -DBuildSPRdVanilla=ON \
-	-DBuildJK2SPEngine=ON -DBuildJK2SPGame=ON -DBuildJK2SPRdVanilla=ON \
+	-DBuildSPEngine=ON -DBuildSPGame=ON -DBuildSPRdVanilla=ON -DBuildSPRdVulkan=ON \
+	-DBuildJK2SPEngine=ON -DBuildJK2SPGame=ON -DBuildJK2SPRdVanilla=ON -DBuildJK2SPRdVulkan=ON \
 	-DBuildTests=OFF "$@"
 
 cmake --build "$BUILD" -j "$JOBS"

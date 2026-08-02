@@ -473,4 +473,3 @@ int UI_RegisterFont(const char *fontName)
 
 	return iFontIndex;
 }
-

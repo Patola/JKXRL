@@ -43,6 +43,31 @@ cvar_t	*cl_renderer;
 cvar_t	*cl_nodelta;
 cvar_t	*cl_debugMove;
 
+static void CL_TBXR_UpdateFov( float fovX, float fovY )
+{
+	if ( fovX > 1.0f && fovX < 179.0f && fovY > 1.0f && fovY < 179.0f )
+	{
+		vr.fov_x = fovX;
+		vr.fov_y = fovY;
+		vr.fov_valid = true;
+	}
+}
+
+static void CL_TBXR_UpdateHMDPose(
+	float px, float py, float pz,
+	float qx, float qy, float qz, float qw )
+{
+	const XrQuaternionf orientation = { qx, qy, qz, qw };
+	vec3_t rotation = { 0.0f, 0.0f, 0.0f };
+	vec3_t hmdOrientation = {};
+	QuatToYawPitchRoll( orientation, rotation, hmdOrientation );
+	VR_SetHMDPosition( px, py, pz );
+	VR_SetHMDOrientation(
+		hmdOrientation[PITCH],
+		hmdOrientation[YAW],
+		hmdOrientation[ROLL] );
+}
+
 cvar_t	*cl_noprint;
 
 cvar_t	*cl_timeout;
@@ -1203,6 +1228,8 @@ void CL_InitRef( void ) {
 	rit.TBXR_GetVRProjection = VR_GetVRProjection;
 	rit.TBXR_GetFovTangentsForEye = VR_GetFovTangentsForEye;
 	rit.TBXR_GetEyeStereoSeparation = VR_GetEyeStereoSeparation;
+	rit.TBXR_UpdateFov = CL_TBXR_UpdateFov;
+	rit.TBXR_UpdateHMDPose = CL_TBXR_UpdateHMDPose;
 
 	ret = GetRefAPI( REF_API_VERSION, &rit );
 
@@ -1392,4 +1419,3 @@ void CL_Shutdown( void ) {
 
 	Com_Printf( "-----------------------\n" );
 }
-

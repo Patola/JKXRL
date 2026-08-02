@@ -36,6 +36,7 @@ typedef struct {
     int eye;
     bool using_screen_layer;
     bool third_person;
+    bool fov_valid;
     float fov_x;
     float fov_y;
     float off_center_fov_x;
@@ -71,6 +72,12 @@ typedef struct {
     vec3_t hmdorientation_delta;
     vec3_t hmdorientation_snap;
     vec3_t hmdorientation_first; // only updated when in first person
+
+    // Cinematics need a stable entry pose. The general snapshots above may be
+    // refreshed by menus and screen-layer transitions while a camera is active.
+    bool cinematic_pose_valid;
+    vec3_t cinematic_hmdposition_snap;
+    vec3_t cinematic_hmdorientation_snap;
 
     vec3_t clientviewangles; //orientation in the client - we use this in the cgame
     float snapTurn; // how much turn has been applied to the yaw by joystick

@@ -3091,8 +3091,15 @@ void CG_DrawActive( stereoFrame_t stereoView ) {
 		AnglesToAxis(cg.refdef.viewangles, cg.refdef.viewaxis);
 	}
 
-	//Immersive cinematic sequence 6DoF
-	if ((in_camera && vr->immersive_cinematics) || vr->emplaced_gun || cg.renderingThirdPerson)
+	// Immersive cinematics use their own stable entry pose; menu and screen
+	// transitions are allowed to refresh the general HMD snapshot.
+	if (in_camera && vr->immersive_cinematics)
+	{
+		vec3_t cinematicOffset;
+		VectorSubtract(vr->hmdposition, vr->cinematic_hmdposition_snap, cinematicOffset);
+		BG_ConvertFromVR(cinematicOffset, cg.refdef.vieworg, cg.refdef.vieworg);
+	}
+	else if (vr->emplaced_gun || cg.renderingThirdPerson)
 	{
 		BG_ConvertFromVR(vr->hmdposition_offset, cg.refdef.vieworg, cg.refdef.vieworg);
 	}
@@ -3129,4 +3136,3 @@ void CG_DrawActive( stereoFrame_t stereoView ) {
 	CG_Draw2D();
 
 }
-

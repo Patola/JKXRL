@@ -2,6 +2,7 @@
 OpenJK/build/
 OpenJK/build-debug/
 OpenJK/build-linux/
+OpenJK/build-vulkan-port/
 
 # Build artifacts
 *.o

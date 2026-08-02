@@ -371,6 +371,12 @@ set_property(TARGET ${SPGame} APPEND PROPERTY COMPILE_OPTIONS ${OPENJK_VISIBILIT
 # remove "lib" prefix for .so/.dylib files
 set_target_properties(${SPGame} PROPERTIES PREFIX "")
 
+add_custom_command(TARGET ${SPGame} POST_BUILD
+	COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/base"
+	COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:${SPGame}>" "${CMAKE_BINARY_DIR}/base/$<TARGET_FILE_NAME:${SPGame}>"
+	COMMENT "Copying ${SPGame} to the local SP runtime directory"
+	VERBATIM)
+
 if(MakeApplicationBundles AND BuildSPEngine)
 	install(TARGETS ${SPGame}
 		LIBRARY

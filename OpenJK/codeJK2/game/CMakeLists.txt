@@ -279,6 +279,12 @@ add_library(${JK2SPGame} SHARED ${JK2SPGameFiles})
 # remove "lib" prefix for .so/.dylib files
 set_target_properties(${JK2SPGame} PROPERTIES PREFIX "")
 
+add_custom_command(TARGET ${JK2SPGame} POST_BUILD
+	COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/base"
+	COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:${JK2SPGame}>" "${CMAKE_BINARY_DIR}/base/$<TARGET_FILE_NAME:${JK2SPGame}>"
+	COMMENT "Copying ${JK2SPGame} to the local SP runtime directory"
+	VERBATIM)
+
 if(MakeApplicationBundles AND BuildJK2SPEngine)
 	install(TARGETS ${JK2SPGame} LIBRARY DESTINATION "${JK2InstallDir}/${JK2SPEngine}.app/Contents/MacOS/OpenJK")
 else(MakeApplicationBundles AND BuildJK2SPEngine)

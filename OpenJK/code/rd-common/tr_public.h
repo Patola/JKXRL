@@ -132,6 +132,9 @@ typedef struct {
 	bool 				(*TBXR_GetVRProjection)				(int eye, float zNear, float zFar, float zZoomX, float zZoomY, float* projection);
 	bool 				(*TBXR_GetFovTangentsForEye)		(int eye, float *tanLeft, float *tanRight, float *tanUp, float *tanDown);
 	float				(*TBXR_GetEyeStereoSeparation)		(int eye);
+	void				(*TBXR_UpdateFov)					(float fovX, float fovY);
+	void				(*TBXR_UpdateHMDPose)				(float px, float py, float pz,
+													 float qx, float qy, float qz, float qw);
 
 } refimport_t;
 

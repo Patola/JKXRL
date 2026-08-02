@@ -1006,8 +1006,20 @@ void TBXR_UpdateControllers( )
 float vibration_channel_duration[2] = {0.0f, 0.0f};
 float vibration_channel_intensity[2] = {0.0f, 0.0f};
 
+static bool TBXR_HapticsAvailable()
+{
+    return gAppState.Initialised && gAppState.SessionActive &&
+        gAppState.Session != XR_NULL_HANDLE && vibrateAction != XR_NULL_HANDLE &&
+        vr_haptic_intensity != NULL;
+}
+
 void TBXR_Vibrate( int duration, int chan, float intensity )
 {
+    if (!TBXR_HapticsAvailable())
+    {
+        return;
+    }
+
     for (int i = 0; i < 2; ++i)
     {
         int channel = 1-i;
@@ -1026,6 +1038,11 @@ void TBXR_Vibrate( int duration, int chan, float intensity )
 }
 
 void TBXR_ProcessHaptics() {
+    if (!TBXR_HapticsAvailable())
+    {
+        return;
+    }
+
     static float lastFrameTime = 0.0f;
     float timestamp = (float)(Sys_Milliseconds( ));
     float frametime = timestamp - lastFrameTime;

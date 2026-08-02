@@ -28,6 +28,7 @@ endif(BuildSPGame)
 
 #    Add Modular Renderer project
 add_subdirectory("${SPDir}/rd-vanilla")
+add_subdirectory("${SPDir}/rd-vulkan")
 
 #    Add Engine Project
 if(BuildSPEngine OR BuildJK2SPEngine)
@@ -62,6 +63,9 @@ if(BuildSPEngine OR BuildJK2SPEngine)
 	string(STRIP ${SDL3_LIBRARIES} SDL3_LIBRARIES)
 	set(SPEngineIncludeDirectories ${SPEngineIncludeDirectories} ${SDL3_INCLUDE_DIRS})
 	set(SPEngineLibraries ${SPEngineLibraries} ${SDL3_LIBRARIES})
+
+	find_package(Vulkan REQUIRED)
+	set(SPEngineIncludeDirectories ${SPEngineIncludeDirectories} ${Vulkan_INCLUDE_DIRS})
 	
 	# OpenGL needed in the SP engine now for JKXR
 	find_package(OpenGL REQUIRED)

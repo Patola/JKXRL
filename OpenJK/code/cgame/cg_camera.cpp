@@ -32,7 +32,6 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 bool		in_camera = false;
 bool		in_misccamera = false; // if we are viewing a misc_camera
 camera_t	client_camera={};
-camera_t	previous_client_camera={};
 extern qboolean	player_locked;
 
 extern gentity_t *G_Find (gentity_t *from, int fieldofs, const char *match);
@@ -43,6 +42,60 @@ void CGCam_Distance( float distance, qboolean initLerp );
 void CGCam_DistanceDisable( void );
 extern qboolean CG_CalcFOVFromX( float fov_x );
 extern void WP_SaberCatch( gentity_t *self, gentity_t *saber, qboolean switchToSaber );
+
+static float CGCam_ProjectionFov( float scriptedFov )
+{
+	// Vulkan uses OpenXR's asymmetric projection directly. Keep the legacy
+	// refdef FOV finite for culling and camera-to-gameplay transitions.
+	if ( vr && vr->immersive_cinematics && vr->fov_valid &&
+		 vr->fov_x > 1.0f && vr->fov_x < 179.0f )
+	{
+		return vr->fov_x;
+	}
+
+	return scriptedFov > 1.0f && scriptedFov < 179.0f ? scriptedFov : CAMERA_DEFAULT_FOV;
+}
+
+static void CGCam_AxisToAngles( const matrix3_t axis, vec3_t angles )
+{
+	vectoangles( axis[0], angles );
+	angles[PITCH] = AngleNormalize180( angles[PITCH] );
+	angles[YAW] = AngleNormalize180( angles[YAW] );
+	angles[ROLL] = AngleNormalize180( atan2f( axis[1][2], axis[2][2] ) * 180.0f / M_PI );
+}
+
+static void CGCam_ComposeImmersiveView( const vec3_t cameraAngles, matrix3_t outputAxis )
+{
+	matrix3_t cameraAxis;
+	matrix3_t hmdAxis;
+	matrix3_t hmdSnapAxis;
+
+	AnglesToAxis( cameraAngles, cameraAxis );
+	AnglesToAxis( vr->hmdorientation, hmdAxis );
+	AnglesToAxis( vr->cinematic_hmdorientation_snap, hmdSnapAxis );
+
+	// Basis rows describe forward, left and up. Express each current HMD axis
+	// in the entry-HMD basis, then apply that local rotation to the scripted
+	// camera basis. This preserves coupled 3D rotations without Euler addition.
+	for ( int axisIndex = 0; axisIndex < 3; ++axisIndex )
+	{
+		VectorClear( outputAxis[axisIndex] );
+		for ( int component = 0; component < 3; ++component )
+		{
+			VectorMA( outputAxis[axisIndex],
+				DotProduct( hmdAxis[axisIndex], hmdSnapAxis[component] ),
+				cameraAxis[component], outputAxis[axisIndex] );
+		}
+		VectorNormalize( outputAxis[axisIndex] );
+	}
+}
+
+static void CGCam_CaptureImmersivePose( void )
+{
+	VectorCopy( vr->hmdposition, vr->cinematic_hmdposition_snap );
+	VectorCopy( vr->hmdorientation, vr->cinematic_hmdorientation_snap );
+	vr->cinematic_pose_valid = true;
+}
 
 /*
 TODO:
@@ -95,12 +148,11 @@ void CGCam_Enable( void )
 	client_camera.FOV2	= CAMERA_DEFAULT_FOV;
 
 	client_camera.has_stored_angles = false;
+	vr->cinematic_pose_valid = false;
 
 	in_camera = true;
 
 	client_camera.next_roff_time = 0;
-
-	previous_client_camera = client_camera;
 
 	if ( &g_entities[0] && g_entities[0].client )
 	{
@@ -143,6 +195,9 @@ CGCam_Disable
 void CGCam_Disable( void )
 {
 	in_camera = false;
+	vr->cin_camera = false;
+	client_camera.has_stored_angles = false;
+	vr->cinematic_pose_valid = false;
 
 	client_camera.bar_alpha = 1.0f;
 	client_camera.bar_time = cg.time;
@@ -174,6 +229,8 @@ void CGCam_Disable( void )
 
 	VectorCopy( g_entities[0].currentOrigin, cg.refdef.vieworg);
 	VectorCopy( g_entities[0].client->ps.viewangles, cg.refdefViewAngles );
+	VectorCopy( cg.refdefViewAngles, cg.refdef.viewangles );
+	AnglesToAxis( cg.refdefViewAngles, cg.refdef.viewaxis );
 }
 
 /*
@@ -1170,8 +1227,7 @@ void CGCam_Update( void )
 			}
 			client_camera.FOV = actualFOV_X;
 		}
-		float fov = vr && vr->immersive_cinematics ? vr->fov_x : actualFOV_X;
-		CG_CalcFOVFromX( fov );
+		CG_CalcFOVFromX( CGCam_ProjectionFov( actualFOV_X ) );
 	}
 	else if ( client_camera.info_state & CAMERA_ZOOMING )
 	{
@@ -1186,13 +1242,11 @@ void CGCam_Update( void )
 		{
 			actualFOV_X = client_camera.FOV + (( ( client_camera.FOV2 - client_camera.FOV ) ) / client_camera.FOV_duration ) * ( cg.time - client_camera.FOV_time );
 		}
-		float fov = vr && vr->immersive_cinematics ? vr->fov_x : actualFOV_X;
-		CG_CalcFOVFromX( fov );
+		CG_CalcFOVFromX( CGCam_ProjectionFov( actualFOV_X ) );
 	}
 	else
 	{
-		float fov = vr && vr->immersive_cinematics ? vr->fov_x : client_camera.FOV;
-		CG_CalcFOVFromX( fov );
+		CG_CalcFOVFromX( CGCam_ProjectionFov( client_camera.FOV ) );
 	}
 
 	//Check for roffing angles
@@ -1294,10 +1348,7 @@ void CGCam_Update( void )
 			CGCam_FollowUpdate();
 		}
 
-		if (!vr->immersive_cinematics)
-		{
-			VectorCopy(client_camera.angles, cg.refdefViewAngles);
-		}
+		VectorCopy(client_camera.angles, cg.refdefViewAngles);
 	}
 
 	if ( checkTrack )
@@ -1308,50 +1359,6 @@ void CGCam_Update( void )
 		}
 
 		VectorCopy( client_camera.origin, cg.refdef.vieworg );
-	}
-
-	if (vr->immersive_cinematics)
-	{
-		//If no stored angles yet, store them
-		if (!client_camera.has_stored_angles)
-		{
-			client_camera.has_stored_angles = true;
-			vr->take_snap = true;
-		}
-
-		//if camera state has changed, store the angles and reset user's snap orientation
-		if (((client_camera.info_state & CAMERA_FOLLOWING) != (previous_client_camera.info_state & CAMERA_FOLLOWING)) ||
-				((client_camera.info_state & CAMERA_ROFFING) != (previous_client_camera.info_state & CAMERA_ROFFING)) ||
-				((client_camera.info_state & CAMERA_MOVING) != (previous_client_camera.info_state & CAMERA_MOVING)) ||
-				((client_camera.info_state & CAMERA_PANNING) != (previous_client_camera.info_state & CAMERA_PANNING)))
-		{
-			vr->take_snap = true;
-		}
-
-		//If the camera has changed position (by over half an in-game metre), but is not in moving mode (last frame)
-		//then it is a keyframe that requires a new snap
-		if (!(previous_client_camera.info_state & CAMERA_MOVING))
-		{
-			vec3_t delta;
-			VectorSubtract(client_camera.origin, previous_client_camera.origin, delta);
-			if (VectorLength(delta) > (0.5f * cg_worldScale.value))
-			{
-				vr->take_snap = true;
-			}
-		}
-
-		if (vr->take_snap)
-		{
-			VectorCopy(client_camera.angles, client_camera.stored_angles);
-		}
-
-		//Copy stored YAW angle to refdef whether it has changed or not, use pitch/roll direct from the hmd
-		float yaw = client_camera.stored_angles[YAW] + (vr->hmdorientation[YAW] - vr->hmdorientation_snap[YAW]) + vr->snapTurn;
-		VectorCopy(vr->hmdorientation, cg.refdefViewAngles);
-		cg.refdefViewAngles[YAW] = yaw;
-
-		//store previous state
-		previous_client_camera = client_camera;
 	}
 
 	//Bar fading
@@ -1366,7 +1373,42 @@ void CGCam_Update( void )
 	//Update shaking if there's any
 	//CGCam_UpdateSmooth( cg.refdef.vieworg, cg.refdefViewAngles );
 	CGCam_UpdateShake( cg.refdef.vieworg, cg.refdefViewAngles );
-	AnglesToAxis( cg.refdefViewAngles, cg.refdef.viewaxis );
+
+	if (vr->immersive_cinematics)
+	{
+		if (!vr->cinematic_pose_valid)
+		{
+			CGCam_CaptureImmersivePose();
+			Com_Printf("jkxr-cinematic-pose: captured stable entry pose\n");
+		}
+
+		vec3_t cameraAngles;
+		VectorCopy(cg.refdefViewAngles, cameraAngles);
+		CGCam_ComposeImmersiveView(cameraAngles, cg.refdef.viewaxis);
+		CGCam_AxisToAngles(cg.refdef.viewaxis, cg.refdefViewAngles);
+
+		static int nextPoseLogTime = 0;
+		if (cg.time >= nextPoseLogTime)
+		{
+			Com_Printf(
+				"jkxr-cinematic-pose: state=0x%x camera=(%.1f %.1f %.1f) "
+				"hmd=(%.1f %.1f %.1f) entry=(%.1f %.1f %.1f) output=(%.1f %.1f %.1f)\n",
+				client_camera.info_state,
+				cameraAngles[PITCH], cameraAngles[YAW], cameraAngles[ROLL],
+				vr->hmdorientation[PITCH], vr->hmdorientation[YAW], vr->hmdorientation[ROLL],
+				vr->cinematic_hmdorientation_snap[PITCH], vr->cinematic_hmdorientation_snap[YAW],
+				vr->cinematic_hmdorientation_snap[ROLL],
+				cg.refdefViewAngles[PITCH], cg.refdefViewAngles[YAW], cg.refdefViewAngles[ROLL]);
+			nextPoseLogTime = cg.time + 1000;
+		}
+	}
+	else
+	{
+		vr->cinematic_pose_valid = false;
+		AnglesToAxis( cg.refdefViewAngles, cg.refdef.viewaxis );
+	}
+
+	VectorCopy( cg.refdefViewAngles, cg.refdef.viewangles );
 }
 
 /*

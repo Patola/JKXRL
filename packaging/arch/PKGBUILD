@@ -16,8 +16,8 @@ pkgdesc="VR port of Jedi Academy & Jedi Outcast (Team Beef JKXR) - native Linux 
 arch=('x86_64')
 url="https://github.com/Patola/JKXR"
 license=('GPL-2.0-only')
-depends=('sdl3' 'openxr' 'glu' 'libglvnd' 'libx11' 'zlib' 'libpng' 'libjpeg-turbo')
-makedepends=('git' 'cmake' 'zip')
+depends=('sdl3' 'openxr' 'glu' 'libglvnd' 'libx11' 'vulkan-icd-loader' 'zlib' 'libpng' 'libjpeg-turbo')
+makedepends=('git' 'cmake' 'zip' 'vulkan-headers' 'shaderc' 'glslang')
 provides=('jkxrl')
 conflicts=('jkxrl')
 install=jkxr.install
@@ -37,8 +37,8 @@ build() {
 		-DCMAKE_BUILD_TYPE=Release \
 		-DBuildMPEngine=OFF -DBuildMPRdVanilla=OFF -DBuildMPDed=OFF \
 		-DBuildMPGame=OFF -DBuildMPCGame=OFF -DBuildMPUI=OFF \
-		-DBuildSPEngine=ON -DBuildSPGame=ON -DBuildSPRdVanilla=ON \
-		-DBuildJK2SPEngine=ON -DBuildJK2SPGame=ON -DBuildJK2SPRdVanilla=ON \
+		-DBuildSPEngine=ON -DBuildSPGame=ON -DBuildSPRdVanilla=ON -DBuildSPRdVulkan=ON \
+		-DBuildJK2SPEngine=ON -DBuildJK2SPGame=ON -DBuildJK2SPRdVanilla=ON -DBuildJK2SPRdVulkan=ON \
 		-DBuildTests=OFF
 	cmake --build build
 
@@ -54,6 +54,8 @@ package() {
 		build/openjo_sp.x86_64 \
 		build/code/rd-vanilla/rdsp-vanilla_x86_64.so \
 		build/code/rd-vanilla/rdjosp-vanilla_x86_64.so \
+		build/code/rd-vulkan/rdsp-vulkan_x86_64.so \
+		build/code/rd-vulkan/rdjosp-vulkan_x86_64.so \
 		build/code/game/jagamex86_64.so \
 		build/codeJK2/game/jospgamex86_64.so
 

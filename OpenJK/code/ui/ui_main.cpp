@@ -480,18 +480,18 @@ void Text_Paint(float x, float y, float scale, vec4_t color, const char *text, i
 int Key_GetCatcher( void );
 
 #define	UI_FPS_FRAMES	4
-void _UI_Refresh( int realtime )
-{
-	static int index;
-	static int	previousTimes[UI_FPS_FRAMES];
-
-	if ( !( Key_GetCatcher() & KEYCATCH_UI ) )
+	void _UI_Refresh( int realtime )
 	{
-		return;
-	}
+		static int index;
+		static int	previousTimes[UI_FPS_FRAMES];
 
-	extern void SE_CheckForLanguageUpdates(void);
-	SE_CheckForLanguageUpdates();
+		if ( !( Key_GetCatcher() & KEYCATCH_UI ) )
+		{
+			return;
+		}
+
+		extern void SE_CheckForLanguageUpdates(void);
+		SE_CheckForLanguageUpdates();
 
 	if ( Menus_AnyFullScreenVisible() )
 	{//if not in full screen, don't mess with ghoul2
@@ -930,8 +930,16 @@ static qboolean UI_RunMenuScript ( const char **args )
 		{
 			if (s_savedata[s_savegame.currentLine].currentSaveFileName)// && (*s_file_desc_field.field.buffer))
 			{
+				ui.Printf( va("UI loadgame: selection=%d file=%s\n",
+					s_savegame.currentLine,
+					s_savedata[s_savegame.currentLine].currentSaveFileName) );
 				Menus_CloseAll();
 				ui.Cmd_ExecuteText( EXEC_APPEND, va("load %s\n", s_savedata[s_savegame.currentLine].currentSaveFileName));
+			}
+			else
+			{
+				ui.Printf( va("^3UI loadgame: selection=%d has no save file\n",
+					s_savegame.currentLine) );
 			}
 			// after loading a game, the list box (and it's highlight) get's reset back to 0, but currentLine sticks around, so set it to 0 here
 			s_savegame.currentLine = 0;

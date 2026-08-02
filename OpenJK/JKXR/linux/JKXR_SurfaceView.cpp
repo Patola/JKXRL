@@ -321,6 +321,17 @@ int VR_SetRefreshRate(int refreshRate)
 //All the stuff we want to do each frame specifically for this game
 void VR_FrameSetup()
 {
+	// Vulkan owns its OpenXR session, so it does not call VR_Init(). Bind the
+	// game-side frame cvars lazily for both renderer initialization paths.
+	if (vr_refresh == nullptr)
+	{
+		vr_refresh = Cvar_Get("vr_refresh", "72", CVAR_ARCHIVE);
+	}
+	if (vr_immersive_cinematics == nullptr)
+	{
+		vr_immersive_cinematics = Cvar_Get("vr_immersive_cinematics", "1", CVAR_ARCHIVE);
+	}
+
 	static float refresh = 0;
 	if (refresh != vr_refresh->value)
 	{
@@ -468,7 +479,9 @@ void VR_HapticDisable()
  */
 void VR_HapticEvent(const char* event, int position, int flags, int intensity, float angle, float yHeight )
 {
-	if (vr_haptic_intensity->value == 0.0f)
+	if (!gAppState.Initialised || !gAppState.SessionActive ||
+		gAppState.Session == XR_NULL_HANDLE || vr_haptic_intensity == NULL ||
+		vr_control_scheme == NULL || vr_haptic_intensity->value == 0.0f)
 	{
 		return;
 	}
@@ -580,5 +593,3 @@ void VR_HandleControllerInput() {
 			break;
 	}
 }
-
-

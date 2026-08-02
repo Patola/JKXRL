@@ -163,12 +163,16 @@ typedef enum graphicsApi_e
 
 	// Only OpenGL needs special treatment..
 	GRAPHICS_API_OPENGL,
+
+	// Vulkan owns its device/swapchain outside the shared window layer.
+	GRAPHICS_API_VULKAN,
 } graphicsApi_t;
 
 // Graphics API
 typedef struct window_s
 {
 	void *handle; // OS-dependent window handle
+	void *vulkanSurface; // VkSurfaceKHR, if requested by the renderer
 	graphicsApi_t api;
 } window_t;
 
@@ -196,6 +200,12 @@ typedef struct windowDesc_s
 		glProfile_t profile;
 		uint32_t contextFlags;
 	} gl;
+
+	// Only used if api == GRAPHICS_API_VULKAN
+	struct vk_
+	{
+		void *instance; // VkInstance; NULL means create only an SDL Vulkan window
+	} vk;
 } windowDesc_t;
 
 typedef struct glconfig_s glconfig_t;

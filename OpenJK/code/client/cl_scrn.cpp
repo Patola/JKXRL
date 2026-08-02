@@ -40,6 +40,12 @@ cvar_t		*cl_graphheight;
 cvar_t		*cl_graphscale;
 cvar_t		*cl_graphshift;
 
+static qboolean SCR_UsingVulkanRenderer()
+{
+	const char *renderer = Cvar_VariableString( "cl_renderer" );
+	return ( !Q_stricmp( renderer, "rdsp-vulkan" ) || !Q_stricmp( renderer, "rdjosp-vulkan" ) ) ? qtrue : qfalse;
+}
+
 /*
 ================
 SCR_DrawNamedPic
@@ -499,6 +505,22 @@ void SCR_UpdateScreen( void ) {
 	// that case.
 	if ( cls.uiStarted )
 	{
+		if ( SCR_UsingVulkanRenderer() )
+		{
+			SCR_DrawScreenField( STEREO_CENTER );
+			if (com_speeds->integer)
+			{
+				re.EndFrame(&time_frontend, &time_backend);
+			}
+			else
+			{
+				re.EndFrame(NULL, NULL);
+			}
+
+			recursive = 0;
+			return;
+		}
+
 		//Try again here in case we've not done it yet
 		TBXR_FrameSetup();
 
@@ -679,5 +701,3 @@ void  SCR_TempRawImage_CleanUp()
 	re.TempRawImage_CleanUp();
 }
 #endif
-
-

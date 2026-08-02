@@ -19,7 +19,9 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 ===========================================================================
 */
 
+#include <vulkan/vulkan.h>
 #include <SDL3/SDL.h>
+#include <SDL3/SDL_vulkan.h>
 #include "qcommon/qcommon.h"
 #include "rd-common/tr_types.h"
 #include "sys/sys_local.h"
@@ -31,7 +33,9 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 // OpenXR Header - core types only (xr_result helper below). No platform
 // graphics binding is needed here, so XR_USE_PLATFORM_XLIB is deliberately
 // left undefined to avoid pulling in Xlib's macros.
+#ifndef XR_USE_GRAPHICS_API_OPENGL
 #define XR_USE_GRAPHICS_API_OPENGL
+#endif
 #include <openxr.h>
 #include <openxr_platform.h>
 #include <GL/gl.h>
@@ -55,6 +59,8 @@ enum rserr_t
 
 static SDL_Window *screen = NULL;
 static SDL_GLContext opengl_context;
+static VkInstance vulkanInstance = VK_NULL_HANDLE;
+static VkSurfaceKHR vulkanSurface = VK_NULL_HANDLE;
 static float displayAspect;
 
 cvar_t *r_sdlDriver;
@@ -166,6 +172,17 @@ void WIN_SwapWindow()
 }
 
 void TBXR_submitFrame();
+
+static void WIN_DestroyVulkanSurface()
+{
+	if ( vulkanSurface != VK_NULL_HANDLE && vulkanInstance != VK_NULL_HANDLE )
+	{
+		SDL_Vulkan_DestroySurface( vulkanInstance, vulkanSurface, NULL );
+	}
+
+	vulkanSurface = VK_NULL_HANDLE;
+	vulkanInstance = VK_NULL_HANDLE;
+}
 
 void WIN_Present( window_t *window )
 {
@@ -363,6 +380,10 @@ static rserr_t GLimp_SetMode(glconfig_t *glConfig, const windowDesc_t *windowDes
 	{
 		flags |= SDL_WINDOW_OPENGL;
 	}
+	else if ( windowDesc->api == GRAPHICS_API_VULKAN )
+	{
+		flags |= SDL_WINDOW_VULKAN;
+	}
 
 	Com_Printf( "Initializing display\n");
 
@@ -445,6 +466,7 @@ static rserr_t GLimp_SetMode(glconfig_t *glConfig, const windowDesc_t *windowDes
 
 	if( screen != NULL )
 	{
+		WIN_DestroyVulkanSurface();
 		SDL_GetWindowPosition( screen, &x, &y );
 		Com_DPrintf( "Existing window at %dx%d before being destroyed\n", x, y );
 		SDL_DestroyWindow( screen );
@@ -607,6 +629,10 @@ static rserr_t GLimp_SetMode(glconfig_t *glConfig, const windowDesc_t *windowDes
 			}
 
 			SDL_SetWindowPosition( screen, x, y );
+			SDL_SetWindowFocusable( screen, true );
+			SDL_ShowWindow( screen );
+			SDL_RaiseWindow( screen );
+			SDL_SyncWindow( screen );
 
 #ifndef MACOS_X
 			SDL_SetWindowIcon( screen, icon );
@@ -673,6 +699,10 @@ static rserr_t GLimp_SetMode(glconfig_t *glConfig, const windowDesc_t *windowDes
 		else
 		{
 			SDL_SetWindowPosition( screen, x, y );
+			SDL_SetWindowFocusable( screen, true );
+			SDL_ShowWindow( screen );
+			SDL_RaiseWindow( screen );
+			SDL_SyncWindow( screen );
 
 #ifndef MACOS_X
 			SDL_SetWindowIcon( screen, icon );
@@ -682,6 +712,25 @@ static rserr_t GLimp_SetMode(glconfig_t *glConfig, const windowDesc_t *windowDes
 				if( !SDL_SetWindowFullscreenMode( screen, NULL ) )
 				{
 					Com_DPrintf( "SDL_SetWindowFullscreenMode failed: %s\n", SDL_GetError( ) );
+				}
+			}
+
+			if ( windowDesc->api == GRAPHICS_API_VULKAN )
+			{
+				vulkanInstance = reinterpret_cast<VkInstance>( windowDesc->vk.instance );
+				if ( vulkanInstance != VK_NULL_HANDLE )
+				{
+					if ( !SDL_Vulkan_CreateSurface( screen, vulkanInstance, NULL, &vulkanSurface ) )
+					{
+						Com_Printf( "SDL_Vulkan_CreateSurface failed: %s\n", SDL_GetError() );
+						WIN_DestroyVulkanSurface();
+						SDL_DestroySurface( icon );
+						return RSERR_UNKNOWN;
+					}
+				}
+				else
+				{
+					Com_DPrintf( "Vulkan window requested without VkInstance; no SDL surface was created.\n" );
 				}
 			}
 		}
@@ -846,13 +895,18 @@ window_t WIN_Init( const windowDesc_t *windowDesc, glconfig_t *glConfig )
 	window_t window = {};
 
 	window.api = windowDesc->api;
+	window.handle = screen;
+	window.vulkanSurface = reinterpret_cast<void *>( vulkanSurface );
 
-	// Bring up the OpenXR VR session now that an OpenGL context is current.
-	// On Linux the X11/GLX graphics binding reads the current context directly,
-	// so no native window handle is needed here.
+	// Bring up the OpenXR VR session only after an OpenGL context is current.
+	// Vulkan renderers use a separate XR graphics binding and must initialize it
+	// from their own backend instead of the legacy GLX path.
 #if defined(__linux__)
-	VR_Init();
-	TBXR_GetScreenRes(&glConfig->vidWidth, &glConfig->vidHeight);
+	if ( windowDesc->api == GRAPHICS_API_OPENGL )
+	{
+		VR_Init();
+		TBXR_GetScreenRes(&glConfig->vidWidth, &glConfig->vidHeight);
+	}
 #endif
 
 	return window;
@@ -869,6 +923,8 @@ void WIN_Shutdown( void )
 	Cmd_RemoveCommand("minimize");
 
 	IN_Shutdown();
+
+	WIN_DestroyVulkanSurface();
 
 	SDL_QuitSubSystem( SDL_INIT_VIDEO );
 	screen = NULL;
