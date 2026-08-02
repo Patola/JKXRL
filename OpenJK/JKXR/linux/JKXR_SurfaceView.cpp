@@ -182,7 +182,7 @@ void VR_GetMove(float *forward, float *side, float *pos_forward, float *pos_side
 		*up = 0.0f;
 		*side = remote_movementSideways;
 		*pos_side = 0.0f;
-		if (vr_vehicle_use_hmd_direction->integer)
+		if (vr_vehicle_use_hmd_direction != nullptr && vr_vehicle_use_hmd_direction->integer)
 		{
 			*yaw = vr.hmdorientation[YAW] + vr.snapTurn;
 			*pitch = vr.hmdorientation[PITCH];
@@ -225,6 +225,69 @@ void VR_GetMove(float *forward, float *side, float *pos_forward, float *pos_side
 	}
 }
 
+static void VR_InitGameStateAndCvars()
+{
+	static bool initialized = false;
+	if (initialized)
+	{
+		return;
+	}
+
+	remote_movementSideways = 0.0f;
+	remote_movementForward = 0.0f;
+	remote_movementUp = 0.0f;
+	positional_movementSideways = 0.0f;
+	positional_movementForward = 0.0f;
+	vr.snapTurn = 0.0f;
+	vr.immersive_cinematics = true;
+	vr.move_speed = 1;
+
+	vr_turn_mode = Cvar_Get( "vr_turn_mode", "0", CVAR_ARCHIVE );
+	vr_turn_angle = Cvar_Get( "vr_turn_angle", "45", CVAR_ARCHIVE );
+	vr_positional_factor = Cvar_Get( "vr_positional_factor", "12", CVAR_ARCHIVE );
+	vr_walkdirection = Cvar_Get( "vr_walkdirection", "1", CVAR_ARCHIVE );
+	vr_3rdperson_digital_direction = Cvar_Get( "vr_3rdperson_digital_direction", "1", CVAR_ARCHIVE );
+	vr_weapon_pitchadjust = Cvar_Get( "vr_weapon_pitchadjust", "-20.0", CVAR_ARCHIVE );
+	vr_saber_pitchadjust = Cvar_Get( "vr_saber_pitchadjust", "-13.36", CVAR_ARCHIVE );
+	vr_virtual_stock = Cvar_Get( "vr_virtual_stock", "0", CVAR_ARCHIVE );
+	vr_control_scheme = Cvar_Get( "vr_control_scheme", "0", CVAR_ARCHIVE );
+	vr_switch_sticks = Cvar_Get( "vr_switch_sticks", "0", CVAR_ARCHIVE );
+	vr_immersive_cinematics = Cvar_Get( "vr_immersive_cinematics", "1", CVAR_ARCHIVE );
+	vr_screen_dist = Cvar_Get( "vr_screen_dist", "3.5", CVAR_ARCHIVE );
+	vr_weapon_velocity_trigger = Cvar_Get( "vr_weapon_velocity_trigger", "2.0", CVAR_ARCHIVE );
+	vr_scope_engage_distance = Cvar_Get( "vr_scope_engage_distance", "0.25", CVAR_ARCHIVE );
+	vr_force_velocity_trigger = Cvar_Get( "vr_force_velocity_trigger", "2.09", CVAR_ARCHIVE );
+	vr_force_distance_trigger = Cvar_Get( "vr_force_distance_trigger", "0.15", CVAR_ARCHIVE );
+	vr_two_handed_weapons = Cvar_Get( "vr_two_handed_weapons", "1", CVAR_ARCHIVE );
+	vr_force_motion_controlled = Cvar_Get( "vr_force_motion_controlled", "1", CVAR_ARCHIVE );
+	vr_force_motion_push = Cvar_Get( "vr_force_motion_push", "3", CVAR_ARCHIVE );
+	vr_force_motion_pull = Cvar_Get( "vr_force_motion_pull", "4", CVAR_ARCHIVE );
+	vr_motion_enable_saber = Cvar_Get( "vr_motion_enable_saber", "0", CVAR_ARCHIVE );
+	vr_always_run = Cvar_Get( "vr_always_run", "1", CVAR_ARCHIVE );
+	vr_crouch_toggle = Cvar_Get( "vr_crouch_toggle", "0", CVAR_ARCHIVE );
+	vr_irl_crouch_enabled = Cvar_Get( "vr_irl_crouch_enabled", "0", CVAR_ARCHIVE );
+	vr_irl_crouch_to_stand_ratio = Cvar_Get( "vr_irl_crouch_to_stand_ratio", "0.65", CVAR_ARCHIVE );
+	vr_saber_block_debounce_time = Cvar_Get( "vr_saber_block_debounce_time", "200", CVAR_ARCHIVE );
+	vr_haptic_intensity = Cvar_Get( "vr_haptic_intensity", "1.0", CVAR_ARCHIVE );
+	vr_comfort_vignette = Cvar_Get( "vr_comfort_vignette", "0.0", CVAR_ARCHIVE );
+	vr_saber_3rdperson_mode = Cvar_Get( "vr_saber_3rdperson_mode", "1", CVAR_ARCHIVE );
+	vr_vehicle_use_hmd_direction = Cvar_Get( "vr_vehicle_use_hmd_direction", "0", CVAR_ARCHIVE );
+	vr_vehicle_use_3rd_person = Cvar_Get( "vr_vehicle_use_3rd_person", "0", CVAR_ARCHIVE );
+	vr_vehicle_use_controller_for_speed = Cvar_Get( "vr_vehicle_use_controller_for_speed", "1", CVAR_ARCHIVE );
+	vr_gesture_triggered_use = Cvar_Get( "vr_gesture_triggered_use", "1", CVAR_ARCHIVE );
+	vr_use_gesture_boundary = Cvar_Get( "vr_use_gesture_boundary", "0.35", CVAR_ARCHIVE );
+	vr_align_weapons = Cvar_Get( "vr_align_weapons", "0", CVAR_ARCHIVE );
+	vr_refresh = Cvar_Get( "vr_refresh", "72", CVAR_ARCHIVE );
+	vr_engage_trigger = Cvar_Get( "vr_engage_trigger", "0.7", CVAR_ARCHIVE );
+	vr_release_trigger = Cvar_Get( "vr_release_trigger", "0.7", CVAR_ARCHIVE );
+	vr_engage_trigger_index = Cvar_Get( "vr_engage_trigger_index", "0.7", CVAR_ARCHIVE );
+	vr_release_trigger_index = Cvar_Get( "vr_release_trigger_index", "0.05", CVAR_ARCHIVE );
+
+	vr.menu_right_handed = vr_control_scheme->integer == 0;
+	srand( time( nullptr ) );
+	initialized = true;
+}
+
 
 
 void VR_Init()
@@ -238,63 +301,7 @@ void VR_Init()
 	TBXR_InitActions();
 	TBXR_WaitForSessionActive();
 
-	//Initialise all our variables
-	remote_movementSideways = 0.0f;
-	remote_movementForward = 0.0f;
-	remote_movementUp = 0.0f;
-	positional_movementSideways = 0.0f;
-	positional_movementForward = 0.0f;
-	vr.snapTurn = 0.0f;
-	vr.immersive_cinematics = true;
-	vr.move_speed = 1; // Default to full speed now
-
-	//init randomiser
-	srand(time(NULL));
-
-	//Create Cvars
-	vr_turn_mode = Cvar_Get( "vr_turn_mode", "0", CVAR_ARCHIVE); // 0 = snap, 1 = smooth (3rd person only), 2 = smooth (all modes)
-	vr_turn_angle = Cvar_Get( "vr_turn_angle", "45", CVAR_ARCHIVE);
-	vr_positional_factor = Cvar_Get( "vr_positional_factor", "12", CVAR_ARCHIVE);
-    vr_walkdirection = Cvar_Get( "vr_walkdirection", "1", CVAR_ARCHIVE);
-	vr_3rdperson_digital_direction = Cvar_Get( "vr_3rdperson_digital_direction", "1", CVAR_ARCHIVE);
-	vr_weapon_pitchadjust = Cvar_Get( "vr_weapon_pitchadjust", "-20.0", CVAR_ARCHIVE);
-	vr_saber_pitchadjust = Cvar_Get( "vr_saber_pitchadjust", "-13.36", CVAR_ARCHIVE);
-    vr_virtual_stock = Cvar_Get( "vr_virtual_stock", "0", CVAR_ARCHIVE);
-
-    //Defaults
-	vr_control_scheme = Cvar_Get( "vr_control_scheme", "0", CVAR_ARCHIVE);
-	vr_switch_sticks = Cvar_Get( "vr_switch_sticks", "0", CVAR_ARCHIVE);
-
-	vr_immersive_cinematics = Cvar_Get("vr_immersive_cinematics", "1", CVAR_ARCHIVE);
-	vr_screen_dist = Cvar_Get( "vr_screen_dist", "3.5", CVAR_ARCHIVE);
-	vr_weapon_velocity_trigger = Cvar_Get( "vr_weapon_velocity_trigger", "2.0", CVAR_ARCHIVE);
-	vr_scope_engage_distance = Cvar_Get( "vr_scope_engage_distance", "0.25", CVAR_ARCHIVE);
-	vr_force_velocity_trigger = Cvar_Get( "vr_force_velocity_trigger", "2.09", CVAR_ARCHIVE);
-	vr_force_distance_trigger = Cvar_Get( "vr_force_distance_trigger", "0.15", CVAR_ARCHIVE);
-    vr_two_handed_weapons = Cvar_Get ("vr_two_handed_weapons", "1", CVAR_ARCHIVE);
-	vr_force_motion_controlled = Cvar_Get ("vr_force_motion_controlled", "1", CVAR_ARCHIVE);
-	vr_force_motion_push = Cvar_Get ("vr_force_motion_push", "3", CVAR_ARCHIVE);
-	vr_force_motion_pull = Cvar_Get ("vr_force_motion_pull", "4", CVAR_ARCHIVE);
-	vr_motion_enable_saber = Cvar_Get ("vr_motion_enable_saber", "0", CVAR_ARCHIVE);
-	vr_always_run = Cvar_Get ("vr_always_run", "1", CVAR_ARCHIVE);
-	vr_crouch_toggle = Cvar_Get ("vr_crouch_toggle", "0", CVAR_ARCHIVE);
-	vr_irl_crouch_enabled = Cvar_Get ("vr_irl_crouch_enabled", "0", CVAR_ARCHIVE);
-	vr_irl_crouch_to_stand_ratio = Cvar_Get ("vr_irl_crouch_to_stand_ratio", "0.65", CVAR_ARCHIVE);
-	vr_saber_block_debounce_time = Cvar_Get ("vr_saber_block_debounce_time", "200", CVAR_ARCHIVE);
-	vr_haptic_intensity = Cvar_Get ("vr_haptic_intensity", "1.0", CVAR_ARCHIVE);
-	vr_comfort_vignette = Cvar_Get ("vr_comfort_vignette", "0.0", CVAR_ARCHIVE);
-	vr_saber_3rdperson_mode = Cvar_Get ("vr_saber_3rdperson_mode", "1", CVAR_ARCHIVE);
-	vr_vehicle_use_hmd_direction = Cvar_Get ("vr_vehicle_use_hmd_direction", "0", CVAR_ARCHIVE);
-	vr_vehicle_use_3rd_person = Cvar_Get ("vr_vehicle_use_3rd_person", "0", CVAR_ARCHIVE);
-	vr_vehicle_use_controller_for_speed = Cvar_Get ("vr_vehicle_use_controller_for_speed", "1", CVAR_ARCHIVE);
-	vr_gesture_triggered_use = Cvar_Get ("vr_gesture_triggered_use", "1", CVAR_ARCHIVE);
-	vr_use_gesture_boundary = Cvar_Get ("vr_use_gesture_boundary", "0.35", CVAR_ARCHIVE);
-	vr_align_weapons = Cvar_Get ("vr_align_weapons", "0", CVAR_ARCHIVE);
-	vr_refresh = Cvar_Get ("vr_refresh", "72", CVAR_ARCHIVE);
-	vr_engage_trigger = Cvar_Get("vr_engage_trigger", "0.7", CVAR_ARCHIVE);
-	vr_release_trigger = Cvar_Get("vr_release_trigger", "0.7", CVAR_ARCHIVE);
-	vr_engage_trigger_index = Cvar_Get("vr_engage_trigger_index", "0.7", CVAR_ARCHIVE);
-	vr_release_trigger_index = Cvar_Get("vr_release_trigger_index", "0.05", CVAR_ARCHIVE);
+	VR_InitGameStateAndCvars();
 
 	cvar_t *expanded_menu_enabled = Cvar_Get ("expanded_menu_enabled", "0", CVAR_ARCHIVE);
 	if (FS_FileExists("expanded_menu.pk3") || FS_BaseFileExists("expanded_menu.pk3")) {
@@ -310,7 +317,6 @@ void VR_Init()
 		Cvar_Set( "mod_npcsp_enabled", "0" );
 	}
 
-    vr.menu_right_handed = vr_control_scheme->integer == 0;
 }
 
 int VR_SetRefreshRate(int refreshRate)
@@ -321,16 +327,9 @@ int VR_SetRefreshRate(int refreshRate)
 //All the stuff we want to do each frame specifically for this game
 void VR_FrameSetup()
 {
-	// Vulkan owns its OpenXR session, so it does not call VR_Init(). Bind the
-	// game-side frame cvars lazily for both renderer initialization paths.
-	if (vr_refresh == nullptr)
-	{
-		vr_refresh = Cvar_Get("vr_refresh", "72", CVAR_ARCHIVE);
-	}
-	if (vr_immersive_cinematics == nullptr)
-	{
-		vr_immersive_cinematics = Cvar_Get("vr_immersive_cinematics", "1", CVAR_ARCHIVE);
-	}
+	// Vulkan owns its OpenXR session and skips VR_Init(), but still requires all
+	// renderer-independent VR state and cvars used by movement and game code.
+	VR_InitGameStateAndCvars();
 
 	static float refresh = 0;
 	if (refresh != vr_refresh->value)

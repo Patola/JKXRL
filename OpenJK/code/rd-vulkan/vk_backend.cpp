@@ -188,6 +188,7 @@ struct vk_material_stage_t
 	float color[4];
 	bool lightmap;
 	bool vertexColor;
+	bool entityColor;
 	bool depthWrite;
 	bool clampMap;
 	vk_surface_sprite_config_t surfaceSprite;
@@ -210,6 +211,7 @@ struct vk_shader_stage_definition_t
 	float turbulence[3];
 	float color[4];
 	bool vertexColor;
+	bool entityColor;
 	bool depthWrite;
 	bool clampMap;
 	vk_surface_sprite_config_t surfaceSprite;
@@ -436,10 +438,17 @@ struct vk_skin_t
 	std::vector<vk_skin_surface_t> surfaces;
 };
 
+struct vk_scene_poly_t
+{
+	qhandle_t shader;
+	std::vector<polyVert_t> vertices;
+};
+
 struct vk_scene_submission_t
 {
 	refdef_t refdef;
 	std::vector<refEntity_t> entities;
+	std::vector<vk_scene_poly_t> polys;
 	size_t rectCountBefore;
 };
 
@@ -632,7 +641,9 @@ struct vk_backend_state_t
 	uint32_t sceneRenderCount;
 	uint32_t sceneEntityTypes[RT_MAX_REF_ENTITY_TYPE];
 	std::vector<refEntity_t> sceneEntities;
+	std::vector<vk_scene_poly_t> scenePolys;
 	std::vector<refEntity_t> worldEntities;
+	std::vector<vk_scene_poly_t> worldPolys;
 	std::vector<vk_scene_submission_t> screenScenes;
 	std::vector<vk_screen_scene_clip_t> screenSceneClips;
 	bool sceneRenderedThisFrame;
@@ -640,6 +651,8 @@ struct vk_backend_state_t
 	bool loggedFirstScene;
 	bool loggedGameplayViewMode;
 	bool loggedFirstModelDraw;
+	bool loggedDynamicEffects;
+	bool loggedDynamicEffectOverflow;
 	bool haveWorldRefdef;
 	refdef_t worldRefdef;
 	bool loggedDiagnosticDraw;
@@ -806,7 +819,9 @@ static void VK_Backend_Clear()
 	vk.sceneRenderCount = 0;
 	std::memset( vk.sceneEntityTypes, 0, sizeof( vk.sceneEntityTypes ) );
 	vk.sceneEntities.clear();
+	vk.scenePolys.clear();
 	vk.worldEntities.clear();
+	vk.worldPolys.clear();
 	vk.screenScenes.clear();
 	vk.screenSceneClips.clear();
 	vk.sceneRenderedThisFrame = false;
@@ -814,6 +829,8 @@ static void VK_Backend_Clear()
 	vk.loggedFirstScene = false;
 	vk.loggedGameplayViewMode = false;
 	vk.loggedFirstModelDraw = false;
+	vk.loggedDynamicEffects = false;
+	vk.loggedDynamicEffectOverflow = false;
 	vk.haveWorldRefdef = false;
 	std::memset( &vk.worldRefdef, 0, sizeof( vk.worldRefdef ) );
 	vk.loggedDiagnosticDraw = false;
@@ -2117,6 +2134,11 @@ static void VK_ParseShaderFile( const char *filename )
 					 Q_stricmp( generator, "exactVertex" ) == 0 )
 				{
 					stage.vertexColor = true;
+				}
+				else if ( Q_stricmp( generator, "entity" ) == 0 ||
+						  Q_stricmp( generator, "lightingDiffuseEntity" ) == 0 )
+				{
+					stage.entityColor = true;
 				}
 				else if ( Q_stricmp( generator, "const" ) == 0 )
 				{
@@ -3437,7 +3459,10 @@ static void VK_BindWorldPipeline(
 	}
 }
 
-static void VK_PushWorldStage( const vk_material_stage_t *stage, bool useLightmap )
+static void VK_PushWorldStage(
+	const vk_material_stage_t *stage,
+	bool useLightmap,
+	const byte *entityColor = nullptr )
 {
 	vk_world_stage_push_t push = {};
 	push.alpha = 1.0f;
@@ -3466,6 +3491,13 @@ static void VK_PushWorldStage( const vk_material_stage_t *stage, bool useLightma
 		push.uvOffset[1] = 0.5f - 0.5f * push.uvScale[1] + stage->scroll[1] * seconds;
 		push.alpha = stage->alpha;
 		std::memcpy( push.color, stage->color, sizeof( push.color ) );
+		if ( stage->entityColor && entityColor != nullptr )
+		{
+			for ( int component = 0; component < 4; ++component )
+			{
+				push.color[component] *= entityColor[component] / 255.0f;
+			}
+		}
 		push.flags[0] = stage->vertexColor && !useLightmap ? 1.0f : 0.0f;
 		push.flags[1] = stage->turbulence[0];
 		push.flags[2] = stage->turbulence[1] + seconds * stage->turbulence[2];
@@ -3559,7 +3591,8 @@ static uint32_t VK_RecordBoundIndexedShader(
 	uint32_t firstIndex,
 	vk_world_pass_t pass,
 	VkPipeline *boundPipeline,
-	VkDescriptorSet *boundTexture )
+	VkDescriptorSet *boundTexture,
+	const byte *entityColor = nullptr )
 {
 	if ( shader > 0 && static_cast<size_t>( shader ) < vk.materials.size() &&
 		 !vk.materials[shader].stages.empty() )
@@ -3610,7 +3643,7 @@ static uint32_t VK_RecordBoundIndexedShader(
 			{
 				continue;
 			}
-			VK_PushWorldStage( &effectiveStage, effectiveStage.lightmap );
+			VK_PushWorldStage( &effectiveStage, effectiveStage.lightmap, entityColor );
 			vkCmdDrawIndexed( vk.commandBuffer, indexCount, 1, firstIndex, 0, 0 );
 			++drawCount;
 		}
@@ -4861,7 +4894,8 @@ static uint32_t VK_RecordMD3ModelSurfaces(
 	const CGhoul2Info *ghoul,
 	qhandle_t skinHandle,
 	int sceneTime,
-	const std::vector<mdxaBone_t> *bones )
+	const std::vector<mdxaBone_t> *bones,
+	const byte *entityColor )
 {
 	uint32_t drawCount = 0;
 	for ( const vk_model_surface_t &surface : model.surfaces )
@@ -4910,7 +4944,8 @@ static uint32_t VK_RecordMD3ModelSurfaces(
 		else
 		{
 			drawCount += VK_RecordBoundIndexedShader(
-				shader, 2, true, surface.indexCount, 0, pass, boundPipeline, boundTexture );
+				shader, 2, true, surface.indexCount, 0, pass, boundPipeline, boundTexture,
+				entityColor );
 		}
 	}
 	if ( pass == VK_WORLD_PASS_TRANSLUCENT && ghoul != nullptr )
@@ -5147,7 +5182,8 @@ static void VK_RecordSceneModels(
 					&ghoul,
 					skinHandle,
 					sceneTime,
-					bonePointer );
+					bonePointer,
+					entity.shaderRGBA );
 				if ( draws > 0 )
 				{
 					drewGhoul2 = true;
@@ -5190,7 +5226,8 @@ static void VK_RecordSceneModels(
 				nullptr,
 				entity.customSkin,
 				sceneTime,
-				nullptr );
+				nullptr,
+				entity.shaderRGBA );
 			if ( draws > 0 )
 			{
 				++md3Entities;
@@ -5208,7 +5245,8 @@ static void VK_RecordSceneModels(
 				nullptr,
 				entity.customSkin,
 				sceneTime,
-				nullptr );
+				nullptr,
+				entity.shaderRGBA );
 			if ( draws > 0 )
 			{
 				++glmEntities;
@@ -5227,6 +5265,489 @@ static void VK_RecordSceneModels(
 			"rd-vulkan-scene: translucent model pass: entities=%u md3=%u glm=%u inline=%u unsupported=%u stageDraws=%u\n",
 			modelEntities, md3Entities, glmEntities, inlineEntities, unsupportedEntities, surfaceDraws );
 		vk.loggedFirstModelDraw = true;
+	}
+}
+
+struct vk_dynamic_effect_batch_t
+{
+	qhandle_t shader;
+	std::vector<vk_world_vertex_t> vertices;
+};
+
+static vk_dynamic_effect_batch_t *VK_DynamicEffectBatchForShader(
+	std::vector<vk_dynamic_effect_batch_t> *batches,
+	qhandle_t shader )
+{
+	for ( vk_dynamic_effect_batch_t &batch : *batches )
+	{
+		if ( batch.shader == shader )
+		{
+			return &batch;
+		}
+	}
+	batches->push_back( { shader, {} } );
+	return &batches->back();
+}
+
+static void VK_WriteDynamicEffectVertex(
+	vk_world_vertex_t *vertex,
+	const vec3_t position,
+	const byte color[4],
+	float u,
+	float v )
+{
+	*vertex = {};
+	VectorCopy( position, vertex->position );
+	for ( int component = 0; component < 4; ++component )
+	{
+		vertex->color[component] = color[component] / 255.0f;
+	}
+	vertex->uv[0] = u;
+	vertex->uv[1] = v;
+}
+
+static void VK_AppendDynamicEffectTriangle(
+	vk_dynamic_effect_batch_t *batch,
+	const vec3_t p0,
+	const vec3_t p1,
+	const vec3_t p2,
+	const byte c0[4],
+	const byte c1[4],
+	const byte c2[4],
+	const float uv0[2],
+	const float uv1[2],
+	const float uv2[2] )
+{
+	const size_t first = batch->vertices.size();
+	batch->vertices.resize( first + 3 );
+	VK_WriteDynamicEffectVertex( &batch->vertices[first + 0], p0, c0, uv0[0], uv0[1] );
+	VK_WriteDynamicEffectVertex( &batch->vertices[first + 1], p1, c1, uv1[0], uv1[1] );
+	VK_WriteDynamicEffectVertex( &batch->vertices[first + 2], p2, c2, uv2[0], uv2[1] );
+}
+
+static void VK_AppendDynamicEffectQuad(
+	vk_dynamic_effect_batch_t *batch,
+	const vec3_t origin,
+	const vec3_t left,
+	const vec3_t up,
+	const byte color[4] )
+{
+	vec3_t corners[4];
+	VectorAdd( origin, left, corners[0] );
+	VectorAdd( corners[0], up, corners[0] );
+	VectorSubtract( origin, left, corners[1] );
+	VectorAdd( corners[1], up, corners[1] );
+	VectorSubtract( origin, left, corners[2] );
+	VectorSubtract( corners[2], up, corners[2] );
+	VectorAdd( origin, left, corners[3] );
+	VectorSubtract( corners[3], up, corners[3] );
+	const float uvs[4][2] = {
+		{ 0.0f, 0.0f }, { 1.0f, 0.0f },
+		{ 1.0f, 1.0f }, { 0.0f, 1.0f },
+	};
+	VK_AppendDynamicEffectTriangle(
+		batch, corners[0], corners[1], corners[3],
+		color, color, color, uvs[0], uvs[1], uvs[3] );
+	VK_AppendDynamicEffectTriangle(
+		batch, corners[3], corners[1], corners[2],
+		color, color, color, uvs[3], uvs[1], uvs[2] );
+}
+
+static void VK_AppendDynamicEffectLine(
+	vk_dynamic_effect_batch_t *batch,
+	const vec3_t start,
+	const vec3_t end,
+	const vec3_t viewOrigin,
+	float startRadius,
+	float endRadius,
+	const byte color[4],
+	float textureStart = 0.0f,
+	float textureEnd = 1.0f )
+{
+	vec3_t startToView;
+	vec3_t endToView;
+	vec3_t right;
+	VectorSubtract( start, viewOrigin, startToView );
+	VectorSubtract( end, viewOrigin, endToView );
+	CrossProduct( startToView, endToView, right );
+	if ( VectorNormalize( right ) < 0.0001f )
+	{
+		vec3_t direction;
+		vec3_t fallbackUp;
+		VectorSubtract( end, start, direction );
+		if ( VectorNormalize( direction ) < 0.0001f )
+		{
+			return;
+		}
+		MakeNormalVectors( direction, right, fallbackUp );
+	}
+
+	vec3_t corners[4];
+	VectorMA( start, startRadius, right, corners[0] );
+	VectorMA( start, -startRadius, right, corners[1] );
+	VectorMA( end, endRadius, right, corners[2] );
+	VectorMA( end, -endRadius, right, corners[3] );
+	const float uvs[4][2] = {
+		{ 0.0f, textureStart }, { 1.0f, textureStart },
+		{ 0.0f, textureEnd }, { 1.0f, textureEnd },
+	};
+	VK_AppendDynamicEffectTriangle(
+		batch, corners[0], corners[1], corners[2],
+		color, color, color, uvs[0], uvs[1], uvs[2] );
+	VK_AppendDynamicEffectTriangle(
+		batch, corners[2], corners[1], corners[3],
+		color, color, color, uvs[2], uvs[1], uvs[3] );
+}
+
+static bool VK_DynamicShaderUsesPass( qhandle_t shader, vk_world_pass_t pass )
+{
+	if ( shader > 0 && static_cast<size_t>( shader ) < vk.materials.size() &&
+		 !vk.materials[shader].stages.empty() )
+	{
+		for ( const vk_material_stage_t &stage : vk.materials[shader].stages )
+		{
+			if ( stage.surfaceSprite.type == VK_SURFACE_SPRITE_NONE && !stage.lightmap &&
+				 ( ( pass == VK_WORLD_PASS_OPAQUE ) == ( stage.blendMode == VK_BLEND_OPAQUE ) ) )
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+	return pass == VK_WORLD_PASS_TRANSLUCENT;
+}
+
+static void VK_BuildDynamicEffectBatches(
+	const refdef_t &refdef,
+	const std::vector<refEntity_t> &entities,
+	const std::vector<vk_scene_poly_t> &polys,
+	vk_world_pass_t pass,
+	bool suppressThirdPerson,
+	std::vector<vk_dynamic_effect_batch_t> *batches,
+	uint32_t typeCounts[RT_MAX_REF_ENTITY_TYPE] )
+{
+	for ( const refEntity_t &entity : entities )
+	{
+		if ( suppressThirdPerson && ( entity.renderfx & RF_THIRD_PERSON ) != 0 )
+		{
+			continue;
+		}
+		if ( entity.reType != RT_SPRITE && entity.reType != RT_SABER_GLOW &&
+			 entity.reType != RT_ORIENTED_QUAD && entity.reType != RT_LINE &&
+			 entity.reType != RT_ELECTRICITY && entity.reType != RT_BEAM )
+		{
+			continue;
+		}
+
+		const qhandle_t shader = entity.customShader > 0 ? entity.customShader : 1;
+		if ( !VK_DynamicShaderUsesPass( shader, pass ) )
+		{
+			continue;
+		}
+		vk_dynamic_effect_batch_t *batch = VK_DynamicEffectBatchForShader( batches, shader );
+		++typeCounts[entity.reType];
+
+		if ( entity.reType == RT_SPRITE || entity.reType == RT_SABER_GLOW )
+		{
+			if ( !std::isfinite( entity.radius ) || entity.radius <= 0.0f )
+			{
+				continue;
+			}
+			auto appendBillboard = [&]( const vec3_t origin, float radius, float rotation )
+			{
+				vec3_t left;
+				vec3_t up;
+				const float angle = DEG2RAD( rotation );
+				const float sine = std::sin( angle );
+				const float cosine = std::cos( angle );
+				VectorScale( refdef.viewaxis[1], cosine * radius, left );
+				VectorMA( left, -sine * radius, refdef.viewaxis[2], left );
+				VectorScale( refdef.viewaxis[2], cosine * radius, up );
+				VectorMA( up, sine * radius, refdef.viewaxis[1], up );
+				VK_AppendDynamicEffectQuad(
+					batch, origin, left, up, entity.shaderRGBA );
+			};
+
+			if ( entity.reType == RT_SABER_GLOW &&
+				 std::isfinite( entity.saberLength ) && entity.saberLength > 0.0f &&
+				 VectorLength( entity.axis[0] ) > 0.0001f )
+			{
+				float glowRadius = entity.radius;
+				const float spacing = std::max( entity.radius * 0.65f, 0.05f );
+				for ( float distance = entity.saberLength; distance > 0.0f; distance -= spacing )
+				{
+					vec3_t glowOrigin;
+					VectorMA( entity.origin, distance, entity.axis[0], glowOrigin );
+					appendBillboard( glowOrigin, glowRadius, 0.0f );
+					glowRadius += 0.017f;
+				}
+
+				const float pulse = 0.125f *
+					( 1.0f + std::sin( refdef.time * 0.013f + entity.origin[0] * 0.17f ) );
+				appendBillboard( entity.origin, 5.5f + pulse, 0.0f );
+			}
+			else
+			{
+				appendBillboard( entity.origin, entity.radius, entity.rotation );
+			}
+		}
+		else if ( entity.reType == RT_ORIENTED_QUAD )
+		{
+			if ( !std::isfinite( entity.radius ) || entity.radius <= 0.0f ||
+				 VectorLength( entity.axis[0] ) < 0.0001f )
+			{
+				continue;
+			}
+			vec3_t left;
+			vec3_t up;
+			MakeNormalVectors( entity.axis[0], left, up );
+			if ( entity.rotation != 0.0f )
+			{
+				vec3_t rotatedLeft;
+				vec3_t rotatedUp;
+				const float angle = DEG2RAD( entity.rotation );
+				const float sine = std::sin( angle );
+				const float cosine = std::cos( angle );
+				VectorScale( left, cosine, rotatedLeft );
+				VectorMA( rotatedLeft, -sine, up, rotatedLeft );
+				VectorScale( up, cosine, rotatedUp );
+				VectorMA( rotatedUp, sine, left, rotatedUp );
+				VectorCopy( rotatedLeft, left );
+				VectorCopy( rotatedUp, up );
+			}
+			VectorScale( left, entity.radius, left );
+			VectorScale( up, entity.radius, up );
+			VK_AppendDynamicEffectQuad(
+				batch, entity.origin, left, up, entity.shaderRGBA );
+		}
+		else if ( entity.reType == RT_ELECTRICITY )
+		{
+			vec3_t end;
+			VectorCopy( entity.oldorigin, end );
+			vec3_t direction;
+			VectorSubtract( end, entity.origin, direction );
+			float distance = VectorNormalize( direction );
+			if ( ( entity.renderfx & RF_GROW ) != 0 && entity.angles[1] > 0.0f )
+			{
+				const float growth = VK_ClampValue(
+					1.0f - ( entity.endTime - refdef.time ) / entity.angles[1], 0.0f, 1.0f );
+				VectorMA( entity.origin, distance * growth, direction, end );
+				distance *= growth;
+			}
+			if ( distance <= 0.001f )
+			{
+				continue;
+			}
+			vec3_t side;
+			vec3_t vertical;
+			MakeNormalVectors( direction, side, vertical );
+			const int segments = VK_ClampValue( static_cast<int>( distance / 16.0f ), 1, 64 );
+			vec3_t previous;
+			VectorCopy( entity.origin, previous );
+			for ( int segment = 1; segment <= segments; ++segment )
+			{
+				const float fraction = static_cast<float>( segment ) / segments;
+				vec3_t point;
+				VectorMA( entity.origin, distance * fraction, direction, point );
+				if ( segment < segments )
+				{
+					const float envelope = std::sin( fraction * 3.14159265359f );
+					const float phase = entity.frame * 0.00031f + segment * 2.39996323f;
+					VectorMA( point,
+						std::sin( phase ) * entity.angles[0] * 7.0f * envelope,
+						side, point );
+					VectorMA( point,
+						std::cos( phase * 1.37f ) * entity.angles[0] * 7.0f * envelope,
+						vertical, point );
+				}
+				const float startFraction = static_cast<float>( segment - 1 ) / segments;
+				const float startRadius = ( entity.renderfx & RF_TAPERED ) != 0
+					? entity.radius * ( 1.0f - startFraction * startFraction )
+					: entity.radius;
+				const float endRadius = ( entity.renderfx & RF_TAPERED ) != 0
+					? entity.radius * ( 1.0f - fraction * fraction )
+					: entity.radius;
+				VK_AppendDynamicEffectLine(
+					batch, previous, point, refdef.vieworg,
+					startRadius, endRadius, entity.shaderRGBA,
+					startFraction, fraction );
+				VectorCopy( point, previous );
+			}
+		}
+		else
+		{
+			const float radius = entity.reType == RT_BEAM && entity.frame > 0
+				? entity.frame * 0.5f
+				: entity.radius;
+			if ( std::isfinite( radius ) && radius > 0.0f )
+			{
+				VK_AppendDynamicEffectLine(
+					batch, entity.origin, entity.oldorigin, refdef.vieworg,
+					radius, radius, entity.shaderRGBA );
+			}
+		}
+	}
+
+	for ( const vk_scene_poly_t &poly : polys )
+	{
+		const qhandle_t shader = poly.shader > 0 ? poly.shader : 1;
+		if ( poly.vertices.size() < 3 || !VK_DynamicShaderUsesPass( shader, pass ) )
+		{
+			continue;
+		}
+		vk_dynamic_effect_batch_t *batch = VK_DynamicEffectBatchForShader( batches, shader );
+		for ( size_t vertex = 1; vertex + 1 < poly.vertices.size(); ++vertex )
+		{
+			const polyVert_t &p0 = poly.vertices[0];
+			const polyVert_t &p1 = poly.vertices[vertex];
+			const polyVert_t &p2 = poly.vertices[vertex + 1];
+			VK_AppendDynamicEffectTriangle(
+				batch, p0.xyz, p1.xyz, p2.xyz,
+				p0.modulate, p1.modulate, p2.modulate,
+				p0.st, p1.st, p2.st );
+		}
+	}
+}
+
+static bool VK_StreamDynamicEffectBatch(
+	const vk_dynamic_effect_batch_t &batch,
+	VkDeviceSize *vertexOffset )
+{
+	const VkDeviceSize alignment = 16;
+	const VkDeviceSize offset =
+		( vk.skinnedVertexOffset + alignment - 1 ) & ~( alignment - 1 );
+	const VkDeviceSize byteCount = static_cast<VkDeviceSize>(
+		batch.vertices.size() * sizeof( vk_world_vertex_t ) );
+	if ( batch.vertices.empty() || vk.skinnedVertexMapped == nullptr ||
+		 offset > vk.skinnedVertexCapacity || byteCount > vk.skinnedVertexCapacity - offset )
+	{
+		if ( !batch.vertices.empty() && !vk.loggedDynamicEffectOverflow )
+		{
+			ri.Printf( PRINT_WARNING,
+				"rd-vulkan-fx: dynamic vertex stream exhausted; some effects were skipped\n" );
+			vk.loggedDynamicEffectOverflow = true;
+		}
+		return false;
+	}
+	std::memcpy( vk.skinnedVertexMapped + offset, batch.vertices.data(),
+		static_cast<size_t>( byteCount ) );
+	vk.skinnedVertexOffset = offset + byteCount;
+	*vertexOffset = offset;
+	return true;
+}
+
+static uint32_t VK_RecordDynamicEffectBatch(
+	const vk_dynamic_effect_batch_t &batch,
+	vk_world_pass_t pass,
+	VkPipeline *boundPipeline,
+	VkDescriptorSet *boundTexture )
+{
+	VkDeviceSize vertexOffset = 0;
+	if ( !VK_StreamDynamicEffectBatch( batch, &vertexOffset ) )
+	{
+		return 0;
+	}
+	vkCmdBindVertexBuffers(
+		vk.commandBuffer, 0, 1, &vk.skinnedVertexBuffer, &vertexOffset );
+
+	uint32_t draws = 0;
+	if ( batch.shader > 0 && static_cast<size_t>( batch.shader ) < vk.materials.size() &&
+		 !vk.materials[batch.shader].stages.empty() )
+	{
+		for ( const vk_material_stage_t &stage : vk.materials[batch.shader].stages )
+		{
+			if ( stage.surfaceSprite.type != VK_SURFACE_SPRITE_NONE || stage.lightmap ||
+				 ( ( pass == VK_WORLD_PASS_OPAQUE ) != ( stage.blendMode == VK_BLEND_OPAQUE ) ) )
+			{
+				continue;
+			}
+			if ( !VK_WorldTextureUsable( stage.texture ) )
+			{
+				continue;
+			}
+			VK_BindWorldPipeline( stage.blendMode, boundPipeline, stage.depthWrite );
+			if ( !VK_BindWorldTexture(
+					stage.texture, boundTexture, !stage.clampMap ) )
+			{
+				continue;
+			}
+			VK_PushWorldStage( &stage, false );
+			vkCmdDraw( vk.commandBuffer,
+				static_cast<uint32_t>( batch.vertices.size() ), 1, 0, 0 );
+			++draws;
+		}
+		return draws;
+	}
+
+	if ( pass != VK_WORLD_PASS_TRANSLUCENT || !VK_WorldTextureUsable( batch.shader ) )
+	{
+		return 0;
+	}
+	vk_material_stage_t fallback = {};
+	fallback.texture = batch.shader;
+	fallback.blendMode = VK_BLEND_ALPHA;
+	fallback.alpha = 1.0f;
+	fallback.color[0] = 1.0f;
+	fallback.color[1] = 1.0f;
+	fallback.color[2] = 1.0f;
+	fallback.color[3] = 1.0f;
+	fallback.vertexColor = true;
+	VK_BindWorldPipeline( fallback.blendMode, boundPipeline );
+	if ( !VK_BindWorldTexture( fallback.texture, boundTexture ) )
+	{
+		return 0;
+	}
+	VK_PushWorldStage( &fallback, false );
+	vkCmdDraw( vk.commandBuffer,
+		static_cast<uint32_t>( batch.vertices.size() ), 1, 0, 0 );
+	return 1;
+}
+
+static void VK_RecordDynamicEffects(
+	const float mvp[16],
+	const refdef_t &refdef,
+	const std::vector<refEntity_t> &entities,
+	const std::vector<vk_scene_poly_t> &polys,
+	vk_world_pass_t pass,
+	bool suppressThirdPerson )
+{
+	std::vector<vk_dynamic_effect_batch_t> batches;
+	uint32_t typeCounts[RT_MAX_REF_ENTITY_TYPE] = {};
+	VK_BuildDynamicEffectBatches(
+		refdef, entities, polys, pass, suppressThirdPerson, &batches, typeCounts );
+	if ( batches.empty() )
+	{
+		return;
+	}
+
+	vkCmdPushConstants(
+		vk.commandBuffer,
+		vk.pipelineLayout,
+		VK_SHADER_STAGE_VERTEX_BIT,
+		0,
+		sizeof( float ) * 16,
+		mvp );
+	VkPipeline boundPipeline = VK_NULL_HANDLE;
+	VkDescriptorSet boundTexture = VK_NULL_HANDLE;
+	uint32_t draws = 0;
+	uint32_t triangles = 0;
+	for ( const vk_dynamic_effect_batch_t &batch : batches )
+	{
+		draws += VK_RecordDynamicEffectBatch(
+			batch, pass, &boundPipeline, &boundTexture );
+		triangles += static_cast<uint32_t>( batch.vertices.size() / 3 );
+	}
+
+	if ( !vk.loggedDynamicEffects && pass == VK_WORLD_PASS_TRANSLUCENT && draws > 0 )
+	{
+		ri.Printf( PRINT_ALL,
+			"rd-vulkan-fx: rendering dynamic effects: batches=%zu draws=%u triangles=%u "
+			"sprites=%u oriented=%u lines=%u electricity=%u beams=%u polys=%zu\n",
+			batches.size(), draws, triangles,
+			typeCounts[RT_SPRITE] + typeCounts[RT_SABER_GLOW],
+			typeCounts[RT_ORIENTED_QUAD], typeCounts[RT_LINE],
+			typeCounts[RT_ELECTRICITY], typeCounts[RT_BEAM], polys.size() );
+		vk.loggedDynamicEffects = true;
 	}
 }
 
@@ -6041,9 +6562,15 @@ static void VK_RecordWorld( int eye )
 	VK_RecordWorldSurfaceSprites( mvp, visibleSurfaces );
 	VK_RecordSceneModels(
 		view, projection, VK_WORLD_PASS_OPAQUE, vk.worldEntities, true, vk.worldRefdef.time );
+	VK_RecordDynamicEffects(
+		mvp, vk.worldRefdef, vk.worldEntities, vk.worldPolys,
+		VK_WORLD_PASS_OPAQUE, true );
 	recordWorldPass( VK_WORLD_PASS_TRANSLUCENT );
 	VK_RecordSceneModels(
 		view, projection, VK_WORLD_PASS_TRANSLUCENT, vk.worldEntities, true, vk.worldRefdef.time );
+	VK_RecordDynamicEffects(
+		mvp, vk.worldRefdef, vk.worldEntities, vk.worldPolys,
+		VK_WORLD_PASS_TRANSLUCENT, true );
 	if ( vk.world.hasGlobalFog )
 	{
 		recordWorldPass( VK_WORLD_PASS_FOG );
@@ -6228,22 +6755,30 @@ static void VK_RecordScreenScenes( int eye, size_t firstScene, size_t endScene )
 
 		float view[16] = {};
 		float projection[16] = {};
+		float mvp[16] = {};
 		VK_BuildViewMatrix( scene.refdef, 0, view, false );
 		VK_BuildRefdefProjectionMatrix( scene.refdef, 1.0f, 8192.0f, projection );
+		VK_MatrixMultiply( projection, view, mvp );
 		VK_RecordSceneModels(
 			view,
 			projection,
 				VK_WORLD_PASS_OPAQUE,
 				scene.entities,
-				false,
-				scene.refdef.time );
+			false,
+			scene.refdef.time );
+		VK_RecordDynamicEffects(
+			mvp, scene.refdef, scene.entities, scene.polys,
+			VK_WORLD_PASS_OPAQUE, false );
 		VK_RecordSceneModels(
 			view,
 			projection,
 				VK_WORLD_PASS_TRANSLUCENT,
 				scene.entities,
-				false,
-				scene.refdef.time );
+			false,
+			scene.refdef.time );
+		VK_RecordDynamicEffects(
+			mvp, scene.refdef, scene.entities, scene.polys,
+			VK_WORLD_PASS_TRANSLUCENT, false );
 	}
 }
 
@@ -9370,6 +9905,8 @@ void VK_Backend_LoadWorld( const char *name )
 	vk.loggedShipInteriorMaterials = false;
 	vk.loggedShipInteriorModels = false;
 	vk.loggedFirstModelDraw = false;
+	vk.loggedDynamicEffects = false;
+	vk.loggedDynamicEffectOverflow = false;
 	VK_DestroyWorldGeometry();
 
 	char *buffer = nullptr;
@@ -9626,6 +10163,7 @@ void VK_Backend_ClearScene()
 	vk.sceneLightCount = 0;
 	std::memset( vk.sceneEntityTypes, 0, sizeof( vk.sceneEntityTypes ) );
 	vk.sceneEntities.clear();
+	vk.scenePolys.clear();
 }
 
 void VK_Backend_AddRefEntity( const refEntity_t *entity )
@@ -9645,14 +10183,25 @@ void VK_Backend_AddRefEntity( const refEntity_t *entity )
 	}
 }
 
-void VK_Backend_AddPoly( qhandle_t, int vertexCount, const polyVert_t *vertices )
+void VK_Backend_AddPoly( qhandle_t shader, int vertexCount, const polyVert_t *vertices )
 {
 	if ( vertexCount <= 0 || vertices == nullptr )
 	{
 		return;
 	}
+	const uint32_t retainedVertexCount = vk.scenePolyVertexCount;
 	++vk.scenePolyCount;
 	vk.scenePolyVertexCount += static_cast<uint32_t>( vertexCount );
+	if ( vk.scenePolys.size() >= 8192 || vertexCount > 4096 ||
+		 retainedVertexCount >= 262144u ||
+		 static_cast<uint32_t>( vertexCount ) > 262144u - retainedVertexCount )
+	{
+		return;
+	}
+	vk_scene_poly_t poly = {};
+	poly.shader = shader;
+	poly.vertices.assign( vertices, vertices + vertexCount );
+	vk.scenePolys.push_back( std::move( poly ) );
 }
 
 void VK_Backend_AddLight( const vec3_t, float intensity, float, float, float )
@@ -9769,6 +10318,7 @@ void VK_Backend_RenderScene( const refdef_t *refdef )
 		vk.worldRefdef = *refdef;
 		vk.haveWorldRefdef = true;
 		vk.worldEntities = vk.sceneEntities;
+		vk.worldPolys = vk.scenePolys;
 		if ( !vk.loggedGameplayViewMode )
 		{
 			const cvar_t *thirdPerson = ri.Cvar_Get( "cg_thirdPerson", "0", 0 );
@@ -9785,6 +10335,7 @@ void VK_Backend_RenderScene( const refdef_t *refdef )
 		vk_scene_submission_t scene = {};
 		scene.refdef = *refdef;
 		scene.entities = vk.sceneEntities;
+		scene.polys = vk.scenePolys;
 		scene.rectCountBefore = vk.rects.size();
 		vk.screenScenes.push_back( std::move( scene ) );
 	}
@@ -9814,6 +10365,7 @@ void VK_Backend_BeginFrame()
 	vk.sceneRenderedThisFrame = false;
 	vk.sceneWorldRenderedThisFrame = false;
 	vk.worldEntities.clear();
+	vk.worldPolys.clear();
 	vk.screenScenes.clear();
 	VK_Backend_SetColor( nullptr );
 	VK_PrepareXrFrame();
@@ -9883,6 +10435,7 @@ qhandle_t VK_Backend_RegisterTexture( const char *name )
 			std::memcpy( stage.turbulence, stageDefinition.turbulence, sizeof( stage.turbulence ) );
 			std::memcpy( stage.color, stageDefinition.color, sizeof( stage.color ) );
 			stage.vertexColor = stageDefinition.vertexColor;
+			stage.entityColor = stageDefinition.entityColor;
 			vk.materials[handle].stages.push_back( stage );
 		}
 		ri.Printf( PRINT_ALL, "rd-vulkan: material %d: %s (%zu stages)\n",
@@ -9929,12 +10482,16 @@ void VK_Backend_DrawStretchPic(
 			{
 				continue;
 			}
-			float color[4] = {
-				vk.currentColor[0],
-				vk.currentColor[1],
-				vk.currentColor[2],
-				vk.currentColor[3] * stage.alpha,
-			};
+			float color[4];
+			for ( int component = 0; component < 3; ++component )
+			{
+				color[component] = stage.color[component];
+				if ( stage.vertexColor )
+				{
+					color[component] *= vk.currentColor[component];
+				}
+			}
+			color[3] = stage.color[3] * vk.currentColor[3] * stage.alpha;
 			const float scrollS = stage.scroll[0] * seconds;
 			const float scrollT = stage.scroll[1] * seconds;
 			VK_Backend_AppendScreenRect(
