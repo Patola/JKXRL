@@ -332,8 +332,8 @@ extern "C" Q_EXPORT refexport_t* QDECL GetRefAPI( int apiVersion, refimport_t *r
 	re.G2API_IsPaused = VK_G2API_IsPaused;
 	re.G2API_ListBones = []( CGhoul2Info *, int ) {};
 	re.G2API_ListSurfaces = []( CGhoul2Info * ) {};
-	re.G2API_LoadGhoul2Models = []( CGhoul2Info_v &, char * ) {};
-	re.G2API_LoadSaveCodeDestructGhoul2Info = []( CGhoul2Info_v & ) {};
+	re.G2API_LoadGhoul2Models = VK_G2API_LoadGhoul2Models;
+	re.G2API_LoadSaveCodeDestructGhoul2Info = VK_G2API_LoadSaveCodeDestructGhoul2Info;
 	re.G2API_PauseBoneAnim = VK_G2API_PauseBoneAnim;
 	re.G2API_PauseBoneAnimIndex = VK_G2API_PauseBoneAnimIndex;
 	re.G2API_PrecacheGhoul2Model = VK_G2API_PrecacheGhoul2Model;
@@ -346,7 +346,7 @@ extern "C" Q_EXPORT refexport_t* QDECL GetRefAPI( int apiVersion, refimport_t *r
 	re.G2API_RemoveBone = []( CGhoul2Info *, const char * ) -> qboolean { return qfalse; };
 	re.G2API_RemoveGhoul2Model = VK_G2API_RemoveGhoul2Model;
 	re.G2API_RemoveSurface = []( CGhoul2Info *, const int ) -> qboolean { return qfalse; };
-	re.G2API_SaveGhoul2Models = []( CGhoul2Info_v & ) {};
+	re.G2API_SaveGhoul2Models = VK_G2API_SaveGhoul2Models;
 	re.G2API_SetAnimIndex = VK_G2API_SetAnimIndex;
 	re.G2API_SetBoneAnim = VK_G2API_SetBoneAnim;
 	re.G2API_SetBoneAnimIndex = VK_G2API_SetBoneAnimIndex;

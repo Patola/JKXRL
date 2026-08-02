@@ -29,6 +29,9 @@ void VK_G2API_CopyGhoul2Instance(
 	CGhoul2Info_v &ghoul2From,
 	CGhoul2Info_v &ghoul2To,
 	int modelIndex );
+void VK_G2API_SaveGhoul2Models( CGhoul2Info_v &ghoul2 );
+void VK_G2API_LoadGhoul2Models( CGhoul2Info_v &ghoul2, char *buffer );
+void VK_G2API_LoadSaveCodeDestructGhoul2Info( CGhoul2Info_v &ghoul2 );
 qboolean VK_G2API_HaveWeGhoul2Models( CGhoul2Info_v &ghoul2 );
 qboolean VK_G2API_GetAnimFileName( CGhoul2Info *ghoul2, char **filename );
 char *VK_G2API_GetGLAName( CGhoul2Info *ghoul2 );

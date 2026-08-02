@@ -27,6 +27,7 @@ published by the Free Software Foundation.
 #include <cstdlib>
 #include <cstring>
 #include <cmath>
+#include <deque>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -439,6 +440,7 @@ struct vk_scene_submission_t
 {
 	refdef_t refdef;
 	std::vector<refEntity_t> entities;
+	size_t rectCountBefore;
 };
 
 struct vk_screen_scene_clip_t
@@ -455,6 +457,7 @@ struct vk_ghoul2_bone_cache_t
 	const CGhoul2Info *ghoul;
 	const vk_model_t *model;
 	int time;
+	mdxaBone_t rootMatrix;
 	bool valid;
 	std::vector<mdxaBone_t> bones;
 };
@@ -536,7 +539,7 @@ struct vk_backend_state_t
 	VkDeviceSize skinnedVertexCapacity;
 	VkDeviceSize skinnedVertexOffset;
 	uint64_t ghoul2CacheFrameIndex;
-	std::vector<vk_ghoul2_bone_cache_t> ghoul2BoneCache;
+	std::deque<vk_ghoul2_bone_cache_t> ghoul2BoneCache;
 	std::vector<vk_ghoul2_surface_cache_t> ghoul2SurfaceCache;
 	std::vector<vk_surface_sprite_stream_cache_t> surfaceSpriteStreamCache;
 	std::vector<vk_ghoul2_skinned_audit_t> ghoul2SkinnedAudits;
@@ -3994,6 +3997,14 @@ struct vk_g2_frame_t
 	float lerp;
 };
 
+static const mdxaBone_t vkGhoul2DefaultRootMatrix = {
+	{
+		{ 0.0f, -1.0f, 0.0f, 0.0f },
+		{ 1.0f, 0.0f, 0.0f, 0.0f },
+		{ 0.0f, 0.0f, 1.0f, 0.0f },
+	},
+};
+
 static void VK_MultiplyBoneMatrices(
 	const mdxaBone_t &parent,
 	const mdxaBone_t &local,
@@ -4202,12 +4213,19 @@ static bool VK_EvaluateGhoul2Bones(
 	const vk_model_t &model,
 	const CGhoul2Info &ghoul,
 	int time,
+	const mdxaBone_t &rootMatrix,
 	std::vector<mdxaBone_t> *finalBones )
 {
 	const std::shared_ptr<vk_gla_t> selectedAnimation =
 		VK_ModelAnimation( model, ghoul.animModelIndexOffset );
 	if ( selectedAnimation == nullptr || selectedAnimation->bones.empty() )
 	{
+		if ( Q_stricmp( model.animationName.c_str(), sDEFAULT_GLA_NAME ) == 0 &&
+			 model.boneCount > 0 )
+		{
+			finalBones->assign( static_cast<size_t>( model.boneCount ), rootMatrix );
+			return true;
+		}
 		return false;
 	}
 
@@ -4216,14 +4234,6 @@ static bool VK_EvaluateGhoul2Bones(
 	std::vector<vk_g2_frame_t> frames( animation.bones.size() );
 	std::vector<byte> evaluationState( animation.bones.size(), 0 );
 	finalBones->resize( animation.bones.size() );
-	const mdxaBone_t ghoul2RootMatrix = {
-		{
-			{ 0.0f, -1.0f, 0.0f, 0.0f },
-			{ 1.0f, 0.0f, 0.0f, 0.0f },
-			{ 0.0f, 0.0f, 1.0f, 0.0f },
-		},
-	};
-
 	std::function<bool( size_t )> evaluateBone = [&]( size_t boneIndex ) -> bool
 	{
 		if ( evaluationState[boneIndex] == 2 )
@@ -4278,7 +4288,7 @@ static bool VK_EvaluateGhoul2Bones(
 		if ( bone.parent < 0 )
 		{
 			VK_MultiplyBoneMatrices(
-				ghoul2RootMatrix,
+				rootMatrix,
 				local,
 				&( *finalBones )[boneIndex] );
 		}
@@ -4359,13 +4369,15 @@ static void VK_LogCinematicGhoul2State(
 static const std::vector<mdxaBone_t> *VK_GetCachedGhoul2Bones(
 	const vk_model_t &model,
 	const CGhoul2Info &ghoul,
-	int time )
+	int time,
+	const mdxaBone_t &rootMatrix = vkGhoul2DefaultRootMatrix )
 {
 	time = VK_G2API_GetTime( time );
 	VK_LogCinematicGhoul2State( model, ghoul );
 	for ( vk_ghoul2_bone_cache_t &entry : vk.ghoul2BoneCache )
 	{
-		if ( entry.ghoul == &ghoul && entry.model == &model && entry.time == time )
+		if ( entry.ghoul == &ghoul && entry.model == &model && entry.time == time &&
+			 std::memcmp( &entry.rootMatrix, &rootMatrix, sizeof( rootMatrix ) ) == 0 )
 		{
 			return entry.valid ? &entry.bones : nullptr;
 		}
@@ -4375,7 +4387,9 @@ static const std::vector<mdxaBone_t> *VK_GetCachedGhoul2Bones(
 	entry.ghoul = &ghoul;
 	entry.model = &model;
 	entry.time = time;
-	entry.valid = VK_EvaluateGhoul2Bones( model, ghoul, time, &entry.bones );
+	entry.rootMatrix = rootMatrix;
+	entry.valid = VK_EvaluateGhoul2Bones(
+		model, ghoul, time, rootMatrix, &entry.bones );
 	vk.ghoul2BoneCache.push_back( std::move( entry ) );
 	const vk_ghoul2_bone_cache_t &stored = vk.ghoul2BoneCache.back();
 	return stored.valid ? &stored.bones : nullptr;
@@ -4725,15 +4739,14 @@ static bool VK_GetGhoul2BoltMatrix(
 	{
 		const vk_model_surface_t *surface =
 			VK_GLMSurfaceForIndex( model, boltInfo.surfaceNumber );
-		if ( surface == nullptr || surface->glmIndices.size() < 3 )
+		if ( surface == nullptr || surface->glmVertices.size() < 3 )
 		{
 			return false;
 		}
 		vec3_t triangle[3];
 		for ( int i = 0; i < 3; ++i )
 		{
-			if ( !VK_SkinGLMVertex(
-					*surface, bones, surface->glmIndices[i], triangle[i] ) )
+			if ( !VK_SkinGLMVertex( *surface, bones, i, triangle[i] ) )
 			{
 				return false;
 			}
@@ -4747,7 +4760,7 @@ static bool VK_GetGhoul2BoltMatrix(
 		VectorNormalize2( sides[iG2_TRISIDE_LONGEST], axes[0] );
 		VectorNormalize2( sides[iG2_TRISIDE_SHORTEST], axes[1] );
 		const float projection = DotProduct( axes[0], axes[1] );
-		VectorMA( axes[1], -projection, axes[0], axes[0] );
+		VectorMA( axes[0], -projection, axes[1], axes[0] );
 		VectorNormalize( axes[0] );
 		CrossProduct(
 			sides[iG2_TRISIDE_LONGEST], sides[iG2_TRISIDE_SHORTEST], axes[2] );
@@ -4821,7 +4834,8 @@ qboolean VK_Backend_GetBoltMatrix(
 
 	std::vector<mdxaBone_t> bones;
 	frameNumber = VK_G2API_GetTime( frameNumber );
-	if ( !VK_EvaluateGhoul2Bones( *model, ghoul, frameNumber, &bones ) )
+	if ( !VK_EvaluateGhoul2Bones(
+			*model, ghoul, frameNumber, vkGhoul2DefaultRootMatrix, &bones ) )
 	{
 		return qfalse;
 	}
@@ -4974,6 +4988,76 @@ static void VK_LogStandaloneWeaponTransform( const refEntity_t &entity )
 	++vk.loggedWeaponOnlyEntities;
 }
 
+static const std::vector<mdxaBone_t> *VK_ResolveGhoul2HierarchyBones(
+	const CGhoul2Info_v &ghoul2,
+	int modelIndex,
+	int sceneTime,
+	std::vector<byte> *states,
+	std::vector<const std::vector<mdxaBone_t> *> *resolvedBones )
+{
+	if ( states == nullptr || resolvedBones == nullptr ||
+		 modelIndex < 0 || modelIndex >= ghoul2.size() )
+	{
+		return nullptr;
+	}
+	if ( ( *states )[modelIndex] == 2 )
+	{
+		return ( *resolvedBones )[modelIndex];
+	}
+	if ( ( *states )[modelIndex] == 1 )
+	{
+		return nullptr;
+	}
+	( *states )[modelIndex] = 1;
+
+	const CGhoul2Info &ghoul = ghoul2[modelIndex];
+	const vk_model_t *model = VK_ModelForHandle( ghoul.mModel );
+	if ( ghoul.mModelindex < 0 || model == nullptr || model->type != VK_MODEL_GLM )
+	{
+		( *states )[modelIndex] = 2;
+		return nullptr;
+	}
+
+	mdxaBone_t rootMatrix = vkGhoul2DefaultRootMatrix;
+	if ( ghoul.mModelBoltLink != -1 )
+	{
+		const int parentModelIndex =
+			( ghoul.mModelBoltLink >> MODEL_SHIFT ) & MODEL_AND;
+		const int parentBoltIndex =
+			( ghoul.mModelBoltLink >> BOLT_SHIFT ) & BOLT_AND;
+		const std::vector<mdxaBone_t> *parentBones =
+			VK_ResolveGhoul2HierarchyBones(
+				ghoul2, parentModelIndex, sceneTime, states, resolvedBones );
+		if ( parentBones == nullptr ||
+			 parentModelIndex < 0 || parentModelIndex >= ghoul2.size() )
+		{
+			( *states )[modelIndex] = 2;
+			return nullptr;
+		}
+		const CGhoul2Info &parentGhoul = ghoul2[parentModelIndex];
+		const vk_model_t *parentModel = VK_ModelForHandle( parentGhoul.mModel );
+		const vec3_t unitScale = { 1.0f, 1.0f, 1.0f };
+		if ( parentModel == nullptr ||
+			 !VK_GetGhoul2BoltMatrix(
+				*parentModel,
+				parentGhoul,
+				*parentBones,
+				parentBoltIndex,
+				unitScale,
+				&rootMatrix ) )
+		{
+			( *states )[modelIndex] = 2;
+			return nullptr;
+		}
+	}
+
+	const std::vector<mdxaBone_t> *bones =
+		VK_GetCachedGhoul2Bones( *model, ghoul, sceneTime, rootMatrix );
+	( *resolvedBones )[modelIndex] = bones;
+	( *states )[modelIndex] = 2;
+	return bones;
+}
+
 static void VK_RecordSceneModels(
 	const float view[16],
 	const float projection[16],
@@ -5015,6 +5099,10 @@ static void VK_RecordSceneModels(
 			}
 			VK_PushModelMvp( view, projection, entity );
 			bool drewGhoul2 = false;
+			std::vector<byte> hierarchyStates(
+				static_cast<size_t>( entity.ghoul2->size() ), 0 );
+			std::vector<const std::vector<mdxaBone_t> *> hierarchyBones(
+				static_cast<size_t>( entity.ghoul2->size() ), nullptr );
 			for ( int i = 0; i < entity.ghoul2->size(); ++i )
 			{
 				const CGhoul2Info &ghoul = ( *entity.ghoul2 )[i];
@@ -5044,7 +5132,12 @@ static void VK_RecordSceneModels(
 				}
 				VK_LogGhoul2RenderAudit( *ghoulModel, ghoul, skinHandle );
 				const std::vector<mdxaBone_t> *bonePointer =
-					VK_GetCachedGhoul2Bones( *ghoulModel, ghoul, sceneTime );
+					VK_ResolveGhoul2HierarchyBones(
+						*entity.ghoul2,
+						i,
+						sceneTime,
+						&hierarchyStates,
+						&hierarchyBones );
 				const uint32_t draws = VK_RecordMD3ModelSurfaces(
 					*ghoulModel,
 					pass,
@@ -6005,19 +6098,21 @@ static void VK_RecordDiagnosticWorld( int eye )
 	}
 }
 
-static void VK_RecordScreenScenes( int eye )
+static void VK_RecordScreenScenes( int eye, size_t firstScene, size_t endScene )
 {
-	if ( vk.screenScenes.empty() )
+	if ( firstScene >= vk.screenScenes.size() || firstScene >= endScene )
 	{
 		return;
 	}
+	endScene = std::min( endScene, vk.screenScenes.size() );
 
 	const int targetWidth =
 		static_cast<int>( vk.viewConfiguration[eye].recommendedImageRectWidth );
 	const float targetHeight =
 		static_cast<float>( vk.viewConfiguration[eye].recommendedImageRectHeight );
-	for ( const vk_scene_submission_t &scene : vk.screenScenes )
+	for ( size_t sceneIndex = firstScene; sceneIndex < endScene; ++sceneIndex )
 	{
+		const vk_scene_submission_t &scene = vk.screenScenes[sceneIndex];
 		if ( scene.refdef.width <= 0 || scene.refdef.height <= 0 )
 		{
 			continue;
@@ -6335,6 +6430,103 @@ static void VK_GetHudNdcOffset( int eye, float *xOffset, float *yOffset )
 	}
 }
 
+static void VK_RecordScreenRects( int eye, size_t firstRect, size_t endRect )
+{
+	if ( firstRect >= vk.rects.size() || firstRect >= endRect )
+	{
+		return;
+	}
+	endRect = std::min( endRect, vk.rects.size() );
+	VkViewport viewport = {};
+	viewport.width = static_cast<float>( vk.viewConfiguration[eye].recommendedImageRectWidth );
+	viewport.height = static_cast<float>( vk.viewConfiguration[eye].recommendedImageRectHeight );
+	viewport.minDepth = 0.0f;
+	viewport.maxDepth = 1.0f;
+	vkCmdSetViewport( vk.commandBuffer, 0, 1, &viewport );
+	VkRect2D scissor = {};
+	scissor.extent.width = vk.viewConfiguration[eye].recommendedImageRectWidth;
+	scissor.extent.height = vk.viewConfiguration[eye].recommendedImageRectHeight;
+	vkCmdSetScissor( vk.commandBuffer, 0, 1, &scissor );
+
+	float hudXOffset = 0.0f;
+	float hudYOffset = 0.0f;
+	if ( vk.sceneWorldRenderedThisFrame )
+	{
+		VK_GetHudNdcOffset( eye, &hudXOffset, &hudYOffset );
+	}
+
+	VkPipeline boundPipeline = VK_NULL_HANDLE;
+	for ( size_t rectIndex = firstRect; rectIndex < endRect; ++rectIndex )
+	{
+		const vk_rect_t &rect = vk.rects[rectIndex];
+		const bool textured = rect.texture > 0 &&
+			static_cast<size_t>( rect.texture ) < vk.textures.size() &&
+			vk.textures[rect.texture].descriptorSet != VK_NULL_HANDLE;
+		VkPipeline desiredPipeline = vk.rectPipeline;
+		if ( textured )
+		{
+			switch ( rect.blendMode )
+			{
+			case VK_BLEND_OPAQUE:
+				desiredPipeline = vk.texturedRectOpaquePipeline;
+				break;
+			case VK_BLEND_ADDITIVE:
+				desiredPipeline = vk.texturedRectAdditivePipeline;
+				break;
+			case VK_BLEND_DESTINATION_COLOR_ADDITIVE:
+				desiredPipeline = vk.texturedRectDestinationColorAdditivePipeline;
+				break;
+			case VK_BLEND_ONE_MINUS_DESTINATION_ALPHA_ADDITIVE:
+				desiredPipeline = vk.texturedRectOneMinusDestinationAlphaAdditivePipeline;
+				break;
+			case VK_BLEND_MODULATE:
+				desiredPipeline = vk.texturedRectModulatePipeline;
+				break;
+			case VK_BLEND_ALPHA:
+			default:
+				desiredPipeline = vk.texturedRectPipeline;
+				break;
+			}
+		}
+		if ( boundPipeline != desiredPipeline )
+		{
+			vkCmdBindPipeline( vk.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, desiredPipeline );
+			boundPipeline = desiredPipeline;
+		}
+		if ( textured )
+		{
+			vkCmdBindDescriptorSets(
+				vk.commandBuffer,
+				VK_PIPELINE_BIND_POINT_GRAPHICS,
+				vk.pipelineLayout,
+				0,
+				1,
+				&vk.textures[rect.texture].descriptorSet,
+				0,
+				nullptr );
+		}
+
+		const bool fullScreen = rect.rect[0] <= -0.996f && rect.rect[1] <= -0.996f &&
+			rect.rect[2] >= 0.996f && rect.rect[3] >= 0.996f;
+		const float rectXOffset = fullScreen ? 0.0f : hudXOffset;
+		const float rectYOffset = fullScreen ? 0.0f : hudYOffset;
+		float pushConstants[12] = {
+			rect.rect[0] + rectXOffset, rect.rect[1] + rectYOffset,
+			rect.rect[2] + rectXOffset, rect.rect[3] + rectYOffset,
+			rect.uv[0], rect.uv[1], rect.uv[2], rect.uv[3],
+			rect.color[0], rect.color[1], rect.color[2], rect.color[3],
+		};
+		vkCmdPushConstants(
+			vk.commandBuffer,
+			vk.pipelineLayout,
+			VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+			0,
+			sizeof( pushConstants ),
+			pushConstants );
+		vkCmdDraw( vk.commandBuffer, 6, 1, 0, 0 );
+	}
+}
+
 static bool VK_RecordTestPattern( int eye, uint32_t imageIndex, const float tint[4] )
 {
 	if ( vk.ghoul2CacheFrameIndex != vk.frameIndex )
@@ -6419,88 +6611,23 @@ static bool VK_RecordTestPattern( int eye, uint32_t imageIndex, const float tint
 		VK_RecordDiagnosticWorld( eye );
 	}
 
-	if ( !vk.rects.empty() )
-	{
-		float hudXOffset = 0.0f;
-		float hudYOffset = 0.0f;
-		if ( vk.sceneWorldRenderedThisFrame )
-		{
-			VK_GetHudNdcOffset( eye, &hudXOffset, &hudYOffset );
-		}
-		VkPipeline boundPipeline = VK_NULL_HANDLE;
-		for ( const vk_rect_t &rect : vk.rects )
-		{
-			const bool textured = rect.texture > 0 &&
-				static_cast<size_t>( rect.texture ) < vk.textures.size() &&
-				vk.textures[rect.texture].descriptorSet != VK_NULL_HANDLE;
-			VkPipeline desiredPipeline = vk.rectPipeline;
-			if ( textured )
-			{
-				switch ( rect.blendMode )
-				{
-				case VK_BLEND_OPAQUE:
-					desiredPipeline = vk.texturedRectOpaquePipeline;
-					break;
-				case VK_BLEND_ADDITIVE:
-					desiredPipeline = vk.texturedRectAdditivePipeline;
-					break;
-				case VK_BLEND_DESTINATION_COLOR_ADDITIVE:
-					desiredPipeline = vk.texturedRectDestinationColorAdditivePipeline;
-					break;
-				case VK_BLEND_ONE_MINUS_DESTINATION_ALPHA_ADDITIVE:
-					desiredPipeline = vk.texturedRectOneMinusDestinationAlphaAdditivePipeline;
-					break;
-				case VK_BLEND_MODULATE:
-					desiredPipeline = vk.texturedRectModulatePipeline;
-					break;
-				case VK_BLEND_ALPHA:
-				default:
-					desiredPipeline = vk.texturedRectPipeline;
-					break;
-				}
-			}
-			if ( boundPipeline != desiredPipeline )
-			{
-				vkCmdBindPipeline( vk.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, desiredPipeline );
-				boundPipeline = desiredPipeline;
-			}
-			if ( textured )
-			{
-				vkCmdBindDescriptorSets(
-					vk.commandBuffer,
-					VK_PIPELINE_BIND_POINT_GRAPHICS,
-					vk.pipelineLayout,
-					0,
-					1,
-					&vk.textures[rect.texture].descriptorSet,
-					0,
-					nullptr );
-			}
-
-			const bool fullScreen = rect.rect[0] <= -0.996f && rect.rect[1] <= -0.996f &&
-				rect.rect[2] >= 0.996f && rect.rect[3] >= 0.996f;
-			const float rectXOffset = fullScreen ? 0.0f : hudXOffset;
-			const float rectYOffset = fullScreen ? 0.0f : hudYOffset;
-			float pushConstants[12] = {
-				rect.rect[0] + rectXOffset, rect.rect[1] + rectYOffset,
-				rect.rect[2] + rectXOffset, rect.rect[3] + rectYOffset,
-				rect.uv[0], rect.uv[1], rect.uv[2], rect.uv[3],
-				rect.color[0], rect.color[1], rect.color[2], rect.color[3],
-			};
-			vkCmdPushConstants(
-				vk.commandBuffer,
-				vk.pipelineLayout,
-				VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-				0,
-				sizeof( pushConstants ),
-				pushConstants );
-			vkCmdDraw( vk.commandBuffer, 6, 1, 0, 0 );
-		}
-	}
-
 	if ( !vk.sceneWorldRenderedThisFrame && !vk.screenScenes.empty() )
 	{
-		VK_RecordScreenScenes( eye );
+		size_t firstRect = 0;
+		for ( size_t sceneIndex = 0; sceneIndex < vk.screenScenes.size(); ++sceneIndex )
+		{
+			const size_t endRect = std::max(
+				firstRect,
+				std::min( vk.screenScenes[sceneIndex].rectCountBefore, vk.rects.size() ) );
+			VK_RecordScreenRects( eye, firstRect, endRect );
+			VK_RecordScreenScenes( eye, sceneIndex, sceneIndex + 1 );
+			firstRect = endRect;
+		}
+		VK_RecordScreenRects( eye, firstRect, vk.rects.size() );
+	}
+	else
+	{
+		VK_RecordScreenRects( eye, 0, vk.rects.size() );
 	}
 
 	vkCmdEndRenderPass( vk.commandBuffer );
@@ -7295,6 +7422,66 @@ struct vk_glm_hierarchy_t
 	unsigned int flags;
 };
 
+static bool VK_ParseGLMHierarchy(
+	const byte *fileBase,
+	size_t fileSize,
+	int numSurfaces,
+	std::vector<vk_glm_hierarchy_t> *hierarchy )
+{
+	if ( fileBase == nullptr || hierarchy == nullptr || numSurfaces <= 0 ||
+		 !VK_ModelBufferRangeValid(
+			sizeof( mdxmHeader_t ),
+			static_cast<size_t>( numSurfaces ) * sizeof( int ),
+			fileSize ) )
+	{
+		return false;
+	}
+
+	const mdxmHierarchyOffsets_t *hierarchyOffsets =
+		reinterpret_cast<const mdxmHierarchyOffsets_t *>( fileBase + sizeof( mdxmHeader_t ) );
+	hierarchy->clear();
+	hierarchy->reserve( static_cast<size_t>( numSurfaces ) );
+	for ( int i = 0; i < numSurfaces; ++i )
+	{
+		const int offset = LittleLong( hierarchyOffsets->offsets[i] );
+		const size_t tableOffset = sizeof( mdxmHeader_t );
+		if ( offset < 0 ||
+			 !VK_ModelBufferRangeValid(
+				tableOffset + static_cast<size_t>( offset ),
+				offsetof( mdxmSurfHierarchy_t, childIndexes ),
+				fileSize ) )
+		{
+			return false;
+		}
+		const mdxmSurfHierarchy_t *surfaceHierarchy =
+			reinterpret_cast<const mdxmSurfHierarchy_t *>(
+				reinterpret_cast<const byte *>( hierarchyOffsets ) + offset );
+		char shaderName[MAX_QPATH];
+		char surfaceName[MAX_QPATH];
+		std::memcpy( shaderName, surfaceHierarchy->shader, sizeof( shaderName ) );
+		shaderName[sizeof( shaderName ) - 1] = '\0';
+		std::memcpy( surfaceName, surfaceHierarchy->name, sizeof( surfaceName ) );
+		surfaceName[sizeof( surfaceName ) - 1] = '\0';
+		Q_strlwr( surfaceName );
+#ifndef JK2_MODE
+		const size_t surfaceNameLength = std::strlen( surfaceName );
+		if ( surfaceNameLength > 4 &&
+			 Q_stricmp( surfaceName + surfaceNameLength - 4, "_off" ) == 0 )
+		{
+			surfaceName[surfaceNameLength - 4] = '\0';
+		}
+#endif
+		hierarchy->push_back( {
+			surfaceName,
+			shaderName,
+			LittleLong( surfaceHierarchy->parentIndex ),
+			static_cast<unsigned int>(
+				LittleLong( static_cast<int>( surfaceHierarchy->flags ) ) ),
+		} );
+	}
+	return true;
+}
+
 static bool VK_LoadGLMSurface(
 	const byte *surfaceBase,
 	size_t surfaceSize,
@@ -7580,47 +7767,12 @@ static bool VK_LoadGLMModel( const char *name, qhandle_t handle )
 		return false;
 	}
 
-	const mdxmHierarchyOffsets_t *hierarchyOffsets =
-		reinterpret_cast<const mdxmHierarchyOffsets_t *>( fileBase + sizeof( mdxmHeader_t ) );
 	std::vector<vk_glm_hierarchy_t> hierarchy;
-	hierarchy.reserve( static_cast<size_t>( numSurfaces ) );
-	for ( int i = 0; i < numSurfaces; ++i )
+	if ( !VK_ParseGLMHierarchy(
+			fileBase, static_cast<size_t>( ofsEnd ), numSurfaces, &hierarchy ) )
 	{
-		const int offset = LittleLong( hierarchyOffsets->offsets[i] );
-		const size_t tableOffset = sizeof( mdxmHeader_t );
-		if ( offset < 0 ||
-			 !VK_ModelBufferRangeValid(
-				 tableOffset + static_cast<size_t>( offset ),
-				 offsetof( mdxmSurfHierarchy_t, childIndexes ),
-				 static_cast<size_t>( ofsEnd ) ) )
-		{
-			ri.FS_FreeFile( buffer );
-			return false;
-		}
-		const mdxmSurfHierarchy_t *surfaceHierarchy =
-			reinterpret_cast<const mdxmSurfHierarchy_t *>(
-				reinterpret_cast<const byte *>( hierarchyOffsets ) + offset );
-		char shaderName[MAX_QPATH];
-		char surfaceName[MAX_QPATH];
-		std::memcpy( shaderName, surfaceHierarchy->shader, sizeof( shaderName ) );
-		shaderName[sizeof( shaderName ) - 1] = '\0';
-		std::memcpy( surfaceName, surfaceHierarchy->name, sizeof( surfaceName ) );
-		surfaceName[sizeof( surfaceName ) - 1] = '\0';
-		Q_strlwr( surfaceName );
-#ifndef JK2_MODE
-		const size_t surfaceNameLength = std::strlen( surfaceName );
-		if ( surfaceNameLength > 4 &&
-			 Q_stricmp( surfaceName + surfaceNameLength - 4, "_off" ) == 0 )
-		{
-			surfaceName[surfaceNameLength - 4] = '\0';
-		}
-#endif
-		hierarchy.push_back( {
-			surfaceName,
-			shaderName,
-			LittleLong( surfaceHierarchy->parentIndex ),
-			static_cast<unsigned int>( LittleLong( static_cast<int>( surfaceHierarchy->flags ) ) ),
-		} );
+		ri.FS_FreeFile( buffer );
+		return false;
 	}
 
 	const mdxmLOD_t *lod = reinterpret_cast<const mdxmLOD_t *>( fileBase + ofsLODs );
@@ -7773,13 +7925,35 @@ static void VK_LoadPendingGLMMetadata( const char *name, vk_model_t *model )
 		if ( LittleLong( header->ident ) == MDXM_IDENT &&
 			 LittleLong( header->version ) == MDXM_VERSION )
 		{
+			const int numSurfaces = LittleLong( header->numSurfaces );
+			const int ofsEnd = LittleLong( header->ofsEnd );
 			char animationName[MAX_QPATH];
 			std::memcpy( animationName, header->animName, sizeof( animationName ) );
-				animationName[sizeof( animationName ) - 1] = '\0';
-				model->animationName = animationName;
-				model->boneCount = LittleLong( header->numBones );
-				model->animationHandle = VK_FindRegisteredModelHandle( animationName );
-				model->animation = VK_LoadGLA( animationName );
+			animationName[sizeof( animationName ) - 1] = '\0';
+			model->animationName = animationName;
+			model->boneCount = LittleLong( header->numBones );
+			model->animationHandle = VK_FindRegisteredModelHandle( animationName );
+			model->animation = VK_LoadGLA( animationName );
+
+			std::vector<vk_glm_hierarchy_t> hierarchy;
+			if ( ofsEnd > 0 && ofsEnd <= length &&
+				 VK_ParseGLMHierarchy(
+					reinterpret_cast<const byte *>( buffer ),
+					static_cast<size_t>( ofsEnd ),
+					numSurfaces,
+					&hierarchy ) )
+			{
+				model->surfaces.clear();
+				for ( int i = 0; i < numSurfaces; ++i )
+				{
+					vk_model_surface_t surface = {};
+					surface.name = hierarchy[i].name;
+					surface.modelSurfaceIndex = i;
+					surface.parentSurfaceIndex = hierarchy[i].parentIndex;
+					surface.defaultFlags = hierarchy[i].flags;
+					model->surfaces.push_back( std::move( surface ) );
+				}
+			}
 		}
 	}
 	if ( buffer != nullptr )
@@ -7855,7 +8029,8 @@ int VK_Backend_FindModelSurface(
 	unsigned int *defaultFlags )
 {
 	const vk_model_t *model = VK_ModelForHandle( modelHandle );
-	if ( model == nullptr || model->type != VK_MODEL_GLM ||
+	if ( model == nullptr ||
+		 ( model->type != VK_MODEL_GLM && model->type != VK_MODEL_PENDING ) ||
 		 surfaceName == nullptr || surfaceName[0] == '\0' )
 	{
 		return -1;
@@ -9610,6 +9785,7 @@ void VK_Backend_RenderScene( const refdef_t *refdef )
 		vk_scene_submission_t scene = {};
 		scene.refdef = *refdef;
 		scene.entities = vk.sceneEntities;
+		scene.rectCountBefore = vk.rects.size();
 		vk.screenScenes.push_back( std::move( scene ) );
 	}
 	++vk.sceneRenderCount;
@@ -9887,7 +10063,6 @@ void VK_Backend_SubmitClearFrame()
 	{
 		ri.Printf( PRINT_ALL, "rd-vulkan: current 2D rectangle count: %zu\n", gameRectCount );
 	}
-
 	if ( !vk.frameBegun )
 	{
 		return;

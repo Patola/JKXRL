@@ -13,6 +13,7 @@ published by the Free Software Foundation.
 #include "vk_ghoul2.h"
 
 #include "vk_backend.h"
+#include "qcommon/ojk_saved_game_helper.h"
 
 #include <algorithm>
 #include <array>
@@ -256,6 +257,111 @@ void VK_G2API_CopyGhoul2Instance(
 	ghoul2To[0].mModelindex = 0;
 	ghoul2To[0].mBoneCache = nullptr;
 	ghoul2To[0].mTransformedVertsArray = nullptr;
+}
+
+void VK_G2API_SaveGhoul2Models( CGhoul2Info_v &ghoul2 )
+{
+	ojk::SavedGameHelper savedGame( ri.saved_game );
+	savedGame.reset_buffer();
+
+	const int modelCount = ghoul2.IsValid() ? ghoul2.size() : 0;
+	savedGame.write<int32_t>( modelCount );
+	for ( int i = 0; i < modelCount; ++i )
+	{
+		const CGhoul2Info &model = ghoul2[i];
+		model.sg_export( savedGame );
+
+		const int surfaceCount = static_cast<int>( model.mSlist.size() );
+		savedGame.write<int32_t>( surfaceCount );
+		for ( const surfaceInfo_t &surface : model.mSlist )
+		{
+			surface.sg_export( savedGame );
+		}
+
+		const int boneCount = static_cast<int>( model.mBlist.size() );
+		savedGame.write<int32_t>( boneCount );
+		for ( const boneInfo_t &bone : model.mBlist )
+		{
+			bone.sg_export( savedGame );
+		}
+
+		const int boltCount = static_cast<int>( model.mBltlist.size() );
+		savedGame.write<int32_t>( boltCount );
+		for ( const boltInfo_t &bolt : model.mBltlist )
+		{
+			bolt.sg_export( savedGame );
+		}
+	}
+
+#ifdef JK2_MODE
+	savedGame.write_chunk_and_size<int32_t>(
+		INT_ID( 'G', 'L', '2', 'S' ), INT_ID( 'G', 'H', 'L', '2' ) );
+#else
+	savedGame.write_chunk( INT_ID( 'G', 'H', 'L', '2' ) );
+#endif
+}
+
+void VK_G2API_LoadGhoul2Models( CGhoul2Info_v &ghoul2, char *buffer )
+{
+	static_cast<void>( buffer );
+	ojk::SavedGameHelper savedGame( ri.saved_game );
+	int modelCount = 0;
+
+#ifdef JK2_MODE
+	if ( savedGame.get_buffer_size() > 0 )
+	{
+#endif
+		savedGame.read<int32_t>( modelCount );
+#ifdef JK2_MODE
+	}
+#endif
+
+	ghoul2.resize( modelCount );
+	for ( int i = 0; i < modelCount; ++i )
+	{
+		CGhoul2Info &model = ghoul2[i];
+		model = CGhoul2Info();
+		model.sg_import( savedGame );
+		model.mBoneCache = nullptr;
+		model.mTransformedVertsArray = nullptr;
+
+		int surfaceCount = 0;
+		savedGame.read<int32_t>( surfaceCount );
+		model.mSlist.resize( surfaceCount );
+		for ( surfaceInfo_t &surface : model.mSlist )
+		{
+			surface.sg_import( savedGame );
+		}
+
+		int boneCount = 0;
+		savedGame.read<int32_t>( boneCount );
+		model.mBlist.resize( boneCount );
+		for ( boneInfo_t &bone : model.mBlist )
+		{
+			bone.sg_import( savedGame );
+		}
+
+		int boltCount = 0;
+		savedGame.read<int32_t>( boltCount );
+		model.mBltlist.resize( boltCount );
+		for ( boltInfo_t &bolt : model.mBltlist )
+		{
+			bolt.sg_import( savedGame );
+		}
+
+		if ( model.mModelindex != -1 && model.mFileName[0] != '\0' )
+		{
+			model.mModelindex = i;
+			model.mModel = VK_Backend_RegisterModel( model.mFileName );
+			model.mValid = model.mModel > 0;
+		}
+	}
+	savedGame.ensure_all_data_read();
+}
+
+void VK_G2API_LoadSaveCodeDestructGhoul2Info( CGhoul2Info_v &ghoul2 )
+{
+	ghoul2.~CGhoul2Info_v();
 }
 
 qboolean VK_G2API_HaveWeGhoul2Models( CGhoul2Info_v &ghoul2 )

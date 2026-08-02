@@ -1112,7 +1112,7 @@ static qboolean UI_RunMenuScript ( const char **args )
 			// if we're in the saber menu when creating a character, close this down
 			if( !Cvar_VariableIntegerValue( "saber_menu" ) )
 			{
-				Menus_CloseByName( "saberMenu" );
+				Menus_CloseAll();
 				Menus_OpenByName( "characterMenu" );
 			}
 		}
