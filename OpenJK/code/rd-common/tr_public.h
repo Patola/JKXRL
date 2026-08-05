@@ -30,7 +30,46 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "../ghoul2/G2.h"
 #include "../ghoul2/ghoul2_gore.h"
 
-#define	REF_API_VERSION		18
+#define	REF_API_VERSION		19
+
+typedef enum vrControllerType_e {
+	VR_CONTROLLER_TYPE_UNKNOWN = -1,
+	VR_CONTROLLER_TYPE_VIVE = 10,
+	VR_CONTROLLER_TYPE_INDEX = 11,
+	VR_CONTROLLER_TYPE_PICO = 12,
+	VR_CONTROLLER_TYPE_TOUCH = 13,
+} vrControllerType_t;
+
+typedef enum vrControllerButton_e {
+	VR_CONTROLLER_BUTTON_A = 0x00000001,
+	VR_CONTROLLER_BUTTON_B = 0x00000002,
+	VR_CONTROLLER_BUTTON_RIGHT_THUMB = 0x00000004,
+	VR_CONTROLLER_TOUCH_THUMBREST = 0x00000010,
+	VR_CONTROLLER_BUTTON_X = 0x00000100,
+	VR_CONTROLLER_BUTTON_Y = 0x00000200,
+	VR_CONTROLLER_BUTTON_LEFT_THUMB = 0x00000400,
+	VR_CONTROLLER_BUTTON_MENU = 0x00100000,
+	VR_CONTROLLER_BUTTON_GRIP = 0x04000000,
+	VR_CONTROLLER_BUTTON_TRIGGER = 0x20000000,
+	VR_CONTROLLER_BUTTON_JOYSTICK = 0x80000000u,
+} vrControllerButton_t;
+
+typedef struct vrControllerState_s {
+	qboolean active;
+	uint32_t buttons;
+	uint32_t touches;
+	float indexTrigger;
+	float gripTrigger;
+	float joystick[2];
+	qboolean joystickActive;
+	float aimPosition[3];
+	float aimOrientation[4];
+	float gripPosition[3];
+	float gripOrientation[4];
+	uint64_t velocityFlags;
+	float linearVelocity[3];
+	float angularVelocity[3];
+} vrControllerState_t;
 
 typedef struct {
 	void				(QDECL *Printf)						( int printLevel, const char *fmt, ...) __attribute__ ((format (printf, 2, 3)));
@@ -134,7 +173,10 @@ typedef struct {
 	float				(*TBXR_GetEyeStereoSeparation)		(int eye);
 	void				(*TBXR_UpdateFov)					(float fovX, float fovY);
 	void				(*TBXR_UpdateHMDPose)				(float px, float py, float pz,
-													 float qx, float qy, float qz, float qw);
+												 float qx, float qy, float qz, float qw);
+	void				(*TBXR_UpdateControllers)			(const vrControllerState_t *left,
+												 const vrControllerState_t *right,
+												 vrControllerType_t controllerType);
 
 } refimport_t;
 

@@ -1770,6 +1770,73 @@ Try and use an entity in the world, directly ahead of us
 // Move controller origin a bit back to prevent reach
 // through usable entities when use gesture is active
 #define USE_OFFSET				-10.0f
+#define USE_EMPLACED_HAND_RADIUS	8.0f
+
+qboolean g_vrEmplacedHandUse = qfalse;
+
+qboolean TryUseNearbyEmplacedWeapon( gentity_t *ent, bool offHand )
+{
+	if ( !ent || !ent->client || (ent->client->ps.eFlags & EF_LOCKED_TO_WEAPON) )
+	{
+		return qfalse;
+	}
+
+	vec3_t handOrigin, handAngles;
+	if ( offHand )
+	{
+		BG_CalculateVROffHandPosition( handOrigin, handAngles );
+	}
+	else
+	{
+		BG_CalculateVRWeaponPosition( handOrigin, handAngles );
+	}
+
+	vec3_t mins, maxs;
+	VectorSet( mins, handOrigin[0] - USE_EMPLACED_HAND_RADIUS,
+		handOrigin[1] - USE_EMPLACED_HAND_RADIUS,
+		handOrigin[2] - USE_EMPLACED_HAND_RADIUS );
+	VectorSet( maxs, handOrigin[0] + USE_EMPLACED_HAND_RADIUS,
+		handOrigin[1] + USE_EMPLACED_HAND_RADIUS,
+		handOrigin[2] + USE_EMPLACED_HAND_RADIUS );
+
+	gentity_t *nearby[MAX_GENTITIES];
+	const int nearbyCount = gi.EntitiesInBox( mins, maxs, nearby, MAX_GENTITIES );
+	gentity_t *target = NULL;
+	float nearestDistance = FLT_MAX;
+	for ( int i = 0; i < nearbyCount; ++i )
+	{
+		gentity_t *candidate = nearby[i];
+		if ( !candidate || !ValidUseTarget( candidate )
+			|| (candidate->e_UseFunc != useF_emplaced_gun_use
+				&& candidate->e_UseFunc != useF_eweb_use) )
+		{
+			continue;
+		}
+
+		const float distance = DistanceSquared( handOrigin, candidate->currentOrigin );
+		if ( distance < nearestDistance )
+		{
+			nearestDistance = distance;
+			target = candidate;
+		}
+	}
+
+	if ( !target )
+	{
+		return qfalse;
+	}
+
+	const int channel = vr->right_handed != offHand ? 1 : 2;
+	if ( level.time > vr->useHapticFeedbackTime[channel - 1] )
+	{
+		cgi_HapticEvent( "use_button", 0, channel, 60, 0, 0 );
+		vr->useHapticFeedbackTime[channel - 1] = level.time + USE_HAPTIC_FEEDBACK_DELAY;
+	}
+	g_vrEmplacedHandUse = qtrue;
+	GEntity_UseFunc( target, ent, ent );
+	g_vrEmplacedHandUse = qfalse;
+	return qtrue;
+}
 
 void TryUse_Internal( bool offHand, gentity_t *ent, vec3_t src, vec3_t vf )
 {
@@ -2143,4 +2210,3 @@ void G_SetBoltSurfaceRemoval( const int entNum, const int modelIndex, const int 
 /*
 Ghoul2 Insert End
 */
-

@@ -31,6 +31,8 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "g_navigator.h"
 #include <VrClientInfo.h>
 
+#include <cmath>
+
 #ifdef _DEBUG
 	#include <float.h>
 #endif //_DEBUG
@@ -46,6 +48,7 @@ extern void BG_CalculateVRWeaponPosition( vec3_t origin, vec3_t angles );//in bg
 extern void BG_CalculateVROffHandPosition( vec3_t origin, vec3_t angles );//in bg_pmisc.cpp
 extern void TryUse( gentity_t *ent );
 extern void TryAltUse( gentity_t *ent );
+extern qboolean TryUseNearbyEmplacedWeapon( gentity_t *ent, bool offHand );
 extern void ChangeWeapon( gentity_t *ent, int newWeapon );
 extern void ScoreBoardReset(void);
 extern void WP_SaberReflectCheck( gentity_t *self, usercmd_t *ucmd  );
@@ -4855,6 +4858,7 @@ void ClientThink_real( gentity_t *ent, usercmd_t *ucmd )
 	gclient_t	*client;
 	pmove_t		pm;
 	vec3_t		oldOrigin;
+	const usercmd_t movementDebugInput = *ucmd;
 	int			oldEventSequence;
 	int			msec;
 	qboolean	inSpinFlipAttack = PM_AdjustAnglesForSpinningFlip( ent, ucmd, qfalse );
@@ -5328,6 +5332,7 @@ extern cvar_t	*g_skippingcin;
 	{
 		ClientAlterSpeed(ent, ucmd, controlledByPlayer, 0);
 	}
+	const float movementDebugSpeedLimit = client->ps.speed;
 
 
 	//FIXME: need to do this before check to avoid walls and cliffs (or just cliffs?)
@@ -5505,8 +5510,75 @@ extern cvar_t	*g_skippingcin;
 	VectorCopy( client->ps.origin, oldOrigin );
 
 	// perform a pmove
+	const usercmd_t movementDebugPmoveCmd = pm.cmd;
 	Pmove( &pm );
 	pm.gent = 0;
+
+	if ( ent->s.number == 0 )
+	{
+		static cvar_t *controllerDebug = gi.cvar( "vr_controller_debug", "0", 0 );
+		static int lastMovementDebugTime = 0;
+		static qboolean movementAnomalyActive = qfalse;
+		const float commandMagnitude = std::sqrt(
+			static_cast<float>(
+				movementDebugPmoveCmd.forwardmove * movementDebugPmoveCmd.forwardmove +
+				movementDebugPmoveCmd.rightmove * movementDebugPmoveCmd.rightmove ) ) / 127.0f;
+		const qboolean movementAnomaly =
+			commandMagnitude >= 0.75f && ent->resultspeed < 25.0f &&
+			client->ps.pm_type == PM_NORMAL &&
+			( client->ps.eFlags & EF_LOCKED_TO_WEAPON ) == 0 ? qtrue : qfalse;
+		if ( controllerDebug->integer &&
+			( level.time - lastMovementDebugTime >= 250 ||
+				movementAnomaly != movementAnomalyActive ) )
+		{
+			const float horizontalVelocity = std::sqrt(
+				client->ps.velocity[0] * client->ps.velocity[0] +
+				client->ps.velocity[1] * client->ps.velocity[1] );
+			gi.Printf(
+				"jkxr-movement-debug: anomaly=%d input=(%d %d %d) "
+				"pmcmd=(%d %d %d) postcmd=(%d %d %d) mag=%.3f "
+				"speedLimit=%.2f result=%.2f velocity=%.2f "
+				"delta=(%.3f %.3f %.3f) msec=%d pm=%d pmFlags=0x%x pmTime=%d "
+				"eFlags=0x%x ground=%d water=(%d 0x%x) anim=(%d/%d %d/%d) "
+				"touches=%d [%d %d %d %d]\n",
+				movementAnomaly,
+				movementDebugInput.forwardmove,
+				movementDebugInput.rightmove,
+				movementDebugInput.upmove,
+				movementDebugPmoveCmd.forwardmove,
+				movementDebugPmoveCmd.rightmove,
+				movementDebugPmoveCmd.upmove,
+				pm.cmd.forwardmove,
+				pm.cmd.rightmove,
+				pm.cmd.upmove,
+				commandMagnitude,
+				movementDebugSpeedLimit,
+				ent->resultspeed,
+				horizontalVelocity,
+				client->ps.origin[0] - oldOrigin[0],
+				client->ps.origin[1] - oldOrigin[1],
+				client->ps.origin[2] - oldOrigin[2],
+				msec,
+				client->ps.pm_type,
+				client->ps.pm_flags,
+				client->ps.pm_time,
+				client->ps.eFlags,
+				client->ps.groundEntityNum,
+				pm.waterlevel,
+				pm.watertype,
+				client->ps.legsAnim,
+				client->ps.legsAnimTimer,
+				client->ps.torsoAnim,
+				client->ps.torsoAnimTimer,
+				pm.numtouch,
+				pm.numtouch > 0 ? pm.touchents[0] : -1,
+				pm.numtouch > 1 ? pm.touchents[1] : -1,
+				pm.numtouch > 2 ? pm.touchents[2] : -1,
+				pm.numtouch > 3 ? pm.touchents[3] : -1 );
+			lastMovementDebugTime = level.time;
+		}
+		movementAnomalyActive = movementAnomaly;
+	}
 
 	ProcessGenericCmd(ent, pm.cmd.generic_cmd);
 
@@ -5569,6 +5641,21 @@ extern cvar_t	*g_skippingcin;
 	if ( pm.altUseEvent )
 	{
 		TryAltUse( ent );
+	}
+	if ( vr && !(ent->client->ps.eFlags & EF_LOCKED_TO_WEAPON) )
+	{
+		if ( !pm.useEvent
+			&& (vr->useGestureState & USE_GESTURE_WEAPON_HAND)
+			&& (ucmd->buttons & BUTTON_USE) )
+		{
+			TryUseNearbyEmplacedWeapon( ent, false );
+		}
+		if ( !pm.altUseEvent
+			&& (vr->useGestureState & USE_GESTURE_OFF_HAND)
+			&& (ucmd->buttons & BUTTON_ALT_USE) )
+		{
+			TryUseNearbyEmplacedWeapon( ent, true );
+		}
 	}
 
 	// link entity now, after any personal teleporters have been used
@@ -5853,5 +5940,3 @@ void ClientEndFrame( gentity_t *ent )
 
 //	G_SetClientSound (ent);
 }
-
-

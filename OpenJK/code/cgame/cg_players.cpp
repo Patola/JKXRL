@@ -4206,6 +4206,7 @@ void CG_ForcePushBlur( const vec3_t org, qboolean darkSide )
 		ex->color[1] = 32;
 		ex->color[2] = 40;
 	}
+	ex->color[3] = 255;
 	ex->refEntity.customShader = cgi_R_RegisterShader( "gfx/effects/forcePush" );
 
 	ex = CG_AllocLocalEntity();
@@ -4232,6 +4233,7 @@ void CG_ForcePushBlur( const vec3_t org, qboolean darkSide )
 		ex->color[1] = 32;
 		ex->color[2] = 40;
 	}
+	ex->color[3] = 255;
 	ex->refEntity.customShader = cgi_R_RegisterShader( "gfx/effects/forcePush" );
 }
 

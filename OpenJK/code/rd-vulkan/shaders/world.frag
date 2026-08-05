@@ -32,7 +32,11 @@ void main()
 			discard;
 		}
 		float fogAmount = clamp(vViewDepth / max(pc.alpha, 1.0), 0.0, 1.0);
-		outColor = vec4(pc.stageColor.rgb, fogAmount * texel.a);
+		if (vColor.a <= 0.0)
+		{
+			discard;
+		}
+		outColor = vec4(pc.stageColor.rgb, fogAmount * texel.a * vColor.a);
 		return;
 	}
 	vec4 generatedColor = mix(vec4(1.0), vColor, pc.stageFlags.x);

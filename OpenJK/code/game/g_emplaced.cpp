@@ -29,6 +29,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "g_navigator.h"
 
 extern Vehicle_t *G_IsRidingVehicle( gentity_t *pEnt );
+extern qboolean g_vrEmplacedHandUse;
 
 //lock the owner into place relative to the cannon pos
 void EWebPositionUser(gentity_t *owner, gentity_t *eweb)
@@ -315,7 +316,7 @@ qboolean eweb_can_be_used( gentity_t *self, gentity_t *other, gentity_t *activat
 	vec3_t	facingAngles;
 
 	VectorAdd( self->s.angles, self->pos1, facingAngles );
-	if ( activator->s.number < MAX_CLIENTS )
+	if ( activator->s.number < MAX_CLIENTS && !g_vrEmplacedHandUse )
 	{//player must be facing general direction of the turret head
 		// Let's get some direction vectors for the users
 		AngleVectors( activator->client->ps.viewangles, fwd1, NULL, NULL );
@@ -470,6 +471,7 @@ void SP_emplaced_eweb( gentity_t *ent )
 
 	// Activate our tags and bones
 	ent->handLBolt = gi.G2API_AddBolt( &ent->ghoul2[ent->playerModel], "*cannonflash" ); //muzzle bolt
+	ent->handRBolt = -1; //E-Web has one muzzle; never alternate to Ghoul2 bolt zero.
 	ent->headBolt = gi.G2API_AddBolt( &ent->ghoul2[ent->playerModel], "cannon_Xrot" ); //for placing the owner relative to rotation
 	ent->rootBone = gi.G2API_GetBoneIndex( &ent->ghoul2[ent->playerModel], "model_root", qtrue );
 	ent->lowerLumbarBone = gi.G2API_GetBoneIndex( &ent->ghoul2[ent->playerModel], "cannon_Yrot", qtrue );
@@ -871,6 +873,17 @@ void G_UpdateEmplacedWeaponData( gentity_t *ent )
 			//take the emplaced gun's waypoint as your own
 			ent->waypoint = chair->waypoint;
 
+			// Keep the mounted gun transform authoritative on the game side.  The
+			// legacy renderer also derives these values while drawing the rider,
+			// which is too late when the chair was submitted first.
+			VectorClear( chair->s.apos.trBase );
+			chair->s.apos.trBase[YAW] = ent->client->ps.viewangles[YAW];
+
+			vec3_t swivelAngles = { -ent->client->ps.viewangles[PITCH], 0, 0 };
+			gi.G2API_SetBoneAnglesIndex( &chair->ghoul2[chair->playerModel], chair->lowerLumbarBone,
+				swivelAngles, BONE_ANGLES_POSTMULT, POSITIVE_Y, POSITIVE_Z, POSITIVE_X, NULL, 0, 0 );
+			VectorCopy( swivelAngles, chair->lastAngles );
+
 			//update the actual origin of the sitter
 			mdxaBone_t	boltMatrix;
 			vec3_t	chairAng = {0, ent->client->ps.viewangles[YAW], 0};
@@ -885,6 +898,18 @@ void G_UpdateEmplacedWeaponData( gentity_t *ent )
 		}
 		else if ( chair->e_UseFunc == useF_eweb_use )//yeah, crappy way to check this, but...
 		{//standing at an E-Web
+			vec3_t yawAngles = { 0, 0, 0 };
+			vec3_t pitchAngles = { 0, 0, 0 };
+			yawAngles[YAW] = AngleSubtract( ent->client->ps.viewangles[YAW], chair->s.angles[YAW] );
+			pitchAngles[PITCH] = ent->client->ps.viewangles[PITCH];
+
+			gi.G2API_SetBoneAnglesIndex( &chair->ghoul2[chair->playerModel], chair->lowerLumbarBone,
+				yawAngles, BONE_ANGLES_POSTMULT, POSITIVE_Z, NEGATIVE_X, NEGATIVE_Y, NULL, 0, 0 );
+			gi.G2API_SetBoneAnglesIndex( &chair->ghoul2[chair->playerModel], chair->upperLumbarBone,
+				pitchAngles, BONE_ANGLES_POSTMULT, POSITIVE_Z, NEGATIVE_X, NEGATIVE_Y, NULL, 0, 0 );
+			VectorCopy( yawAngles, chair->pos1 );
+			VectorCopy( pitchAngles, chair->lastAngles );
+
 			EWebPositionUser( ent, chair );
 		}
 	}

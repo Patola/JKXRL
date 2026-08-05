@@ -527,8 +527,27 @@ void CL_JoystickMove( usercmd_t *cmd ) {
 	cmd->upmove = ClampChar( cmd->upmove + cl.joystickAxis[AXIS_UP] );
  */
 
-    cmd->forwardmove = ClampChar( cmd->forwardmove + (new_move.forward * 127) + (new_move.pos_forward * 127));
-    cmd->rightmove = ClampChar( cmd->rightmove + (new_move.side * 127) + (new_move.pos_side * 127));
+	float forward = new_move.forward + new_move.pos_forward;
+	float side = new_move.side + new_move.pos_side;
+	float magnitude = std::sqrt( forward * forward + side * side );
+	if ( magnitude > 1.0f )
+	{
+		forward /= magnitude;
+		side /= magnitude;
+		magnitude = 1.0f;
+	}
+	const float largestAxis = std::max( std::fabs( forward ), std::fabs( side ) );
+	if ( largestAxis > 0.0001f )
+	{
+		// PM_CmdScale treats the largest command axis as the analog magnitude.
+		// Convert the radial VR stick magnitude to that convention.
+		const float axialScale = magnitude / largestAxis;
+		forward *= axialScale;
+		side *= axialScale;
+	}
+
+	cmd->forwardmove = ClampChar( cmd->forwardmove + forward * 127.0f );
+	cmd->rightmove = ClampChar( cmd->rightmove + side * 127.0f );
 }
 
 /*
@@ -1058,4 +1077,3 @@ void CL_InitInput( void ) {
 	cl_nodelta = Cvar_Get ("cl_nodelta", "0", 0);
 	cl_debugMove = Cvar_Get ("cl_debugMove", "0", 0);
 }
-

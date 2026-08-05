@@ -33,8 +33,12 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "qcommon/stringed_ingame.h"
 #include "sys/sys_loadlib.h"
 #include "qcommon/ojk_saved_game.h"
+#include "game/statindex.h"
+
+#include <cmath>
 
 #include <VrCommon.h>
+#include <VrInput.h>
 
 #define	RETRANSMIT_TIMEOUT	3000	// time between connection packet retransmits
 
@@ -42,6 +46,8 @@ cvar_t	*cl_renderer;
 
 cvar_t	*cl_nodelta;
 cvar_t	*cl_debugMove;
+
+extern kbutton_t in_buttons[32];
 
 static void CL_TBXR_UpdateFov( float fovX, float fovY )
 {
@@ -66,6 +72,125 @@ static void CL_TBXR_UpdateHMDPose(
 		hmdOrientation[PITCH],
 		hmdOrientation[YAW],
 		hmdOrientation[ROLL] );
+}
+
+static void CL_CopyControllerPose(
+	const float position[3], const float orientation[4], XrPosef *pose )
+{
+	pose->position = { position[0], position[1], position[2] };
+	pose->orientation = { orientation[0], orientation[1], orientation[2], orientation[3] };
+}
+
+static void CL_CopyControllerState(
+	const vrControllerState_t *source,
+	ovrInputStateTrackedRemote *input,
+	ovrTrackedController *tracking,
+	bool *gripEngaged )
+{
+	input->Buttons = source->buttons;
+	input->Touches = source->touches;
+	input->IndexTrigger = source->indexTrigger;
+	input->GripTrigger = source->gripTrigger;
+	input->Joystick = { source->joystick[0], source->joystick[1] };
+
+	const float engage = Cvar_VariableValue( "vr_engage_trigger" );
+	const float release = Cvar_VariableValue( "vr_release_trigger" );
+	if ( source->gripTrigger >= engage )
+	{
+		*gripEngaged = true;
+	}
+	else if ( source->gripTrigger < release )
+	{
+		*gripEngaged = false;
+	}
+	if ( *gripEngaged )
+	{
+		input->Buttons |= xrButton_GripTrigger;
+	}
+
+	tracking->Active = source->active ? GL_TRUE : GL_FALSE;
+	if ( !source->active )
+	{
+		return;
+	}
+	CL_CopyControllerPose( source->aimPosition, source->aimOrientation, &tracking->Pose );
+	CL_CopyControllerPose( source->gripPosition, source->gripOrientation, &tracking->GripPose );
+	tracking->Velocity = {};
+	tracking->Velocity.type = XR_TYPE_SPACE_VELOCITY;
+	tracking->Velocity.velocityFlags = static_cast<XrSpaceVelocityFlags>( source->velocityFlags );
+	tracking->Velocity.linearVelocity = {
+		source->linearVelocity[0], source->linearVelocity[1], source->linearVelocity[2] };
+	tracking->Velocity.angularVelocity = {
+		source->angularVelocity[0], source->angularVelocity[1], source->angularVelocity[2] };
+}
+
+static void CL_TBXR_UpdateControllers(
+	const vrControllerState_t *left,
+	const vrControllerState_t *right,
+	vrControllerType_t controllerType )
+{
+	if ( left == nullptr || right == nullptr )
+	{
+		return;
+	}
+
+	static bool leftGripEngaged = false;
+	static bool rightGripEngaged = false;
+	CL_CopyControllerState(
+		left, &leftTrackedRemoteState_new, &leftRemoteTracking_new, &leftGripEngaged );
+	CL_CopyControllerState(
+		right, &rightTrackedRemoteState_new, &rightRemoteTracking_new, &rightGripEngaged );
+	gAppState.controllersPresent = static_cast<int>( controllerType );
+	VR_ProcessControllerInput();
+
+	static cvar_t *controllerDebug = Cvar_Get( "vr_controller_debug", "0", 0 );
+	static int lastDebugTime = 0;
+	const int now = Sys_Milliseconds();
+	if ( controllerDebug->integer && now - lastDebugTime >= 250 )
+	{
+		const float linearSpeed = std::sqrt(
+			right->linearVelocity[0] * right->linearVelocity[0] +
+			right->linearVelocity[1] * right->linearVelocity[1] +
+			right->linearVelocity[2] * right->linearVelocity[2] );
+		const float weaponOffset = std::sqrt(
+			vr.weaponoffset[0] * vr.weaponoffset[0] +
+			vr.weaponoffset[1] * vr.weaponoffset[1] +
+			vr.weaponoffset[2] * vr.weaponoffset[2] );
+		const usercmd_t *lastCmd = cl.cmdNumber > 0
+			? &cl.cmds[( cl.cmdNumber - 1 ) & ( CMD_BACKUP - 1 )]
+			: nullptr;
+		const int lastCmdButtons = lastCmd ? lastCmd->buttons : 0;
+		const float playerSpeed = std::sqrt(
+			cl.frame.ps.velocity[0] * cl.frame.ps.velocity[0] +
+			cl.frame.ps.velocity[1] * cl.frame.ps.velocity[1] );
+		Com_Printf(
+			"jkxr-controller-debug: rightActive=%d velocityFlags=0x%llx speed=%.3f "
+			"sticks=L%d(%.3f %.3f) R%d(%.3f %.3f) grips=(%.3f %.3f) "
+			"selector=%d moveSpeed=%d movement=(%.3f %.3f) positional=(%.3f %.3f) "
+			"buttons=(0x%x 0x%x) state=(health=%d pm=%d pmFlags=0x%x weapon=%d "
+			"weaponState=%d weaponTime=%d) scope=(mode=%d stabilised=%d offset=%.3f) "
+			"cmd=(f=%d r=%d u=%d buttons=0x%x) playerSpeed=%.2f "
+			"latches=(attack=%d alt=%d)\n",
+			right->active,
+			static_cast<unsigned long long>( right->velocityFlags ),
+			linearSpeed,
+			left->joystickActive, left->joystick[0], left->joystick[1],
+			right->joystickActive, right->joystick[0], right->joystick[1],
+			left->gripTrigger, right->gripTrigger,
+			vr.item_selector, vr.move_speed,
+			remote_movementSideways, remote_movementForward,
+			positional_movementSideways, positional_movementForward,
+			left->buttons, right->buttons,
+			cl.frame.ps.stats[STAT_HEALTH], cl.frame.ps.pm_type, cl.frame.ps.pm_flags,
+			cl.frame.ps.weapon, cl.frame.ps.weaponstate, cl.frame.ps.weaponTime,
+			vr.cgzoommode, vr.weapon_stabilised, weaponOffset,
+			lastCmd ? lastCmd->forwardmove : 0,
+			lastCmd ? lastCmd->rightmove : 0,
+			lastCmd ? lastCmd->upmove : 0,
+			lastCmdButtons, playerSpeed,
+			in_buttons[0].active, in_buttons[7].active );
+		lastDebugTime = now;
+	}
 }
 
 cvar_t	*cl_noprint;
@@ -1230,6 +1355,7 @@ void CL_InitRef( void ) {
 	rit.TBXR_GetEyeStereoSeparation = VR_GetEyeStereoSeparation;
 	rit.TBXR_UpdateFov = CL_TBXR_UpdateFov;
 	rit.TBXR_UpdateHMDPose = CL_TBXR_UpdateHMDPose;
+	rit.TBXR_UpdateControllers = CL_TBXR_UpdateControllers;
 
 	ret = GetRefAPI( REF_API_VERSION, &rit );
 

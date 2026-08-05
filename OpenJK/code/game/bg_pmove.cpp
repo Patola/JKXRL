@@ -13104,8 +13104,11 @@ static bool PM_DoChargedWeapons( void )
 			{
 				if ( pm->ps->ammo[weaponData[pm->ps->weapon].ammoIndex] <= 0)
 				{
-					PM_AddEvent( EV_NOAMMO );
-					pm->ps->weaponTime += 500;
+					if ( pm->ps->weaponTime <= 0 )
+					{
+						PM_AddEvent( EV_NOAMMO );
+						pm->ps->weaponTime = 500;
+					}
 					return true;
 				}
 
@@ -13126,8 +13129,11 @@ static bool PM_DoChargedWeapons( void )
 			{
 				if ( pm->ps->ammo[weaponData[pm->ps->weapon].ammoIndex] <= 0)
 				{
-					PM_AddEvent( EV_NOAMMO );
-					pm->ps->weaponTime += 500;
+					if ( pm->ps->weaponTime <= 0 )
+					{
+						PM_AddEvent( EV_NOAMMO );
+						pm->ps->weaponTime = 500;
+					}
 					return true;
 				}
 

@@ -114,6 +114,19 @@ with its own spec→plan→implement cycle.
 | M5 | The five-level shadow system (blob, stencil, translucent stencil, soft/Ultra) | All shadow levels work |
 | M6 | VR stereo-replay (port `rd-gles` capture/replay), optimization, polish, deprecate `rd-vanilla` | Feature parity; `rd-vanilla` removed |
 
+### Tracked M3 follow-up: full Ghoul2 physical ragdolls
+
+- [ ] Port the Ghoul2 ragdoll solver behind `G2API_SetRagDoll` and
+  `G2API_AnimateG2Models` to the Vulkan model/skeleton representation.
+- [ ] Implement ragdoll bone position queries, constraints, effector goals and
+  kicks, force-solve control, collision response, settling, and corpse shots.
+- [ ] Verify upright, airborne, Force Lightning, saber, firearm, dismemberment,
+  body-dragging, and save/load corpse cases in stereo VR without model damage or
+  frame-time regressions.
+- [ ] Remove the temporary Vulkan guard in `G_RagDoll`; until the native solver
+  is ready, Vulkan deliberately uses authored death animations rather than
+  entering the renderer's currently stubbed physical-ragdoll path.
+
 ---
 
 ## M0 Detailed Design (Foundation / vertical-slice)

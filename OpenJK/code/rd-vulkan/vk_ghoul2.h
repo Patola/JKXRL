@@ -35,6 +35,24 @@ void VK_G2API_LoadSaveCodeDestructGhoul2Info( CGhoul2Info_v &ghoul2 );
 qboolean VK_G2API_HaveWeGhoul2Models( CGhoul2Info_v &ghoul2 );
 qboolean VK_G2API_GetAnimFileName( CGhoul2Info *ghoul2, char **filename );
 char *VK_G2API_GetGLAName( CGhoul2Info *ghoul2 );
+int VK_G2API_GetParentSurface( CGhoul2Info *ghoul2, int surfaceIndex );
+int VK_G2API_GetSurfaceIndex( CGhoul2Info *ghoul2, const char *surfaceName );
+char *VK_G2API_GetSurfaceName( CGhoul2Info *ghoul2, int surfaceIndex );
+int VK_G2API_GetSurfaceRenderStatus( CGhoul2Info *ghoul2, const char *surfaceName );
+void VK_G2API_CollisionDetect(
+	CCollisionRecord *collisionRecords,
+	CGhoul2Info_v &ghoul2,
+	const vec3_t angles,
+	const vec3_t position,
+	int frameNumber,
+	int entityNumber,
+	vec3_t rayStart,
+	vec3_t rayEnd,
+	vec3_t scale,
+	CMiniHeap *heap,
+	EG2_Collision collisionType,
+	int useLod,
+	float radius );
 qhandle_t VK_G2API_PrecacheGhoul2Model( const char *fileName );
 qboolean VK_G2API_RemoveGhoul2Model( CGhoul2Info_v &ghoul2, int modelIndex );
 qboolean VK_G2API_SetGhoul2ModelFlags( CGhoul2Info *ghoul2, int flags );
@@ -44,6 +62,10 @@ void VK_G2API_SetGhoul2ModelIndexes(
 	qhandle_t *modelList,
 	qhandle_t *skinList );
 qboolean VK_G2API_SetLodBias( CGhoul2Info *ghoul2, int lodBias );
+qboolean VK_G2API_SetRootSurface(
+	CGhoul2Info_v &ghoul2,
+	int modelIndex,
+	const char *surfaceName );
 qboolean VK_G2API_SetShader( CGhoul2Info *ghoul2, qhandle_t customShader );
 qboolean VK_G2API_SetSkin(
 	CGhoul2Info *ghoul2,
@@ -145,3 +167,43 @@ qboolean VK_G2API_SetBoneAnimIndex(
 	int currentTime,
 	float setFrame,
 	int blendTime );
+qboolean VK_G2API_SetBoneAngles(
+	CGhoul2Info *ghoul2,
+	const char *boneName,
+	const vec3_t angles,
+	int flags,
+	Eorientations up,
+	Eorientations left,
+	Eorientations forward,
+	qhandle_t *modelList,
+	int blendTime,
+	int currentTime );
+qboolean VK_G2API_SetBoneAnglesIndex(
+	CGhoul2Info *ghoul2,
+	int boneListIndex,
+	const vec3_t angles,
+	int flags,
+	Eorientations up,
+	Eorientations left,
+	Eorientations forward,
+	qhandle_t *modelList,
+	int blendTime,
+	int currentTime );
+qboolean VK_G2API_SetBoneAnglesMatrix(
+	CGhoul2Info *ghoul2,
+	const char *boneName,
+	const mdxaBone_t &matrix,
+	int flags,
+	qhandle_t *modelList,
+	int blendTime,
+	int currentTime );
+qboolean VK_G2API_SetBoneAnglesMatrixIndex(
+	CGhoul2Info *ghoul2,
+	int boneListIndex,
+	const mdxaBone_t &matrix,
+	int flags,
+	qhandle_t *modelList,
+	int blendTime,
+	int currentTime );
+qboolean VK_G2API_StopBoneAngles( CGhoul2Info *ghoul2, const char *boneName );
+qboolean VK_G2API_StopBoneAnglesIndex( CGhoul2Info *ghoul2, int boneListIndex );

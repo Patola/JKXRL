@@ -8,6 +8,8 @@ layout(push_constant) uniform RectPush
 	vec4 rect;
 	vec4 uv;
 	vec4 color;
+	vec4 rotation;
+	vec4 screenTransform;
 } pc;
 
 const vec2 corners[6] = vec2[](
@@ -24,5 +26,12 @@ void main()
 	vec2 corner = corners[gl_VertexIndex];
 	vUv = mix(pc.uv.xy, pc.uv.zw, corner);
 	vColor = pc.color;
-	gl_Position = vec4(mix(pc.rect.xy, pc.rect.zw, corner), 0.0, 1.0);
+	vec2 position = mix(pc.rect.xy, pc.rect.zw, corner);
+	vec2 relative = position - pc.rotation.zw;
+	position = pc.rotation.zw + vec2(
+		relative.x * pc.rotation.y - relative.y * pc.rotation.x,
+		relative.x * pc.rotation.x + relative.y * pc.rotation.y);
+	position.x *= pc.screenTransform.x;
+	position += pc.screenTransform.yz;
+	gl_Position = vec4(position, 0.0, 1.0);
 }

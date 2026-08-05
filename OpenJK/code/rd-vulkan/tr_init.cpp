@@ -224,8 +224,16 @@ extern "C" Q_EXPORT refexport_t* QDECL GetRefAPI( int apiVersion, refimport_t *r
 	re.DrawStretchPic = []( float x, float y, float w, float h, float s1, float t1, float s2, float t2, qhandle_t shader ) {
 		VK_Backend_DrawStretchPic( x, y, w, h, s1, t1, s2, t2, shader );
 	};
-	re.DrawRotatePic = []( float, float, float, float, float, float, float, float, float, qhandle_t ) {};
-	re.DrawRotatePic2 = []( float, float, float, float, float, float, float, float, float, qhandle_t ) {};
+	re.DrawRotatePic = []( float x, float y, float w, float h,
+		float s1, float t1, float s2, float t2, float angle, qhandle_t shader ) {
+		VK_Backend_DrawRotatePic(
+			x, y, w, h, s1, t1, s2, t2, angle, shader, false );
+	};
+	re.DrawRotatePic2 = []( float x, float y, float w, float h,
+		float s1, float t1, float s2, float t2, float angle, qhandle_t shader ) {
+		VK_Backend_DrawRotatePic(
+			x, y, w, h, s1, t1, s2, t2, angle, shader, true );
+	};
 	re.LAGoggles = []() {};
 	re.Scissor = []( float, float, float, float ) {};
 
@@ -253,7 +261,7 @@ extern "C" Q_EXPORT refexport_t* QDECL GetRefAPI( int apiVersion, refimport_t *r
 	re.TempRawImage_ReadFromFile = []( const char *, int *, int *, byte *, qboolean ) -> byte * { return nullptr; };
 	re.TempRawImage_CleanUp = []() {};
 	re.MarkFragments = []( int, const vec3_t *, const vec3_t, int, vec3_t, int, markFragment_t * ) -> int { return 0; };
-	re.LerpTag = []( orientation_t *, qhandle_t, int, int, float, const char * ) {};
+	re.LerpTag = VK_Backend_LerpTag;
 	re.ModelBounds = VK_Backend_ModelBounds;
 	re.GetLightStyle = []( int, color4ub_t ) {};
 	re.SetLightStyle = []( int, int ) {};
@@ -302,7 +310,7 @@ extern "C" Q_EXPORT refexport_t* QDECL GetRefAPI( int apiVersion, refimport_t *r
 	re.G2API_AnimateG2Models = []( CGhoul2Info_v &, int, CRagDollUpdateParams * ) {};
 	re.G2API_AttachEnt = []( int *, CGhoul2Info *, int, int, int ) -> qboolean { return qfalse; };
 	re.G2API_AttachG2Model = VK_G2API_AttachG2Model;
-	re.G2API_CollisionDetect = []( CCollisionRecord *, CGhoul2Info_v &, const vec3_t, const vec3_t, int, int, vec3_t, vec3_t, vec3_t, CMiniHeap *, EG2_Collision, int, float ) {};
+	re.G2API_CollisionDetect = VK_G2API_CollisionDetect;
 	re.G2API_CleanGhoul2Models = VK_G2API_CleanGhoul2Models;
 	re.G2API_CopyGhoul2Instance = VK_G2API_CopyGhoul2Instance;
 	re.G2API_DetachEnt = []( int * ) {};
@@ -319,11 +327,11 @@ extern "C" Q_EXPORT refexport_t* QDECL GetRefAPI( int apiVersion, refimport_t *r
 	re.G2API_GetBoltMatrix = VK_G2API_GetBoltMatrix;
 	re.G2API_GetGhoul2ModelFlags = VK_G2API_GetGhoul2ModelFlags;
 	re.G2API_GetGLAName = VK_G2API_GetGLAName;
-	re.G2API_GetParentSurface = []( CGhoul2Info *, const int ) -> int { return 0; };
+	re.G2API_GetParentSurface = VK_G2API_GetParentSurface;
 	re.G2API_GetRagBonePos = []( CGhoul2Info_v &, const char *, vec3_t, vec3_t, vec3_t, vec3_t ) -> qboolean { return qfalse; };
-	re.G2API_GetSurfaceIndex = []( CGhoul2Info *, const char * ) -> int { return 0; };
-	re.G2API_GetSurfaceName = []( CGhoul2Info *, int ) -> char * { return nullptr; };
-	re.G2API_GetSurfaceRenderStatus = []( CGhoul2Info *, const char * ) -> int { return 0; };
+	re.G2API_GetSurfaceIndex = VK_G2API_GetSurfaceIndex;
+	re.G2API_GetSurfaceName = VK_G2API_GetSurfaceName;
+	re.G2API_GetSurfaceRenderStatus = VK_G2API_GetSurfaceRenderStatus;
 	re.G2API_GetTime = VK_G2API_GetTime;
 	re.G2API_GiveMeVectorFromMatrix = VK_G2API_GiveMeVectorFromMatrix;
 	re.G2API_HaveWeGhoul2Models = VK_G2API_HaveWeGhoul2Models;
@@ -350,25 +358,25 @@ extern "C" Q_EXPORT refexport_t* QDECL GetRefAPI( int apiVersion, refimport_t *r
 	re.G2API_SetAnimIndex = VK_G2API_SetAnimIndex;
 	re.G2API_SetBoneAnim = VK_G2API_SetBoneAnim;
 	re.G2API_SetBoneAnimIndex = VK_G2API_SetBoneAnimIndex;
-	re.G2API_SetBoneAngles = []( CGhoul2Info *, const char *, const vec3_t, const int, const Eorientations, const Eorientations, const Eorientations, qhandle_t *, int, int ) -> qboolean { return qfalse; };
-	re.G2API_SetBoneAnglesIndex = []( CGhoul2Info *, const int, const vec3_t, const int, const Eorientations, const Eorientations, const Eorientations, qhandle_t *, int, int ) -> qboolean { return qfalse; };
-	re.G2API_SetBoneAnglesMatrix = []( CGhoul2Info *, const char *, const mdxaBone_t &, const int, qhandle_t *, int, int ) -> qboolean { return qfalse; };
-	re.G2API_SetBoneAnglesMatrixIndex = []( CGhoul2Info *, const int, const mdxaBone_t &, const int, qhandle_t *, int, int ) -> qboolean { return qfalse; };
+	re.G2API_SetBoneAngles = VK_G2API_SetBoneAngles;
+	re.G2API_SetBoneAnglesIndex = VK_G2API_SetBoneAnglesIndex;
+	re.G2API_SetBoneAnglesMatrix = VK_G2API_SetBoneAnglesMatrix;
+	re.G2API_SetBoneAnglesMatrixIndex = VK_G2API_SetBoneAnglesMatrixIndex;
 	re.G2API_SetBoneIKState = []( CGhoul2Info_v &, int, const char *, int, sharedSetBoneIKStateParams_t * ) -> qboolean { return qfalse; };
 	re.G2API_SetGhoul2ModelFlags = VK_G2API_SetGhoul2ModelFlags;
 	re.G2API_SetGhoul2ModelIndexes = VK_G2API_SetGhoul2ModelIndexes;
 	re.G2API_SetLodBias = VK_G2API_SetLodBias;
 	re.G2API_SetNewOrigin = []( CGhoul2Info *, const int ) -> qboolean { return qfalse; };
 	re.G2API_SetRagDoll = []( CGhoul2Info_v &, CRagDollParams * ) {};
-	re.G2API_SetRootSurface = []( CGhoul2Info_v &, const int, const char * ) -> qboolean { return qfalse; };
+	re.G2API_SetRootSurface = VK_G2API_SetRootSurface;
 	re.G2API_SetShader = VK_G2API_SetShader;
 	re.G2API_SetSkin = VK_G2API_SetSkin;
 	re.G2API_SetSurfaceOnOff = VK_G2API_SetSurfaceOnOff;
 	re.G2API_SetTime = VK_G2API_SetTime;
 	re.G2API_StopBoneAnim = VK_G2API_StopBoneAnim;
 	re.G2API_StopBoneAnimIndex = VK_G2API_StopBoneAnimIndex;
-	re.G2API_StopBoneAngles = []( CGhoul2Info *, const char * ) -> qboolean { return qfalse; };
-	re.G2API_StopBoneAnglesIndex = []( CGhoul2Info *, const int ) -> qboolean { return qfalse; };
+	re.G2API_StopBoneAngles = VK_G2API_StopBoneAngles;
+	re.G2API_StopBoneAnglesIndex = VK_G2API_StopBoneAnglesIndex;
 
 #ifdef _G2_GORE
 	re.G2API_AddSkinGore = []( CGhoul2Info_v &, SSkinGoreData & ) {};

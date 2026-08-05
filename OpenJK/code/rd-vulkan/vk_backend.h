@@ -19,13 +19,47 @@ int VK_Backend_GetRecommendedWidth();
 int VK_Backend_GetRecommendedHeight();
 qhandle_t VK_Backend_RegisterModel( const char *name );
 qhandle_t VK_Backend_RegisterSkin( const char *name );
+void VK_Backend_LerpTag(
+	orientation_t *tag,
+	qhandle_t model,
+	int startFrame,
+	int endFrame,
+	float fraction,
+	const char *tagName );
 int VK_Backend_FindModelSurface(
 	qhandle_t model,
 	const char *surfaceName,
 	unsigned int *defaultFlags );
 int VK_Backend_FindModelBone( qhandle_t model, const char *boneName );
+qboolean VK_Backend_GenerateBoneOverrideMatrix(
+	qhandle_t model,
+	int boneNumber,
+	const vec3_t angles,
+	int flags,
+	Eorientations up,
+	Eorientations left,
+	Eorientations forward,
+	mdxaBone_t *matrix );
 int VK_Backend_GetModelAnimationFrameCount( qhandle_t model, int animationIndex = 0 );
 char *VK_Backend_GetModelAnimationName( qhandle_t model );
+char *VK_Backend_GetModelSurfaceName( qhandle_t model, int surfaceIndex );
+int VK_Backend_GetModelParentSurface( qhandle_t model, int surfaceIndex );
+int VK_Backend_GetModelSurfaceRenderStatus(
+	qhandle_t model,
+	const CGhoul2Info *ghoul,
+	const char *surfaceName );
+void VK_Backend_Ghoul2CollisionDetect(
+	CCollisionRecord *collisionRecords,
+	CGhoul2Info_v &ghoul2,
+	const vec3_t angles,
+	const vec3_t position,
+	int frameNumber,
+	int entityNumber,
+	const vec3_t rayStart,
+	const vec3_t rayEnd,
+	const vec3_t scale,
+	EG2_Collision collisionType,
+	float radius );
 qboolean VK_Backend_GetBoltMatrix(
 	CGhoul2Info_v &ghoul2,
 	int modelIndex,
@@ -54,5 +88,9 @@ void VK_Backend_DrawStretchPic(
 	float x, float y, float w, float h,
 	float s1, float t1, float s2, float t2,
 	qhandle_t shader );
+void VK_Backend_DrawRotatePic(
+	float x, float y, float w, float h,
+	float s1, float t1, float s2, float t2,
+	float angle, qhandle_t shader, bool centerPivot );
 void VK_Backend_DrawStretchRaw( int x, int y, int w, int h );
 void VK_Backend_SubmitClearFrame();

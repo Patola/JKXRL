@@ -386,6 +386,68 @@ char *VK_G2API_GetGLAName( CGhoul2Info *ghoul2 )
 		: nullptr;
 }
 
+int VK_G2API_GetParentSurface( CGhoul2Info *ghoul2, int surfaceIndex )
+{
+	return VK_G2ModelUsable( ghoul2 )
+		? VK_Backend_GetModelParentSurface( ghoul2->mModel, surfaceIndex )
+		: -1;
+}
+
+int VK_G2API_GetSurfaceIndex( CGhoul2Info *ghoul2, const char *surfaceName )
+{
+	return VK_G2ModelUsable( ghoul2 )
+		? VK_Backend_FindModelSurface( ghoul2->mModel, surfaceName, nullptr )
+		: -1;
+}
+
+char *VK_G2API_GetSurfaceName( CGhoul2Info *ghoul2, int surfaceIndex )
+{
+	static char noSurface[] = "";
+	if ( !VK_G2ModelUsable( ghoul2 ) )
+	{
+		return noSurface;
+	}
+	char *name = VK_Backend_GetModelSurfaceName( ghoul2->mModel, surfaceIndex );
+	return name != nullptr ? name : noSurface;
+}
+
+int VK_G2API_GetSurfaceRenderStatus( CGhoul2Info *ghoul2, const char *surfaceName )
+{
+	return VK_G2ModelUsable( ghoul2 )
+		? VK_Backend_GetModelSurfaceRenderStatus(
+			ghoul2->mModel, ghoul2, surfaceName )
+		: -1;
+}
+
+void VK_G2API_CollisionDetect(
+	CCollisionRecord *collisionRecords,
+	CGhoul2Info_v &ghoul2,
+	const vec3_t angles,
+	const vec3_t position,
+	int frameNumber,
+	int entityNumber,
+	vec3_t rayStart,
+	vec3_t rayEnd,
+	vec3_t scale,
+	CMiniHeap *,
+	EG2_Collision collisionType,
+	int,
+	float radius )
+{
+	VK_Backend_Ghoul2CollisionDetect(
+		collisionRecords,
+		ghoul2,
+		angles,
+		position,
+		frameNumber,
+		entityNumber,
+		rayStart,
+		rayEnd,
+		scale,
+		collisionType,
+		radius );
+}
+
 qhandle_t VK_G2API_PrecacheGhoul2Model( const char *fileName )
 {
 	return VK_Backend_RegisterModel( fileName );
@@ -441,6 +503,42 @@ qboolean VK_G2API_SetLodBias( CGhoul2Info *ghoul2, int lodBias )
 		return qfalse;
 	}
 	ghoul2->mLodBias = lodBias;
+	return qtrue;
+}
+
+qboolean VK_G2API_SetRootSurface(
+	CGhoul2Info_v &ghoul2,
+	int modelIndex,
+	const char *surfaceName )
+{
+	if ( !ghoul2.IsValid() || modelIndex < 0 || modelIndex >= ghoul2.size() ||
+		 surfaceName == nullptr || !VK_G2ModelUsable( &ghoul2[modelIndex] ) )
+	{
+		ri.Printf(
+			PRINT_WARNING,
+			"rd-vulkan-ghoul2-root: rejected modelIndex=%d count=%d valid=%d surface=%s\n",
+			modelIndex,
+			ghoul2.size(),
+			ghoul2.IsValid(),
+			surfaceName != nullptr ? surfaceName : "<null>" );
+		return qfalse;
+	}
+
+	CGhoul2Info &model = ghoul2[modelIndex];
+	const int surfaceIndex =
+		VK_Backend_FindModelSurface( model.mModel, surfaceName, nullptr );
+	if ( surfaceIndex < 0 )
+	{
+		ri.Printf(
+			PRINT_WARNING,
+			"rd-vulkan-ghoul2-root: surface not found model=%s surface=%s\n",
+			model.mFileName,
+			surfaceName );
+		return qfalse;
+	}
+
+	model.mSurfaceRoot = surfaceIndex;
+	model.mMeshFrameNum = 0;
 	return qtrue;
 }
 
@@ -993,6 +1091,157 @@ qboolean VK_G2API_SetBoneAnim(
 			setFrame,
 			blendTime ) :
 		qfalse;
+}
+
+qboolean VK_G2API_SetBoneAnglesIndex(
+	CGhoul2Info *ghoul2,
+	int boneListIndex,
+	const vec3_t angles,
+	int flags,
+	Eorientations up,
+	Eorientations left,
+	Eorientations forward,
+	qhandle_t *,
+	int blendTime,
+	int currentTime )
+{
+	if ( !VK_G2ModelUsable( ghoul2 ) || angles == nullptr ||
+		 boneListIndex < 0 ||
+		 static_cast<size_t>( boneListIndex ) >= ghoul2->mBlist.size() ||
+		 ghoul2->mBlist[boneListIndex].boneNumber < 0 ||
+		 ( flags & BONE_ANGLES_TOTAL ) == 0 )
+	{
+		return qfalse;
+	}
+
+	boneInfo_t &bone = ghoul2->mBlist[boneListIndex];
+	mdxaBone_t matrix = {};
+	if ( !VK_Backend_GenerateBoneOverrideMatrix(
+			 ghoul2->mModel,
+			 bone.boneNumber,
+			 angles,
+			 flags,
+			 up,
+			 left,
+			 forward,
+			 &matrix ) )
+	{
+		return qfalse;
+	}
+
+	bone.flags &= ~BONE_ANGLES_TOTAL;
+	bone.flags |= flags;
+	bone.boneBlendStart = VK_G2API_GetTime( currentTime );
+	bone.boneBlendTime = std::max( blendTime, 0 );
+	bone.matrix = matrix;
+	bone.newMatrix = matrix;
+	ghoul2->mSkelFrameNum = -1;
+	return qtrue;
+}
+
+qboolean VK_G2API_SetBoneAngles(
+	CGhoul2Info *ghoul2,
+	const char *boneName,
+	const vec3_t angles,
+	int flags,
+	Eorientations up,
+	Eorientations left,
+	Eorientations forward,
+	qhandle_t *modelList,
+	int blendTime,
+	int currentTime )
+{
+	const int index = VK_G2API_GetBoneIndex( ghoul2, boneName, qtrue );
+	return index >= 0 ?
+		VK_G2API_SetBoneAnglesIndex(
+			ghoul2,
+			index,
+			angles,
+			flags,
+			up,
+			left,
+			forward,
+			modelList,
+			blendTime,
+			currentTime ) :
+		qfalse;
+}
+
+qboolean VK_G2API_SetBoneAnglesMatrixIndex(
+	CGhoul2Info *ghoul2,
+	int boneListIndex,
+	const mdxaBone_t &matrix,
+	int flags,
+	qhandle_t *,
+	int blendTime,
+	int currentTime )
+{
+	if ( !VK_G2ModelUsable( ghoul2 ) ||
+		 boneListIndex < 0 ||
+		 static_cast<size_t>( boneListIndex ) >= ghoul2->mBlist.size() ||
+		 ghoul2->mBlist[boneListIndex].boneNumber < 0 ||
+		 ( flags & BONE_ANGLES_TOTAL ) == 0 )
+	{
+		return qfalse;
+	}
+
+	boneInfo_t &bone = ghoul2->mBlist[boneListIndex];
+	bone.flags &= ~BONE_ANGLES_TOTAL;
+	bone.flags |= flags;
+	bone.boneBlendStart = VK_G2API_GetTime( currentTime );
+	bone.boneBlendTime = std::max( blendTime, 0 );
+	bone.matrix = matrix;
+	bone.newMatrix = matrix;
+	ghoul2->mSkelFrameNum = -1;
+	return qtrue;
+}
+
+qboolean VK_G2API_SetBoneAnglesMatrix(
+	CGhoul2Info *ghoul2,
+	const char *boneName,
+	const mdxaBone_t &matrix,
+	int flags,
+	qhandle_t *modelList,
+	int blendTime,
+	int currentTime )
+{
+	const int index = VK_G2API_GetBoneIndex( ghoul2, boneName, qtrue );
+	return index >= 0 ?
+		VK_G2API_SetBoneAnglesMatrixIndex(
+			ghoul2,
+			index,
+			matrix,
+			flags,
+			modelList,
+			blendTime,
+			currentTime ) :
+		qfalse;
+}
+
+qboolean VK_G2API_StopBoneAnglesIndex( CGhoul2Info *ghoul2, int boneListIndex )
+{
+	if ( !VK_G2ModelUsable( ghoul2 ) ||
+		 boneListIndex < 0 ||
+		 static_cast<size_t>( boneListIndex ) >= ghoul2->mBlist.size() ||
+		 ghoul2->mBlist[boneListIndex].boneNumber < 0 )
+	{
+		return qfalse;
+	}
+
+	boneInfo_t &bone = ghoul2->mBlist[boneListIndex];
+	bone.flags &= ~BONE_ANGLES_TOTAL;
+	if ( bone.flags == 0 )
+	{
+		bone.boneNumber = -1;
+	}
+	ghoul2->mSkelFrameNum = -1;
+	return qtrue;
+}
+
+qboolean VK_G2API_StopBoneAngles( CGhoul2Info *ghoul2, const char *boneName )
+{
+	const int index = VK_G2API_GetBoneIndex( ghoul2, boneName, qfalse );
+	return index >= 0 ? VK_G2API_StopBoneAnglesIndex( ghoul2, index ) : qfalse;
 }
 
 qboolean VK_G2API_PauseBoneAnimIndex(

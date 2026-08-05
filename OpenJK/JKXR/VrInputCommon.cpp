@@ -94,27 +94,21 @@ float length(float x, float y)
 }
 
 #define NLF_DEADZONE 0.1
-#define NLF_POWER 2.2
+#define NLF_OUTER_DEADZONE 0.6
 
 float nonLinearFilter(float in)
 {
-    float val = 0.0f;
-    if (in > NLF_DEADZONE)
-    {
-        val = in > 1.0f ? 1.0f : in;
-        val -= NLF_DEADZONE;
-        val /= (1.0f - NLF_DEADZONE);
-        val = powf(val, NLF_POWER);
-    }
-    else if (in < -NLF_DEADZONE)
-    {
-        val = in < -1.0f ? -1.0f : in;
-        val += NLF_DEADZONE;
-        val /= (1.0f - NLF_DEADZONE);
-        val = -powf(fabsf(val), NLF_POWER);
-    }
+	const float magnitude = fabsf(in);
+	if (magnitude <= NLF_DEADZONE)
+	{
+		return 0.0f;
+	}
 
-    return val;
+	const float scaled = Com_Clamp(
+		0.0f, 1.0f,
+		(magnitude - NLF_DEADZONE) /
+			(NLF_OUTER_DEADZONE - NLF_DEADZONE));
+	return in < 0.0f ? -scaled : scaled;
 }
 
 void sendButtonActionSimple(const char* action)

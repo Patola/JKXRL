@@ -5818,6 +5818,12 @@ void WP_SabersDamageTrace( gentity_t *ent, qboolean noEffects )
 	{
 		return;
 	}
+	static cvar_t *controllerDebug = gi.cvar( "vr_controller_debug", "0", 0 );
+	static int lastControllerDebugTime = 0;
+	const bool debugControllerSaber =
+		controllerDebug->integer && ent->s.number == 0 &&
+		level.time - lastControllerDebugTime >= 250;
+
 	// Saber 1.
 	g_saberNoEffects = noEffects;
 	for ( int i = 0; i < ent->client->ps.saber[0].numBlades; i++ )
@@ -5842,6 +5848,24 @@ void WP_SabersDamageTrace( gentity_t *ent, qboolean noEffects )
 			g_noClashFlare = qtrue;
 		}
 		WP_SaberDamageTrace( ent, 0, i );
+		if ( debugControllerSaber && i == 0 )
+		{
+			const bladeInfo_t &blade = ent->client->ps.saber[0].blade[0];
+			gi.Printf(
+				"jkxr-saber-debug: speed=%.3f triggered=%d active=%d move=%d weaponState=%d "
+				"base=(%.1f %.1f %.1f) old=(%.1f %.1f %.1f) dir=(%.3f %.3f %.3f) "
+				"victims=%d hitEntity=%d\n",
+				vr->primaryswingvelocity,
+				vr->primaryVelocityTriggeredAttack,
+				vr->velocitytriggeractive,
+				ent->client->ps.saberMove,
+				ent->client->ps.weaponstate,
+				blade.muzzlePoint[0], blade.muzzlePoint[1], blade.muzzlePoint[2],
+				blade.muzzlePointOld[0], blade.muzzlePointOld[1], blade.muzzlePointOld[2],
+				blade.muzzleDir[0], blade.muzzleDir[1], blade.muzzleDir[2],
+				numVictims, saberHitEntity );
+			lastControllerDebugTime = level.time;
+		}
 	}
 	// Saber 2.
 	g_saberNoEffects = noEffects;

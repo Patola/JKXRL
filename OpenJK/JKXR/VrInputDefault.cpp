@@ -36,6 +36,7 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
     bool thirdPersonActive = !!((int) Cvar_VariableValue("cg_thirdPerson"));
 
     static bool dominantGripPushed = false;
+    static bool disruptorZoomHeld = false;
 
     //Need this for the touch screen
     ovrTrackedController * pWeapon = pDominantTracking;
@@ -234,6 +235,19 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
     //Menu button
 	handleTrackedControllerButton(&leftTrackedRemoteState_new, &leftTrackedRemoteState_old, xrButton_Enter, A_ESCAPE);
 	handleTrackedControllerButton(&rightTrackedRemoteState_new, &rightTrackedRemoteState_old, xrButton_Enter, A_ESCAPE);
+
+    // The zoom stick owns +altattack while the Tenloss scope is active. If the
+    // scope disengages before the stick centers, release it here so the game
+    // cannot remain in a hidden alt-fire/scope transition loop.
+    if (vr.cgzoommode != 2 && disruptorZoomHeld)
+    {
+        sendButtonAction("+altattack", false);
+        disruptorZoomHeld = false;
+        if (Cvar_VariableIntegerValue("vr_controller_debug"))
+        {
+            Com_Printf("jkxr-scope-input: released zoom altattack on scope exit\n");
+        }
+    }
 
     static float menuYaw = 0;
     if (VR_UseScreenLayer() && !vr.misc_camera)
@@ -489,14 +503,18 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
             if (between(-0.2f, primaryJoystickX, 0.2f)) {
                 if (vr.cgzoommode == 2)
                 { // We are in disruptor scope
+                    bool zoomRequested = false;
                     if (pPrimaryJoystick->y > 0.8f) {
                         vr.cgzoomdir = -1; // zooming in
-                        sendButtonAction("+altattack", true);
+                        zoomRequested = true;
                     } else if (pPrimaryJoystick->y < -0.8f) {
                         vr.cgzoomdir = 1; // zooming out
-                        sendButtonAction("+altattack", true);
-                    } else {
-                        sendButtonAction("+altattack", false);
+                        zoomRequested = true;
+                    }
+                    if (zoomRequested != disruptorZoomHeld)
+                    {
+                        sendButtonAction("+altattack", zoomRequested);
+                        disruptorZoomHeld = zoomRequested;
                     }
                 }
                 else if (vr.cgzoommode == 1)
@@ -552,7 +570,7 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
             if (between(-0.2f, primaryJoystickX, 0.2f) &&
                 between(0.8f, pPrimaryJoystick->y, 1.0f)) {
                 if (!switched) {
-                    vr.move_speed = (++vr.move_speed) % 3;
+                    vr.move_speed = (vr.move_speed + 1) % 3;
                     switched = true;
                 }
             }
@@ -819,20 +837,28 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
             //player is facing for positional tracking
 
             //Positional movement speed correction for when we are not hitting target framerate
-            static double lastframetime = 0;
-            int refresh = TBXR_GetRefresh();
-            double newframetime = Sys_Milliseconds();
-            float multiplier = (float) ((1000.0 / refresh) / (newframetime - lastframetime));
-            lastframetime = newframetime;
+			static int lastframetime = 0;
+			int refresh = TBXR_GetRefresh();
+			const int newframetime = Sys_Milliseconds();
+			const int frameDelta = newframetime - lastframetime;
+			float multiplier = 1.0f;
+			if ( lastframetime > 0 && frameDelta > 0 && frameDelta < 250 && refresh > 0 )
+			{
+				multiplier = Com_Clamp(
+					0.25f, 4.0f, ( 1000.0f / refresh ) / frameDelta );
+			}
+			lastframetime = newframetime;
 
             vec2_t v;
             float factor = (refresh / 72.0F) *
                            vr_positional_factor->value; // adjust positional factor based on refresh rate
-            rotateAboutOrigin(-vr.hmdposition_delta[0] * factor * multiplier,
-                              vr.hmdposition_delta[2] * factor * multiplier,
-                              -vr.hmdorientation[YAW], v);
-            positional_movementSideways = v[0];
-            positional_movementForward = v[1];
+			rotateAboutOrigin(-vr.hmdposition_delta[0] * factor * multiplier,
+							  vr.hmdposition_delta[2] * factor * multiplier,
+							  -vr.hmdorientation[YAW], v);
+			positional_movementSideways =
+				std::isfinite( v[0] ) ? Com_Clamp( -1.0f, 1.0f, v[0] ) : 0.0f;
+			positional_movementForward =
+				std::isfinite( v[1] ) ? Com_Clamp( -1.0f, 1.0f, v[1] ) : 0.0f;
 
               //Jump (A Button)
             if ((primaryButtonsNew & primaryButton1) != (primaryButtonsOld & primaryButton1)) {
@@ -939,10 +965,10 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
             {
                 dist = length(pSecondaryJoystick->x, pSecondaryJoystick->y);
             }
-            float nlf = nonLinearFilter(dist);
-            dist = (dist > 1.0f) ? dist : 1.0f;
-            float x = nlf * (pSecondaryJoystick->x / dist);
-            float y = nlf * (pSecondaryJoystick->y / dist);
+			const float nlf = nonLinearFilter(dist);
+			const float directionDivisor = dist > 0.0001f ? dist : 1.0f;
+			float x = nlf * (pSecondaryJoystick->x / directionDivisor);
+			float y = nlf * (pSecondaryJoystick->y / directionDivisor);
 
             vr.player_moving = (fabs(x) + fabs(y)) > 0.05f;
 

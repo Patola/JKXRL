@@ -70,7 +70,7 @@ void VR_SetHMDOrientation(float pitch, float yaw, float roll)
 	//Keep this for our records
 	VectorCopy(vr.hmdorientation, vr.hmdorientation_last);
 
-	if (!vr.third_person && !vr.remote_npc && !vr.remote_turret && !vr.cgzoommode
+	if (!vr.third_person && !vr.remote_npc && !vr.remote_turret && !vr.emplaced_gun && !vr.cgzoommode
 #ifndef JK2_MODE
 		&& !vr.in_vehicle
 #endif
@@ -79,7 +79,7 @@ void VR_SetHMDOrientation(float pitch, float yaw, float roll)
 		VectorCopy(vr.hmdorientation, vr.hmdorientation_first);
 	}
 
-	if (!vr.remote_turret && !vr.cgzoommode)
+	if (!vr.remote_turret && !vr.emplaced_gun && !vr.cgzoommode)
 	{
 		VectorCopy(vr.weaponangles[ANGLES_ADJUSTED], vr.weaponangles_first[ANGLES_ADJUSTED]);
 	}
@@ -140,7 +140,7 @@ void VR_SetHMDPosition(float x, float y, float z )
 void VR_GetMove(float *forward, float *side, float *pos_forward, float *pos_side, float *up,
 				float *yaw, float *pitch, float *roll)
 {
-	if (vr.remote_turret) {
+	if (vr.remote_turret || vr.emplaced_gun) {
 		*forward = 0.0f;
 		*pos_forward = 0.0f;
 		*up = 0.0f;
@@ -571,7 +571,10 @@ void VR_HapticEvent(const char* event, int position, int flags, int intensity, f
 
 void VR_HandleControllerInput() {
 	TBXR_UpdateControllers();
+	VR_ProcessControllerInput();
+}
 
+void VR_ProcessControllerInput() {
 	//Call additional control schemes here
 	switch (vr_control_scheme->integer)
 	{

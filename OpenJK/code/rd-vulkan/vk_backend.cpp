@@ -21,6 +21,7 @@ published by the Free Software Foundation.
 #include <openxr_platform.h>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cstddef>
 #include <cstdio>
@@ -154,8 +155,11 @@ struct vk_rect_t
 	float rect[4];
 	float uv[4];
 	float color[4];
+	float rotation[4];
 	qhandle_t texture;
 	vk_blend_mode_t blendMode;
+	bool forceHudStereo;
+	bool repeatTexture;
 };
 
 struct vk_texture_t
@@ -182,6 +186,7 @@ struct vk_material_stage_t
 	vk_alpha_test_t alphaTest;
 	float alpha;
 	float scroll[2];
+	float tcScale[2];
 	vk_waveform_t stretchType;
 	float stretch[4];
 	float turbulence[3];
@@ -206,6 +211,7 @@ struct vk_shader_stage_definition_t
 	vk_alpha_test_t alphaTest;
 	float alpha;
 	float scroll[2];
+	float tcScale[2];
 	vk_waveform_t stretchType;
 	float stretch[4];
 	float turbulence[3];
@@ -382,6 +388,13 @@ struct vk_gla_t
 	int ofsCompBonePool;
 };
 
+struct vk_model_tag_t
+{
+	std::string name;
+	vec3_t origin;
+	vec3_t axis[3];
+};
+
 struct vk_world_stage_push_t
 {
 	float uvOffset[2];
@@ -421,6 +434,9 @@ struct vk_model_t
 	int inlineModelIndex;
 	int boneCount;
 	qhandle_t animationHandle;
+	int frameCount;
+	int tagCount;
+	std::vector<vk_model_tag_t> tags;
 	std::vector<vk_model_surface_t> surfaces;
 	std::shared_ptr<vk_gla_t> animation;
 };
@@ -476,6 +492,7 @@ struct vk_ghoul2_surface_cache_t
 	const CGhoul2Info *ghoul;
 	const vk_model_surface_t *surface;
 	int time;
+	int disintegrationMode;
 	VkDeviceSize vertexOffset;
 };
 
@@ -512,6 +529,27 @@ struct vk_backend_state_t
 	XrSpace viewSpace;
 	XrSpace localSpace;
 	XrSpace stageSpace;
+	XrActionSet controllerActionSet;
+	XrPath handPaths[VK_BACKEND_EYE_COUNT];
+	XrAction aimPoseAction;
+	XrAction gripPoseAction;
+	XrAction triggerAction;
+	XrAction triggerClickAction;
+	XrAction triggerTouchAction;
+	XrAction squeezeAction;
+	XrAction thumbstickAction;
+	XrAction thumbstickClickAction;
+	XrAction thumbstickTouchAction;
+	XrAction primaryButtonAction;
+	XrAction secondaryButtonAction;
+	XrAction primaryTouchAction;
+	XrAction secondaryTouchAction;
+	XrAction thumbrestTouchAction;
+	XrAction menuAction;
+	XrSpace aimSpaces[VK_BACKEND_EYE_COUNT];
+	XrSpace gripSpaces[VK_BACKEND_EYE_COUNT];
+	vrControllerType_t controllerType;
+	bool loggedControllerInput;
 	XrViewConfigurationView viewConfiguration[VK_BACKEND_EYE_COUNT];
 	XrView views[VK_BACKEND_EYE_COUNT];
 	XrFrameState frameState;
@@ -562,9 +600,11 @@ struct vk_backend_state_t
 	VkPipeline texturedRectPipeline;
 	VkPipeline texturedRectOpaquePipeline;
 	VkPipeline texturedRectAdditivePipeline;
+	VkPipeline texturedRectSourceAlphaAdditivePipeline;
 	VkPipeline texturedRectDestinationColorAdditivePipeline;
 	VkPipeline texturedRectOneMinusDestinationAlphaAdditivePipeline;
 	VkPipeline texturedRectModulatePipeline;
+	VkPipeline texturedRectDoubleModulatePipeline;
 	VkPipeline diagnostic3dPipeline;
 	VkPipeline worldPipeline;
 	VkPipeline worldAlphaPipeline;
@@ -606,6 +646,8 @@ struct vk_backend_state_t
 	bool loggedHmdPose;
 	bool loggedFov;
 	bool loggedHudStereo;
+	bool loggedDisruptorScope;
+	bool loggedForcePushEffect;
 	bool loggedGhoul2Skinning;
 	bool loggedGhoul2StreamInvalid;
 	bool loggedGhoul2StreamOverflow;
@@ -668,6 +710,7 @@ static void VK_LoadPendingRegistrations();
 static bool VK_ModelBufferRangeValid( size_t offset, size_t byteCount, size_t limit );
 static bool VK_PrepareXrFrame();
 static void VK_UpdateJkxrHmdPose( XrTime displayTime );
+static void VK_UpdateJkxrControllers( XrTime displayTime );
 
 template<typename T>
 static T VK_ClampValue( T value, T minimum, T maximum )
@@ -687,12 +730,33 @@ static void VK_Backend_Clear()
 	vk.viewSpace = XR_NULL_HANDLE;
 	vk.localSpace = XR_NULL_HANDLE;
 	vk.stageSpace = XR_NULL_HANDLE;
+	vk.controllerActionSet = XR_NULL_HANDLE;
+	vk.aimPoseAction = XR_NULL_HANDLE;
+	vk.gripPoseAction = XR_NULL_HANDLE;
+	vk.triggerAction = XR_NULL_HANDLE;
+	vk.triggerClickAction = XR_NULL_HANDLE;
+	vk.triggerTouchAction = XR_NULL_HANDLE;
+	vk.squeezeAction = XR_NULL_HANDLE;
+	vk.thumbstickAction = XR_NULL_HANDLE;
+	vk.thumbstickClickAction = XR_NULL_HANDLE;
+	vk.thumbstickTouchAction = XR_NULL_HANDLE;
+	vk.primaryButtonAction = XR_NULL_HANDLE;
+	vk.secondaryButtonAction = XR_NULL_HANDLE;
+	vk.primaryTouchAction = XR_NULL_HANDLE;
+	vk.secondaryTouchAction = XR_NULL_HANDLE;
+	vk.thumbrestTouchAction = XR_NULL_HANDLE;
+	vk.menuAction = XR_NULL_HANDLE;
+	vk.controllerType = VR_CONTROLLER_TYPE_UNKNOWN;
+	vk.loggedControllerInput = false;
 	vk.frameState = {};
 	vk.frameState.type = XR_TYPE_FRAME_STATE;
 	vk.frameBegun = false;
 	vk.viewsValid = false;
 	for ( int eye = 0; eye < VK_BACKEND_EYE_COUNT; ++eye )
 	{
+		vk.handPaths[eye] = XR_NULL_PATH;
+		vk.aimSpaces[eye] = XR_NULL_HANDLE;
+		vk.gripSpaces[eye] = XR_NULL_HANDLE;
 		vk.colorSwapchain[eye] = XR_NULL_HANDLE;
 		vk.colorImages[eye] = nullptr;
 		vk.colorImageViews[eye] = nullptr;
@@ -739,9 +803,11 @@ static void VK_Backend_Clear()
 	vk.texturedRectPipeline = VK_NULL_HANDLE;
 	vk.texturedRectOpaquePipeline = VK_NULL_HANDLE;
 	vk.texturedRectAdditivePipeline = VK_NULL_HANDLE;
+	vk.texturedRectSourceAlphaAdditivePipeline = VK_NULL_HANDLE;
 	vk.texturedRectDestinationColorAdditivePipeline = VK_NULL_HANDLE;
 	vk.texturedRectOneMinusDestinationAlphaAdditivePipeline = VK_NULL_HANDLE;
 	vk.texturedRectModulatePipeline = VK_NULL_HANDLE;
+	vk.texturedRectDoubleModulatePipeline = VK_NULL_HANDLE;
 	vk.diagnostic3dPipeline = VK_NULL_HANDLE;
 	vk.worldPipeline = VK_NULL_HANDLE;
 	vk.worldAlphaPipeline = VK_NULL_HANDLE;
@@ -784,6 +850,8 @@ static void VK_Backend_Clear()
 	vk.loggedHmdPose = false;
 	vk.loggedFov = false;
 	vk.loggedHudStereo = false;
+	vk.loggedDisruptorScope = false;
+	vk.loggedForcePushEffect = false;
 	vk.loggedGhoul2Skinning = false;
 	vk.loggedGhoul2StreamInvalid = false;
 	vk.loggedGhoul2StreamOverflow = false;
@@ -852,7 +920,12 @@ static bool VK_Backend_AppendScreenRect(
 	float s2 = 1.0f,
 	float t2 = 1.0f,
 	qhandle_t texture = 0,
-	vk_blend_mode_t blendMode = VK_BLEND_ALPHA )
+	vk_blend_mode_t blendMode = VK_BLEND_ALPHA,
+	float angle = 0.0f,
+	float pivotX = 0.0f,
+	float pivotY = 0.0f,
+	bool forceHudStereo = false,
+	bool repeatTexture = false )
 {
 	if ( w == 0.0f || h == 0.0f )
 	{
@@ -882,8 +955,15 @@ static bool VK_Backend_AppendScreenRect(
 	rect.color[1] = color[1];
 	rect.color[2] = color[2];
 	rect.color[3] = color[3];
+	const float radians = DEG2RAD( angle );
+	rect.rotation[0] = std::sin( radians );
+	rect.rotation[1] = std::cos( radians );
+	rect.rotation[2] = ( pivotX / 640.0f ) * 2.0f - 1.0f;
+	rect.rotation[3] = ( pivotY / 480.0f ) * 2.0f - 1.0f;
 	rect.texture = texture;
 	rect.blendMode = blendMode;
+	rect.forceHudStereo = forceHudStereo;
+	rect.repeatTexture = repeatTexture;
 	vk.rects.push_back( rect );
 	return true;
 }
@@ -1842,6 +1922,8 @@ static void VK_ResetShaderStageDefinition( vk_shader_stage_definition_t *stage )
 	stage->surfaceSprite.fxAlphaStart = 1.0f;
 	stage->surfaceSprite.fxAlphaEnd = 0.0f;
 	stage->alpha = 1.0f;
+	stage->tcScale[0] = 1.0f;
+	stage->tcScale[1] = 1.0f;
 	stage->color[0] = 1.0f;
 	stage->color[1] = 1.0f;
 	stage->color[2] = 1.0f;
@@ -2160,6 +2242,11 @@ static void VK_ParseShaderFile( const char *filename )
 					stage.scroll[0] = static_cast<float>( std::atof( COM_ParseExt( &text, qtrue ) ) );
 					stage.scroll[1] = static_cast<float>( std::atof( COM_ParseExt( &text, qtrue ) ) );
 				}
+				else if ( Q_stricmp( operation, "scale" ) == 0 )
+				{
+					stage.tcScale[0] = static_cast<float>( std::atof( COM_ParseExt( &text, qtrue ) ) );
+					stage.tcScale[1] = static_cast<float>( std::atof( COM_ParseExt( &text, qtrue ) ) );
+				}
 				else if ( Q_stricmp( operation, "stretch" ) == 0 )
 				{
 					stage.stretchType = VK_ParseWaveform( COM_ParseExt( &text, qtrue ) );
@@ -2302,6 +2389,191 @@ static bool VK_CreateReferenceSpace( XrReferenceSpaceType type, XrSpace *space, 
 		return false;
 	}
 
+	return true;
+}
+
+static bool VK_CreateControllerAction(
+	XrActionType type, const char *name, const char *localizedName, XrAction *action )
+{
+	XrActionCreateInfo createInfo = {};
+	createInfo.type = XR_TYPE_ACTION_CREATE_INFO;
+	createInfo.actionType = type;
+	createInfo.countSubactionPaths = VK_BACKEND_EYE_COUNT;
+	createInfo.subactionPaths = vk.handPaths;
+	std::snprintf( createInfo.actionName, sizeof( createInfo.actionName ), "%s", name );
+	std::snprintf( createInfo.localizedActionName, sizeof( createInfo.localizedActionName ), "%s", localizedName );
+	return VK_CheckXr(
+		xrCreateAction( vk.controllerActionSet, &createInfo, action ), name );
+}
+
+static bool VK_AddControllerBinding(
+	std::vector<XrActionSuggestedBinding> *bindings, XrAction action, const char *pathName )
+{
+	XrPath path = XR_NULL_PATH;
+	if ( !VK_CheckXr( xrStringToPath( vk.xrInstance, pathName, &path ), pathName ) )
+	{
+		return false;
+	}
+	bindings->push_back( { action, path } );
+	return true;
+}
+
+static void VK_SuggestControllerBindings(
+	const char *profileName, const std::vector<XrActionSuggestedBinding> &bindings )
+{
+	XrPath profile = XR_NULL_PATH;
+	if ( !VK_CheckXr( xrStringToPath( vk.xrInstance, profileName, &profile ), profileName ) )
+	{
+		return;
+	}
+
+	XrInteractionProfileSuggestedBinding suggestion = {};
+	suggestion.type = XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING;
+	suggestion.interactionProfile = profile;
+	suggestion.countSuggestedBindings = static_cast<uint32_t>( bindings.size() );
+	suggestion.suggestedBindings = bindings.data();
+	const XrResult result = xrSuggestInteractionProfileBindings( vk.xrInstance, &suggestion );
+	if ( XR_FAILED( result ) )
+	{
+		VK_LogXrFailure( profileName, result );
+	}
+}
+
+static bool VK_CreateControllerActions()
+{
+	XrActionSetCreateInfo setInfo = {};
+	setInfo.type = XR_TYPE_ACTION_SET_CREATE_INFO;
+	std::snprintf( setInfo.actionSetName, sizeof( setInfo.actionSetName ), "jkxr_gameplay" );
+	std::snprintf( setInfo.localizedActionSetName, sizeof( setInfo.localizedActionSetName ), "JKXR Gameplay" );
+	if ( !VK_CheckXr(
+			xrCreateActionSet( vk.xrInstance, &setInfo, &vk.controllerActionSet ),
+			"xrCreateActionSet(JKXR gameplay)" ) ||
+		 !VK_CheckXr( xrStringToPath( vk.xrInstance, "/user/hand/left", &vk.handPaths[0] ),
+			"xrStringToPath(left hand)" ) ||
+		 !VK_CheckXr( xrStringToPath( vk.xrInstance, "/user/hand/right", &vk.handPaths[1] ),
+			"xrStringToPath(right hand)" ) )
+	{
+		return false;
+	}
+
+	if ( !VK_CreateControllerAction( XR_ACTION_TYPE_POSE_INPUT, "aim_pose", "Aim Pose", &vk.aimPoseAction ) ||
+		 !VK_CreateControllerAction( XR_ACTION_TYPE_POSE_INPUT, "grip_pose", "Grip Pose", &vk.gripPoseAction ) ||
+		 !VK_CreateControllerAction( XR_ACTION_TYPE_FLOAT_INPUT, "trigger", "Trigger", &vk.triggerAction ) ||
+		 !VK_CreateControllerAction( XR_ACTION_TYPE_BOOLEAN_INPUT, "trigger_click", "Trigger Click", &vk.triggerClickAction ) ||
+		 !VK_CreateControllerAction( XR_ACTION_TYPE_BOOLEAN_INPUT, "trigger_touch", "Trigger Touch", &vk.triggerTouchAction ) ||
+		 !VK_CreateControllerAction( XR_ACTION_TYPE_FLOAT_INPUT, "squeeze", "Squeeze", &vk.squeezeAction ) ||
+		 !VK_CreateControllerAction( XR_ACTION_TYPE_VECTOR2F_INPUT, "thumbstick", "Thumbstick", &vk.thumbstickAction ) ||
+		 !VK_CreateControllerAction( XR_ACTION_TYPE_BOOLEAN_INPUT, "thumbstick_click", "Thumbstick Click", &vk.thumbstickClickAction ) ||
+		 !VK_CreateControllerAction( XR_ACTION_TYPE_BOOLEAN_INPUT, "thumbstick_touch", "Thumbstick Touch", &vk.thumbstickTouchAction ) ||
+		 !VK_CreateControllerAction( XR_ACTION_TYPE_BOOLEAN_INPUT, "primary_button", "Primary Button", &vk.primaryButtonAction ) ||
+		 !VK_CreateControllerAction( XR_ACTION_TYPE_BOOLEAN_INPUT, "secondary_button", "Secondary Button", &vk.secondaryButtonAction ) ||
+		 !VK_CreateControllerAction( XR_ACTION_TYPE_BOOLEAN_INPUT, "primary_touch", "Primary Touch", &vk.primaryTouchAction ) ||
+		 !VK_CreateControllerAction( XR_ACTION_TYPE_BOOLEAN_INPUT, "secondary_touch", "Secondary Touch", &vk.secondaryTouchAction ) ||
+		 !VK_CreateControllerAction( XR_ACTION_TYPE_BOOLEAN_INPUT, "thumbrest_touch", "Thumbrest Touch", &vk.thumbrestTouchAction ) ||
+		 !VK_CreateControllerAction( XR_ACTION_TYPE_BOOLEAN_INPUT, "menu", "Menu", &vk.menuAction ) )
+	{
+		return false;
+	}
+
+	std::vector<XrActionSuggestedBinding> touch;
+	const struct {
+		XrAction action;
+		const char *path;
+	} touchBindings[] = {
+		{ vk.aimPoseAction, "/user/hand/left/input/aim/pose" },
+		{ vk.aimPoseAction, "/user/hand/right/input/aim/pose" },
+		{ vk.gripPoseAction, "/user/hand/left/input/grip/pose" },
+		{ vk.gripPoseAction, "/user/hand/right/input/grip/pose" },
+		{ vk.triggerAction, "/user/hand/left/input/trigger/value" },
+		{ vk.triggerAction, "/user/hand/right/input/trigger/value" },
+		{ vk.triggerTouchAction, "/user/hand/left/input/trigger/touch" },
+		{ vk.triggerTouchAction, "/user/hand/right/input/trigger/touch" },
+		{ vk.squeezeAction, "/user/hand/left/input/squeeze/value" },
+		{ vk.squeezeAction, "/user/hand/right/input/squeeze/value" },
+		{ vk.thumbstickAction, "/user/hand/left/input/thumbstick" },
+		{ vk.thumbstickAction, "/user/hand/right/input/thumbstick" },
+		{ vk.thumbstickClickAction, "/user/hand/left/input/thumbstick/click" },
+		{ vk.thumbstickClickAction, "/user/hand/right/input/thumbstick/click" },
+		{ vk.thumbstickTouchAction, "/user/hand/left/input/thumbstick/touch" },
+		{ vk.thumbstickTouchAction, "/user/hand/right/input/thumbstick/touch" },
+		{ vk.primaryButtonAction, "/user/hand/left/input/x/click" },
+		{ vk.primaryButtonAction, "/user/hand/right/input/a/click" },
+		{ vk.secondaryButtonAction, "/user/hand/left/input/y/click" },
+		{ vk.secondaryButtonAction, "/user/hand/right/input/b/click" },
+		{ vk.primaryTouchAction, "/user/hand/left/input/x/touch" },
+		{ vk.primaryTouchAction, "/user/hand/right/input/a/touch" },
+		{ vk.secondaryTouchAction, "/user/hand/left/input/y/touch" },
+		{ vk.secondaryTouchAction, "/user/hand/right/input/b/touch" },
+		{ vk.thumbrestTouchAction, "/user/hand/left/input/thumbrest/touch" },
+		{ vk.thumbrestTouchAction, "/user/hand/right/input/thumbrest/touch" },
+		{ vk.menuAction, "/user/hand/left/input/menu/click" },
+	};
+	for ( const auto &binding : touchBindings )
+	{
+		if ( !VK_AddControllerBinding( &touch, binding.action, binding.path ) )
+		{
+			return false;
+		}
+	}
+	VK_SuggestControllerBindings( "/interaction_profiles/oculus/touch_controller", touch );
+
+	std::vector<XrActionSuggestedBinding> simple;
+	const struct {
+		XrAction action;
+		const char *path;
+	} simpleBindings[] = {
+		{ vk.aimPoseAction, "/user/hand/left/input/aim/pose" },
+		{ vk.aimPoseAction, "/user/hand/right/input/aim/pose" },
+		{ vk.gripPoseAction, "/user/hand/left/input/grip/pose" },
+		{ vk.gripPoseAction, "/user/hand/right/input/grip/pose" },
+		{ vk.triggerClickAction, "/user/hand/left/input/select/click" },
+		{ vk.triggerClickAction, "/user/hand/right/input/select/click" },
+		{ vk.menuAction, "/user/hand/left/input/menu/click" },
+		{ vk.menuAction, "/user/hand/right/input/menu/click" },
+	};
+	for ( const auto &binding : simpleBindings )
+	{
+		if ( !VK_AddControllerBinding( &simple, binding.action, binding.path ) )
+		{
+			return false;
+		}
+	}
+	VK_SuggestControllerBindings( "/interaction_profiles/khr/simple_controller", simple );
+
+	for ( int hand = 0; hand < VK_BACKEND_EYE_COUNT; ++hand )
+	{
+		XrActionSpaceCreateInfo spaceInfo = {};
+		spaceInfo.type = XR_TYPE_ACTION_SPACE_CREATE_INFO;
+		spaceInfo.poseInActionSpace.orientation.w = 1.0f;
+		spaceInfo.subactionPath = vk.handPaths[hand];
+		spaceInfo.action = vk.aimPoseAction;
+		if ( !VK_CheckXr(
+				xrCreateActionSpace( vk.xrSession, &spaceInfo, &vk.aimSpaces[hand] ),
+				"xrCreateActionSpace(aim)" ) )
+		{
+			return false;
+		}
+		spaceInfo.action = vk.gripPoseAction;
+		if ( !VK_CheckXr(
+				xrCreateActionSpace( vk.xrSession, &spaceInfo, &vk.gripSpaces[hand] ),
+				"xrCreateActionSpace(grip)" ) )
+		{
+			return false;
+		}
+	}
+
+	XrSessionActionSetsAttachInfo attachInfo = {};
+	attachInfo.type = XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO;
+	attachInfo.countActionSets = 1;
+	attachInfo.actionSets = &vk.controllerActionSet;
+	if ( !VK_CheckXr(
+			xrAttachSessionActionSets( vk.xrSession, &attachInfo ),
+			"xrAttachSessionActionSets" ) )
+	{
+		return false;
+	}
+
+	ri.Printf( PRINT_ALL, "rd-vulkan: OpenXR tracked-controller actions attached\n" );
 	return true;
 }
 
@@ -2773,6 +3045,11 @@ static bool VK_CreatePipelines()
 			&vk.texturedRectAdditivePipeline, "vkCreateGraphicsPipelines(textured-rect-additive)", VK_BLEND_ADDITIVE ) &&
 		VK_CreatePipeline( texturedRectVertSpv, ARRAY_LEN( texturedRectVertSpv ),
 			texturedRectFragSpv, ARRAY_LEN( texturedRectFragSpv ),
+			&vk.texturedRectSourceAlphaAdditivePipeline,
+			"vkCreateGraphicsPipelines(textured-rect-source-alpha-additive)",
+			VK_BLEND_SOURCE_ALPHA_ADDITIVE ) &&
+		VK_CreatePipeline( texturedRectVertSpv, ARRAY_LEN( texturedRectVertSpv ),
+			texturedRectFragSpv, ARRAY_LEN( texturedRectFragSpv ),
 			&vk.texturedRectDestinationColorAdditivePipeline,
 			"vkCreateGraphicsPipelines(textured-rect-destination-color-additive)", VK_BLEND_DESTINATION_COLOR_ADDITIVE ) &&
 		VK_CreatePipeline( texturedRectVertSpv, ARRAY_LEN( texturedRectVertSpv ),
@@ -2783,6 +3060,10 @@ static bool VK_CreatePipelines()
 		VK_CreatePipeline( texturedRectVertSpv, ARRAY_LEN( texturedRectVertSpv ),
 			texturedRectFragSpv, ARRAY_LEN( texturedRectFragSpv ),
 			&vk.texturedRectModulatePipeline, "vkCreateGraphicsPipelines(textured-rect-modulate)", VK_BLEND_MODULATE ) &&
+		VK_CreatePipeline( texturedRectVertSpv, ARRAY_LEN( texturedRectVertSpv ),
+			texturedRectFragSpv, ARRAY_LEN( texturedRectFragSpv ),
+			&vk.texturedRectDoubleModulatePipeline,
+			"vkCreateGraphicsPipelines(textured-rect-double-modulate)", VK_BLEND_DOUBLE_MODULATE ) &&
 		VK_CreatePipeline( diagnostic3dVertSpv, ARRAY_LEN( diagnostic3dVertSpv ),
 			diagnostic3dFragSpv, ARRAY_LEN( diagnostic3dFragSpv ),
 			&vk.diagnostic3dPipeline, "vkCreateGraphicsPipelines(diagnostic-3d)",
@@ -3188,12 +3469,17 @@ static void VK_BuildViewMatrix(
 	matrix[15] = 1.0f;
 }
 
-static void VK_BuildProjectionMatrix( const XrFovf &fov, float zNear, float zFar, float matrix[16] )
+static void VK_BuildProjectionMatrix(
+	const XrFovf &fov,
+	float zNear,
+	float zFar,
+	float matrix[16],
+	float tangentScale = 1.0f )
 {
-	const float tanLeft = std::tan( fov.angleLeft );
-	const float tanRight = std::tan( fov.angleRight );
-	const float tanDown = std::tan( fov.angleDown );
-	const float tanUp = std::tan( fov.angleUp );
+	const float tanLeft = std::tan( fov.angleLeft ) * tangentScale;
+	const float tanRight = std::tan( fov.angleRight ) * tangentScale;
+	const float tanDown = std::tan( fov.angleDown ) * tangentScale;
+	const float tanUp = std::tan( fov.angleUp ) * tangentScale;
 	const float tanWidth = tanRight - tanLeft;
 	const float tanHeight = tanUp - tanDown;
 	const float depth = zNear - zFar;
@@ -3592,7 +3878,8 @@ static uint32_t VK_RecordBoundIndexedShader(
 	vk_world_pass_t pass,
 	VkPipeline *boundPipeline,
 	VkDescriptorSet *boundTexture,
-	const byte *entityColor = nullptr )
+	const byte *entityColor = nullptr,
+	bool forceVertexColor = false )
 {
 	if ( shader > 0 && static_cast<size_t>( shader ) < vk.materials.size() &&
 		 !vk.materials[shader].stages.empty() )
@@ -3624,6 +3911,11 @@ static uint32_t VK_RecordBoundIndexedShader(
 				effectiveStage.blendMode = VK_BLEND_OPAQUE;
 				effectiveStage.vertexColor = true;
 				promoted = true;
+			}
+			if ( forceVertexColor )
+			{
+				effectiveStage.vertexColor = true;
+				effectiveStage.alphaTest = VK_ALPHA_TEST_GREATER_ZERO;
 			}
 			const bool opaque = effectiveStage.blendMode == VK_BLEND_OPAQUE;
 			if ( ( pass == VK_WORLD_PASS_OPAQUE ) != opaque )
@@ -3671,7 +3963,10 @@ static uint32_t VK_RecordBoundIndexedShader(
 	baseStage.color[1] = 1.0f;
 	baseStage.color[2] = 1.0f;
 	baseStage.color[3] = 1.0f;
-	baseStage.vertexColor = !hasLightmap;
+	baseStage.vertexColor = forceVertexColor || !hasLightmap;
+	baseStage.alphaTest = forceVertexColor
+		? VK_ALPHA_TEST_GREATER_ZERO
+		: VK_ALPHA_TEST_NONE;
 	VK_PushWorldStage( &baseStage, false );
 	vkCmdDrawIndexed( vk.commandBuffer, indexCount, 1, firstIndex, 0, 0 );
 
@@ -3753,6 +4048,91 @@ static const vk_model_t *VK_ModelForHandle( qhandle_t handle )
 		return nullptr;
 	}
 	return &vk.models[handle];
+}
+
+static const vk_model_tag_t *VK_ModelTagForFrame(
+	const vk_model_t &model,
+	int frame,
+	const char *tagName )
+{
+	if ( model.type != VK_MODEL_MD3 || model.frameCount <= 0 || model.tagCount <= 0 ||
+		 tagName == nullptr || tagName[0] == '\0' )
+	{
+		return nullptr;
+	}
+	frame = VK_ClampValue( frame, 0, model.frameCount - 1 );
+	const size_t first = static_cast<size_t>( frame ) * model.tagCount;
+	if ( first > model.tags.size() ||
+		 static_cast<size_t>( model.tagCount ) > model.tags.size() - first )
+	{
+		return nullptr;
+	}
+	for ( int tagIndex = 0; tagIndex < model.tagCount; ++tagIndex )
+	{
+		const vk_model_tag_t &tag = model.tags[first + tagIndex];
+		if ( Q_stricmp( tag.name.c_str(), tagName ) == 0 )
+		{
+			return &tag;
+		}
+	}
+	return nullptr;
+}
+
+void VK_Backend_LerpTag(
+	orientation_t *tag,
+	qhandle_t modelHandle,
+	int startFrame,
+	int endFrame,
+	float fraction,
+	const char *tagName )
+{
+	if ( tag == nullptr )
+	{
+		return;
+	}
+	VectorClear( tag->origin );
+	AxisClear( tag->axis );
+
+	const vk_model_t *model = VK_ModelForHandle( modelHandle );
+	if ( model == nullptr )
+	{
+		return;
+	}
+	const vk_model_tag_t *start =
+		VK_ModelTagForFrame( *model, startFrame, tagName );
+	const vk_model_tag_t *finish =
+		VK_ModelTagForFrame( *model, endFrame, tagName );
+	if ( start == nullptr || finish == nullptr )
+	{
+		return;
+	}
+	static bool loggedTagInterpolation = false;
+	if ( !loggedTagInterpolation )
+	{
+		ri.Printf(
+			PRINT_ALL,
+			"rd-vulkan-model: MD3 tag interpolation active: model=%s tag=%s frames=%d..%d\n",
+			model->name.c_str(), tagName, startFrame, endFrame );
+		loggedTagInterpolation = true;
+	}
+
+	fraction = VK_ClampValue( fraction, 0.0f, 1.0f );
+	const float backFraction = 1.0f - fraction;
+	for ( int component = 0; component < 3; ++component )
+	{
+		tag->origin[component] =
+			start->origin[component] * backFraction + finish->origin[component] * fraction;
+		for ( int axisIndex = 0; axisIndex < 3; ++axisIndex )
+		{
+			tag->axis[axisIndex][component] =
+				start->axis[axisIndex][component] * backFraction +
+				finish->axis[axisIndex][component] * fraction;
+		}
+	}
+	for ( int axisIndex = 0; axisIndex < 3; ++axisIndex )
+	{
+		VectorNormalize( tag->axis[axisIndex] );
+	}
 }
 
 static void VK_BuildEntityModelMatrix( const refEntity_t &entity, float matrix[16] )
@@ -3908,6 +4288,33 @@ static bool VK_GLMShouldDrawSurface(
 	const vk_model_surface_t &surface,
 	const CGhoul2Info *ghoul )
 {
+	if ( ghoul != nullptr && surface.modelSurfaceIndex != ghoul->mSurfaceRoot )
+	{
+		int ancestorIndex = surface.parentSurfaceIndex;
+		bool descendsFromRoot = false;
+		for ( size_t depth = 0;
+			  depth < model.surfaces.size() && ancestorIndex >= 0;
+			  ++depth )
+		{
+			if ( ancestorIndex == ghoul->mSurfaceRoot )
+			{
+				descendsFromRoot = true;
+				break;
+			}
+			const vk_model_surface_t *ancestor =
+				VK_GLMSurfaceForIndex( model, ancestorIndex );
+			if ( ancestor == nullptr )
+			{
+				break;
+			}
+			ancestorIndex = ancestor->parentSurfaceIndex;
+		}
+		if ( !descendsFromRoot )
+		{
+			return false;
+		}
+	}
+
 	if ( VK_GLMEffectiveFlags( surface, ghoul ) != 0 )
 	{
 		return false;
@@ -3929,6 +4336,66 @@ static bool VK_GLMShouldDrawSurface(
 		parentIndex = parent->parentSurfaceIndex;
 	}
 	return true;
+}
+
+char *VK_Backend_GetModelSurfaceName( qhandle_t modelHandle, int surfaceIndex )
+{
+	const vk_model_t *model = VK_ModelForHandle( modelHandle );
+	const vk_model_surface_t *surface = model != nullptr
+		? VK_GLMSurfaceForIndex( *model, surfaceIndex )
+		: nullptr;
+	return surface != nullptr
+		? const_cast<char *>( surface->name.c_str() )
+		: nullptr;
+}
+
+int VK_Backend_GetModelParentSurface( qhandle_t modelHandle, int surfaceIndex )
+{
+	const vk_model_t *model = VK_ModelForHandle( modelHandle );
+	const vk_model_surface_t *surface = model != nullptr
+		? VK_GLMSurfaceForIndex( *model, surfaceIndex )
+		: nullptr;
+	return surface != nullptr ? surface->parentSurfaceIndex : -1;
+}
+
+int VK_Backend_GetModelSurfaceRenderStatus(
+	qhandle_t modelHandle,
+	const CGhoul2Info *ghoul,
+	const char *surfaceName )
+{
+	const vk_model_t *model = VK_ModelForHandle( modelHandle );
+	if ( model == nullptr || surfaceName == nullptr )
+	{
+		return -1;
+	}
+	const int surfaceIndex =
+		VK_Backend_FindModelSurface( modelHandle, surfaceName, nullptr );
+	const vk_model_surface_t *surface =
+		VK_GLMSurfaceForIndex( *model, surfaceIndex );
+	if ( surface == nullptr )
+	{
+		return -1;
+	}
+
+	unsigned int flags = VK_GLMEffectiveFlags( *surface, ghoul );
+	int parentIndex = surface->parentSurfaceIndex;
+	for ( size_t depth = 0; depth < model->surfaces.size() && parentIndex >= 0; ++depth )
+	{
+		const vk_model_surface_t *parent =
+			VK_GLMSurfaceForIndex( *model, parentIndex );
+		if ( parent == nullptr )
+		{
+			break;
+		}
+		if ( ( VK_GLMEffectiveFlags( *parent, ghoul ) &
+			   G2SURFACEFLAG_NODESCENDANTS ) != 0 )
+		{
+			flags |= G2SURFACEFLAG_OFF;
+			break;
+		}
+		parentIndex = parent->parentSurfaceIndex;
+	}
+	return static_cast<int>( flags );
 }
 
 static const vk_skin_surface_t *VK_FindSkinSurface(
@@ -4007,12 +4474,16 @@ static void VK_LogGhoul2RenderAudit(
 		skinHandle > 0 && static_cast<size_t>( skinHandle ) < vk.skins.size()
 			? vk.skins[skinHandle].name.c_str()
 			: "<none>";
+	const vk_model_surface_t *rootSurface =
+		VK_GLMSurfaceForIndex( model, ghoul.mSurfaceRoot );
 	ri.Printf(
 		unresolvedVisible > 0 ? PRINT_WARNING : PRINT_ALL,
-		"rd-vulkan-ghoul2-render-audit: model=%s skin=%s surfaces=%zu visible=%zu "
+		"rd-vulkan-ghoul2-render-audit: model=%s skin=%s root=%d(%s) surfaces=%zu visible=%zu "
 		"hidden=%zu bolts=%zu skinMapped=%zu skinOff=%zu unresolvedVisible=%zu\n",
 		model.name.c_str(),
 		skinName,
+		ghoul.mSurfaceRoot,
+		rootSurface != nullptr ? rootSurface->name.c_str() : "<invalid>",
 		model.surfaces.size(),
 		visible,
 		hidden,
@@ -4057,6 +4528,19 @@ static void VK_MultiplyBoneMatrices(
 			parent.matrix[row][1] * local.matrix[1][3] +
 			parent.matrix[row][2] * local.matrix[2][3] +
 			parent.matrix[row][3];
+	}
+}
+
+static void VK_CreateGhoul2AngleMatrix( const vec3_t angles, mdxaBone_t *matrix )
+{
+	vec3_t axis[3];
+	AnglesToAxis( angles, axis );
+	for ( int row = 0; row < 3; ++row )
+	{
+		matrix->matrix[row][0] = axis[0][row];
+		matrix->matrix[row][1] = axis[1][row];
+		matrix->matrix[row][2] = axis[2][row];
+		matrix->matrix[row][3] = 0.0f;
 	}
 }
 
@@ -4318,20 +4802,70 @@ static bool VK_EvaluateGhoul2Bones(
 				reinterpret_cast<const float *>( &next )[element] * frame.lerp;
 		}
 
+		mdxaBone_t animated = {};
 		if ( bone.parent < 0 )
 		{
 			VK_MultiplyBoneMatrices(
 				rootMatrix,
 				local,
-				&( *finalBones )[boneIndex] );
+				&animated );
 		}
 		else
 		{
 			VK_MultiplyBoneMatrices(
 				( *finalBones )[bone.parent],
 				local,
-				&( *finalBones )[boneIndex] );
+				&animated );
 		}
+
+		mdxaBone_t overridden = animated;
+		const int angleFlags = override != nullptr ? override->flags & BONE_ANGLES_TOTAL : 0;
+		if ( angleFlags == BONE_ANGLES_PREMULT )
+		{
+			VK_MultiplyBoneMatrices(
+				bone.parent < 0 ? rootMatrix : ( *finalBones )[bone.parent],
+				override->newMatrix,
+				&overridden );
+		}
+		else if ( angleFlags == BONE_ANGLES_POSTMULT )
+		{
+			VK_MultiplyBoneMatrices( animated, override->newMatrix, &overridden );
+		}
+		else if ( angleFlags == BONE_ANGLES_REPLACE )
+		{
+			mdxaBone_t posed = {};
+			VK_MultiplyBoneMatrices( animated, bone.basePose, &posed );
+			const float matrixScale = std::sqrt(
+				posed.matrix[0][0] * posed.matrix[0][0] +
+				posed.matrix[0][1] * posed.matrix[0][1] +
+				posed.matrix[0][2] * posed.matrix[0][2] );
+			mdxaBone_t replacement = override->newMatrix;
+			for ( int row = 0; row < 3; ++row )
+			{
+				for ( int column = 0; column < 3; ++column )
+				{
+					replacement.matrix[row][column] *= matrixScale;
+				}
+				replacement.matrix[row][3] = posed.matrix[row][3];
+			}
+			VK_MultiplyBoneMatrices( replacement, bone.basePoseInverse, &overridden );
+		}
+
+		if ( override != nullptr && angleFlags != 0 && override->boneBlendTime > 0 )
+		{
+			const float blend = VK_ClampValue(
+				static_cast<float>( time - override->boneBlendStart ) /
+					static_cast<float>( override->boneBlendTime ),
+				0.0f,
+				1.0f );
+			for ( int element = 0; element < 12; ++element )
+			{
+				reinterpret_cast<float *>( &overridden )[element] =
+					reinterpret_cast<const float *>( &animated )[element] * ( 1.0f - blend ) +
+					reinterpret_cast<const float *>( &overridden )[element] * blend;
+			}
+		}
+		( *finalBones )[boneIndex] = overridden;
 		evaluationState[boneIndex] = 2;
 		return true;
 	};
@@ -4561,18 +5095,101 @@ static void VK_LogGhoul2SkinnedAudit(
 	}
 }
 
+static int VK_DisintegrationMode( const refEntity_t *entity )
+{
+	if ( entity == nullptr )
+	{
+		return 0;
+	}
+	if ( ( entity->renderfx & RF_DISINTEGRATE2 ) != 0 )
+	{
+		return 2;
+	}
+	return ( entity->renderfx & RF_DISINTEGRATE1 ) != 0 ? 1 : 0;
+}
+
+static void VK_ApplyDisintegration(
+	vk_world_vertex_t *vertex,
+	const refEntity_t &entity,
+	int sceneTime )
+{
+	const int mode = VK_DisintegrationMode( &entity );
+	if ( mode == 0 )
+	{
+		return;
+	}
+
+	const float threshold = std::max( 0.0f,
+		static_cast<float>( sceneTime - entity.endTime ) * 0.045f );
+	const float thresholdSquared = threshold * threshold;
+	const float dx = entity.oldorigin[0] - vertex->position[0];
+	const float dy = entity.oldorigin[1] - vertex->position[1];
+	const float dz = entity.oldorigin[2] - vertex->position[2];
+	const float distanceSquared = dx * dx + dy * dy + dz * dz;
+
+	if ( distanceSquared < thresholdSquared )
+	{
+		vertex->color[0] = 0.0f;
+		vertex->color[1] = 0.0f;
+		vertex->color[2] = 0.0f;
+		vertex->color[3] = 0.0f;
+		if ( mode == 2 )
+		{
+			vertex->position[0] += vertex->normal[0] * 2.0f;
+			vertex->position[1] += vertex->normal[1] * 2.0f;
+			vertex->position[2] += vertex->normal[2] * 0.5f;
+		}
+		return;
+	}
+
+	vertex->color[3] = 1.0f;
+	if ( mode == 2 )
+	{
+		vertex->color[0] = 1.0f;
+		vertex->color[1] = 1.0f;
+		vertex->color[2] = 1.0f;
+		if ( distanceSquared < thresholdSquared + 50.0f )
+		{
+			vertex->position[0] += vertex->normal[0];
+			vertex->position[1] += vertex->normal[1];
+		}
+		return;
+	}
+
+	float colorScale = 1.0f;
+	if ( distanceSquared < thresholdSquared + 60.0f )
+	{
+		colorScale = 0.0f;
+	}
+	else if ( distanceSquared < thresholdSquared + 150.0f )
+	{
+		colorScale = 0x6f / 255.0f;
+	}
+	else if ( distanceSquared < thresholdSquared + 180.0f )
+	{
+		colorScale = 0xaf / 255.0f;
+	}
+	for ( int component = 0; component < 3; ++component )
+	{
+		vertex->color[component] *= colorScale;
+	}
+}
+
 static bool VK_StreamSkinnedGLMSurface(
 	const vk_model_t &model,
 	const vk_model_surface_t &surface,
 	const CGhoul2Info &ghoul,
 	int time,
 	const std::vector<mdxaBone_t> &bones,
+	const refEntity_t *entity,
 	VkDeviceSize *vertexOffset )
 {
 	time = VK_G2API_GetTime( time );
+	const int disintegrationMode = VK_DisintegrationMode( entity );
 	for ( const vk_ghoul2_surface_cache_t &entry : vk.ghoul2SurfaceCache )
 	{
-		if ( entry.ghoul == &ghoul && entry.surface == &surface && entry.time == time )
+		if ( entry.ghoul == &ghoul && entry.surface == &surface && entry.time == time &&
+			 entry.disintegrationMode == disintegrationMode )
 		{
 			*vertexOffset = entry.vertexOffset;
 			return true;
@@ -4675,6 +5292,10 @@ static bool VK_StreamSkinnedGLMSurface(
 					bone.matrix[component][3] );
 			}
 		}
+		if ( entity != nullptr )
+		{
+			VK_ApplyDisintegration( &destination[vertexIndex], *entity, time );
+		}
 	}
 	VK_AuditSkinnedGLMSurface( model, surface, ghoul, destination );
 
@@ -4684,6 +5305,7 @@ static bool VK_StreamSkinnedGLMSurface(
 	cacheEntry.ghoul = &ghoul;
 	cacheEntry.surface = &surface;
 	cacheEntry.time = time;
+	cacheEntry.disintegrationMode = disintegrationMode;
 	cacheEntry.vertexOffset = offset;
 	vk.ghoul2SurfaceCache.push_back( cacheEntry );
 	if ( !vk.loggedGhoul2Skinning )
@@ -4839,6 +5461,13 @@ static void VK_CreateBoneMatrix(
 	}
 }
 
+static const std::vector<mdxaBone_t> *VK_ResolveGhoul2HierarchyBones(
+	const CGhoul2Info_v &ghoul2,
+	int modelIndex,
+	int sceneTime,
+	std::vector<byte> *states,
+	std::vector<const std::vector<mdxaBone_t> *> *resolvedBones );
+
 qboolean VK_Backend_GetBoltMatrix(
 	CGhoul2Info_v &ghoul2,
 	int modelIndex,
@@ -4865,16 +5494,24 @@ qboolean VK_Backend_GetBoltMatrix(
 		return qfalse;
 	}
 
-	std::vector<mdxaBone_t> bones;
 	frameNumber = VK_G2API_GetTime( frameNumber );
-	if ( !VK_EvaluateGhoul2Bones(
-			*model, ghoul, frameNumber, vkGhoul2DefaultRootMatrix, &bones ) )
+	std::vector<byte> hierarchyStates( static_cast<size_t>( ghoul2.size() ), 0 );
+	std::vector<const std::vector<mdxaBone_t> *> hierarchyBones(
+		static_cast<size_t>( ghoul2.size() ), nullptr );
+	const std::vector<mdxaBone_t> *bones =
+		VK_ResolveGhoul2HierarchyBones(
+			ghoul2,
+			modelIndex,
+			frameNumber,
+			&hierarchyStates,
+			&hierarchyBones );
+	if ( bones == nullptr )
 	{
 		return qfalse;
 	}
 
 	mdxaBone_t bolt = {};
-	if ( !VK_GetGhoul2BoltMatrix( *model, ghoul, bones, boltIndex, scale, &bolt ) )
+	if ( !VK_GetGhoul2BoltMatrix( *model, ghoul, *bones, boltIndex, scale, &bolt ) )
 	{
 		return qfalse;
 	}
@@ -4895,8 +5532,10 @@ static uint32_t VK_RecordMD3ModelSurfaces(
 	qhandle_t skinHandle,
 	int sceneTime,
 	const std::vector<mdxaBone_t> *bones,
-	const byte *entityColor )
+	const byte *entityColor,
+	const refEntity_t *entity = nullptr )
 {
+	const bool disintegrating = VK_DisintegrationMode( entity ) != 0;
 	uint32_t drawCount = 0;
 	for ( const vk_model_surface_t &surface : model.surfaces )
 	{
@@ -4930,7 +5569,7 @@ static uint32_t VK_RecordMD3ModelSurfaces(
 		VkDeviceSize vertexOffset = 0;
 		if ( ghoul != nullptr && bones != nullptr &&
 			 VK_StreamSkinnedGLMSurface(
-				model, surface, *ghoul, sceneTime, *bones, &vertexOffset ) )
+				model, surface, *ghoul, sceneTime, *bones, entity, &vertexOffset ) )
 		{
 			vertexBuffer = vk.skinnedVertexBuffer;
 		}
@@ -4945,7 +5584,7 @@ static uint32_t VK_RecordMD3ModelSurfaces(
 		{
 			drawCount += VK_RecordBoundIndexedShader(
 				shader, 2, true, surface.indexCount, 0, pass, boundPipeline, boundTexture,
-				entityColor );
+				entityColor, disintegrating );
 		}
 	}
 	if ( pass == VK_WORLD_PASS_TRANSLUCENT && ghoul != nullptr )
@@ -5093,6 +5732,316 @@ static const std::vector<mdxaBone_t> *VK_ResolveGhoul2HierarchyBones(
 	return bones;
 }
 
+static bool VK_Ghoul2SegmentTriangle(
+	const vec3_t start,
+	const vec3_t end,
+	const vec3_t a,
+	const vec3_t b,
+	const vec3_t c,
+	vec3_t hitPoint,
+	vec3_t hitNormal,
+	float *face,
+	float *barycentricI,
+	float *barycentricJ )
+{
+	constexpr float parallelEpsilon = 1.0e-10f;
+	vec3_t edgeAB;
+	vec3_t edgeAC;
+	vec3_t ray;
+	VectorSubtract( b, a, edgeAB );
+	VectorSubtract( c, a, edgeAC );
+	CrossProduct( edgeAB, edgeAC, hitNormal );
+	VectorSubtract( end, start, ray );
+	*face = DotProduct( ray, hitNormal );
+	if ( std::fabs( *face ) < parallelEpsilon )
+	{
+		return false;
+	}
+
+	vec3_t toPlane;
+	VectorSubtract( a, start, toPlane );
+	const float distance = DotProduct( toPlane, hitNormal ) / *face;
+	if ( distance < 0.0f || distance > 1.0f )
+	{
+		return false;
+	}
+	VectorMA( start, distance, ray, hitPoint );
+
+	vec3_t v0;
+	vec3_t v1;
+	vec3_t v2;
+	VectorSubtract( b, a, v0 );
+	VectorSubtract( c, a, v1 );
+	VectorSubtract( hitPoint, a, v2 );
+	const float d00 = DotProduct( v0, v0 );
+	const float d01 = DotProduct( v0, v1 );
+	const float d11 = DotProduct( v1, v1 );
+	const float d20 = DotProduct( v2, v0 );
+	const float d21 = DotProduct( v2, v1 );
+	const float denominator = d00 * d11 - d01 * d01;
+	if ( std::fabs( denominator ) < parallelEpsilon )
+	{
+		return false;
+	}
+	const float weightB = ( d11 * d20 - d01 * d21 ) / denominator;
+	const float weightC = ( d00 * d21 - d01 * d20 ) / denominator;
+	const float weightA = 1.0f - weightB - weightC;
+	constexpr float edgeEpsilon = -1.0e-5f;
+	if ( weightA < edgeEpsilon || weightB < edgeEpsilon || weightC < edgeEpsilon )
+	{
+		return false;
+	}
+
+	*barycentricI = weightA;
+	*barycentricJ = weightB;
+	VectorNormalize( hitNormal );
+	return true;
+}
+
+static void VK_Ghoul2WorldPoint(
+	const vec3_t local,
+	const vec3_t axis[3],
+	const vec3_t position,
+	const vec3_t scale,
+	vec3_t world )
+{
+	const float scaleX = scale[0] != 0.0f ? scale[0] : 1.0f;
+	const float scaleY = scale[1] != 0.0f ? scale[1] : 1.0f;
+	const float scaleZ = scale[2] != 0.0f ? scale[2] : 1.0f;
+	for ( int component = 0; component < 3; ++component )
+	{
+		world[component] = position[component] +
+			axis[0][component] * local[0] * scaleX +
+			axis[1][component] * local[1] * scaleY +
+			axis[2][component] * local[2] * scaleZ;
+	}
+}
+
+void VK_Backend_Ghoul2CollisionDetect(
+	CCollisionRecord *collisionRecords,
+	CGhoul2Info_v &ghoul2,
+	const vec3_t angles,
+	const vec3_t position,
+	int frameNumber,
+	int entityNumber,
+	const vec3_t rayStart,
+	const vec3_t rayEnd,
+	const vec3_t scale,
+	EG2_Collision collisionType,
+	float radius )
+{
+	if ( collisionRecords == nullptr || !ghoul2.IsValid() || collisionType == G2_NOCOLLIDE )
+	{
+		return;
+	}
+
+	vec3_t axis[3];
+	AnglesToAxis( angles, axis );
+	std::array<std::array<float, 2>, 9> traceOffsets = {};
+	int traceOffsetCount = 1;
+	vec3_t traceBasis[2] = {};
+	if ( radius > 0.1f )
+	{
+		vec3_t rayDirection;
+		vec3_t helper = { 0.0f, 0.0f, 1.0f };
+		VectorSubtract( rayEnd, rayStart, rayDirection );
+		VectorNormalize( rayDirection );
+		if ( std::fabs( rayDirection[2] ) > 0.9f )
+		{
+			VectorSet( helper, 0.0f, 1.0f, 0.0f );
+		}
+		CrossProduct( rayDirection, helper, traceBasis[0] );
+		VectorNormalize( traceBasis[0] );
+		CrossProduct( rayDirection, traceBasis[0], traceBasis[1] );
+		VectorNormalize( traceBasis[1] );
+		constexpr float diagonal = 0.70710678f;
+		traceOffsets = { {
+			{ 0.0f, 0.0f }, { 1.0f, 0.0f }, { -1.0f, 0.0f },
+			{ 0.0f, 1.0f }, { 0.0f, -1.0f },
+			{ diagonal, diagonal }, { diagonal, -diagonal },
+			{ -diagonal, diagonal }, { -diagonal, -diagonal },
+		} };
+		traceOffsetCount = static_cast<int>( traceOffsets.size() );
+	}
+
+	std::vector<byte> hierarchyStates( static_cast<size_t>( ghoul2.size() ), 0 );
+	std::vector<const std::vector<mdxaBone_t> *> hierarchyBones(
+		static_cast<size_t>( ghoul2.size() ), nullptr );
+	bool stopAfterHit = false;
+	for ( int modelIndex = 0;
+		  modelIndex < ghoul2.size() && !stopAfterHit;
+		  ++modelIndex )
+	{
+		const CGhoul2Info &ghoul = ghoul2[modelIndex];
+		if ( ghoul.mModelindex < 0 || !ghoul.mValid ||
+			 ( ghoul.mFlags & GHOUL2_NOCOLLIDE ) != 0 )
+		{
+			continue;
+		}
+		const vk_model_t *model = VK_ModelForHandle( ghoul.mModel );
+		const std::vector<mdxaBone_t> *bones =
+			VK_ResolveGhoul2HierarchyBones(
+				ghoul2,
+				modelIndex,
+				frameNumber,
+				&hierarchyStates,
+				&hierarchyBones );
+		if ( model == nullptr || model->type != VK_MODEL_GLM || bones == nullptr )
+		{
+			continue;
+		}
+
+		for ( const vk_model_surface_t &surface : model->surfaces )
+		{
+			if ( !VK_GLMShouldDrawSurface( *model, surface, &ghoul ) ||
+				 surface.glmVertices.empty() || surface.glmIndices.size() < 3 )
+			{
+				continue;
+			}
+			std::vector<std::array<float, 3>> vertices( surface.glmVertices.size() );
+			bool validSurface = true;
+			for ( size_t vertexIndex = 0; vertexIndex < vertices.size(); ++vertexIndex )
+			{
+				vec3_t local;
+				if ( !VK_SkinGLMVertex(
+						surface, *bones, static_cast<uint32_t>( vertexIndex ), local ) )
+				{
+					validSurface = false;
+					break;
+				}
+				VK_Ghoul2WorldPoint(
+					local, axis, position, scale, vertices[vertexIndex].data() );
+			}
+			if ( !validSurface )
+			{
+				continue;
+			}
+
+			for ( size_t triangleIndex = 0;
+				  triangleIndex + 2 < surface.glmIndices.size();
+				  triangleIndex += 3 )
+			{
+				const uint32_t indices[3] = {
+					surface.glmIndices[triangleIndex],
+					surface.glmIndices[triangleIndex + 1],
+					surface.glmIndices[triangleIndex + 2],
+				};
+				if ( indices[0] >= vertices.size() ||
+					 indices[1] >= vertices.size() || indices[2] >= vertices.size() )
+				{
+					continue;
+				}
+
+				bool triangleHit = false;
+				vec3_t closestPoint = {};
+				vec3_t closestNormal = {};
+				float closestDistance = 100000.0f;
+				float closestFace = 0.0f;
+				float closestBarycentricI = 0.0f;
+				float closestBarycentricJ = 0.0f;
+				for ( int offsetIndex = 0; offsetIndex < traceOffsetCount; ++offsetIndex )
+				{
+					vec3_t offset;
+					for ( int component = 0; component < 3; ++component )
+					{
+						offset[component] = radius * (
+							traceBasis[0][component] * traceOffsets[offsetIndex][0] +
+							traceBasis[1][component] * traceOffsets[offsetIndex][1] );
+					}
+					vec3_t offsetStart;
+					vec3_t offsetEnd;
+					VectorAdd( rayStart, offset, offsetStart );
+					VectorAdd( rayEnd, offset, offsetEnd );
+					vec3_t hitPoint;
+					vec3_t hitNormal;
+					float face = 0.0f;
+					float barycentricI = 0.0f;
+					float barycentricJ = 0.0f;
+					if ( !VK_Ghoul2SegmentTriangle(
+							offsetStart,
+							offsetEnd,
+							vertices[indices[0]].data(),
+							vertices[indices[1]].data(),
+							vertices[indices[2]].data(),
+							hitPoint,
+							hitNormal,
+							&face,
+							&barycentricI,
+							&barycentricJ ) )
+					{
+						continue;
+					}
+					vec3_t distanceVector;
+					VectorSubtract( hitPoint, rayStart, distanceVector );
+					const float distance = VectorLength( distanceVector );
+					if ( distance < closestDistance )
+					{
+						triangleHit = true;
+						closestDistance = distance;
+						closestFace = face;
+						closestBarycentricI = barycentricI;
+						closestBarycentricJ = barycentricJ;
+						VectorCopy( hitPoint, closestPoint );
+						VectorCopy( hitNormal, closestNormal );
+					}
+				}
+				if ( !triangleHit )
+				{
+					continue;
+				}
+
+				int recordIndex = 0;
+				while ( recordIndex < MAX_G2_COLLISIONS &&
+						collisionRecords[recordIndex].mEntityNum != -1 )
+				{
+					++recordIndex;
+				}
+				if ( recordIndex >= MAX_G2_COLLISIONS )
+				{
+					stopAfterHit = true;
+					break;
+				}
+				CCollisionRecord &record = collisionRecords[recordIndex];
+				record.mDistance = closestDistance;
+				record.mEntityNum = entityNumber;
+				record.mModelIndex = modelIndex;
+				record.mPolyIndex = static_cast<int>( triangleIndex / 3 );
+				record.mSurfaceIndex = surface.modelSurfaceIndex;
+				VectorCopy( closestPoint, record.mCollisionPosition );
+				VectorCopy( closestNormal, record.mCollisionNormal );
+				record.mFlags = closestFace > 0.0f ? G2_FRONTFACE : G2_BACKFACE;
+				record.mMaterial = 0;
+				record.mLocation = 0;
+				record.mBarycentricI = closestBarycentricI;
+				record.mBarycentricJ = closestBarycentricJ;
+				if ( collisionType == G2_RETURNONHIT )
+				{
+					stopAfterHit = true;
+					break;
+				}
+			}
+			if ( stopAfterHit )
+			{
+				break;
+			}
+		}
+	}
+
+	std::sort(
+		collisionRecords,
+		collisionRecords + MAX_G2_COLLISIONS,
+		[]( const CCollisionRecord &left, const CCollisionRecord &right ) {
+			return left.mDistance < right.mDistance;
+		} );
+	static bool loggedCollision = false;
+	if ( !loggedCollision )
+	{
+		ri.Printf( PRINT_ALL,
+			"rd-vulkan-ghoul2: animated triangle collision active\n" );
+		loggedCollision = true;
+	}
+}
+
 static void VK_RecordSceneModels(
 	const float view[16],
 	const float projection[16],
@@ -5183,7 +6132,8 @@ static void VK_RecordSceneModels(
 					skinHandle,
 					sceneTime,
 					bonePointer,
-					entity.shaderRGBA );
+					entity.shaderRGBA,
+					&entity );
 				if ( draws > 0 )
 				{
 					drewGhoul2 = true;
@@ -5417,6 +6367,18 @@ static bool VK_DynamicShaderUsesPass( qhandle_t shader, vk_world_pass_t pass )
 	return pass == VK_WORLD_PASS_TRANSLUCENT;
 }
 
+static bool VK_IsNamedTexture( qhandle_t handle, const char *name )
+{
+	for ( const vk_texture_name_t &registered : vk.textureNames )
+	{
+		if ( registered.handle == handle && Q_stricmp( registered.name.c_str(), name ) == 0 )
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 static void VK_BuildDynamicEffectBatches(
 	const refdef_t &refdef,
 	const std::vector<refEntity_t> &entities,
@@ -5443,6 +6405,20 @@ static void VK_BuildDynamicEffectBatches(
 		if ( !VK_DynamicShaderUsesPass( shader, pass ) )
 		{
 			continue;
+		}
+		if ( !vk.loggedForcePushEffect &&
+			 VK_IsNamedTexture( shader, "gfx/effects/forcePush" ) )
+		{
+			const size_t stageCount = static_cast<size_t>( shader ) < vk.materials.size()
+				? vk.materials[shader].stages.size() : 0;
+			ri.Printf( PRINT_ALL,
+				"rd-vulkan-fx: force push sprite submitted pass=%d radius=%.2f "
+				"rgba=(%u %u %u %u) origin=(%.1f %.1f %.1f) stages=%zu\n",
+				static_cast<int>( pass ), entity.radius,
+				entity.shaderRGBA[0], entity.shaderRGBA[1],
+				entity.shaderRGBA[2], entity.shaderRGBA[3],
+				entity.origin[0], entity.origin[1], entity.origin[2], stageCount );
+			vk.loggedForcePushEffect = true;
 		}
 		vk_dynamic_effect_batch_t *batch = VK_DynamicEffectBatchForShader( batches, shader );
 		++typeCounts[entity.reType];
@@ -6289,6 +7265,72 @@ static const char *VK_TextureNameForHandle( qhandle_t handle )
 	return "<unnamed>";
 }
 
+static bool VK_IsDisruptorScopeShader( qhandle_t handle )
+{
+	for ( const vk_texture_name_t &registered : vk.textureNames )
+	{
+		if ( registered.handle != handle )
+		{
+			continue;
+		}
+		const char *name = registered.name.c_str();
+		if ( Q_stricmp( name, "gfx/2d/cropCircle2" ) == 0 ||
+			 Q_stricmp( name, "gfx/2d/cropCircle" ) == 0 ||
+			 Q_stricmp( name, "gfx/2d/cropCircleGlow" ) == 0 ||
+			 Q_stricmp( name, "gfx/2d/insertTick" ) == 0 ||
+			 Q_stricmp( name, "gfx/2d/crop_charge" ) == 0 )
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+static bool VK_DisruptorScopeActive()
+{
+	return std::any_of(
+		vk.rects.begin(), vk.rects.end(),
+		[]( const vk_rect_t &rect ) { return rect.forceHudStereo; } );
+}
+
+static float VK_DisruptorZoomTangentScale()
+{
+	if ( !VK_DisruptorScopeActive() || vk.worldRefdef.fov_x <= 0.0f )
+	{
+		return 1.0f;
+	}
+	const float headsetFov =
+		( std::fabs( vk.views[0].fov.angleLeft ) +
+		  std::fabs( vk.views[1].fov.angleRight ) ) * 180.0f / M_PI;
+	if ( headsetFov <= 0.0f || vk.worldRefdef.fov_x >= headsetFov )
+	{
+		return 1.0f;
+	}
+	const float headsetTangent = std::tan( DEG2RAD( headsetFov * 0.5f ) );
+	const float zoomTangent = std::tan( DEG2RAD( vk.worldRefdef.fov_x * 0.5f ) );
+	return headsetTangent > 0.0f
+		? VK_ClampValue( zoomTangent / headsetTangent, 0.01f, 1.0f )
+		: 1.0f;
+}
+
+static float VK_DisruptorScopeAspectScale()
+{
+	float tanWidth = 0.0f;
+	float tanHeight = 0.0f;
+	for ( int eye = 0; eye < VK_BACKEND_EYE_COUNT; ++eye )
+	{
+		tanWidth += std::tan( vk.views[eye].fov.angleRight ) -
+			std::tan( vk.views[eye].fov.angleLeft );
+		tanHeight += std::tan( vk.views[eye].fov.angleUp ) -
+			std::tan( vk.views[eye].fov.angleDown );
+	}
+	if ( tanWidth <= 0.0f || tanHeight <= 0.0f )
+	{
+		return 1.0f;
+	}
+	return ( 4.0f / 3.0f ) / ( tanWidth / tanHeight );
+}
+
 static void VK_LogVisibleWorldMaterials(
 	const std::vector<byte> *visibleSurfaces,
 	const char *context,
@@ -6503,7 +7545,9 @@ static void VK_RecordWorld( int eye )
 	float projection[16] = {};
 	float mvp[16] = {};
 	VK_BuildViewMatrix( vk.worldRefdef, eye, view );
-	VK_BuildProjectionMatrix( vk.views[eye].fov, 1.0f, 65536.0f, projection );
+	VK_BuildProjectionMatrix(
+		vk.views[eye].fov, 1.0f, 65536.0f, projection,
+		VK_DisruptorZoomTangentScale() );
 	VK_MatrixMultiply( projection, view, mvp );
 	VK_RecordSky( view, projection );
 
@@ -6568,15 +7612,17 @@ static void VK_RecordWorld( int eye )
 	recordWorldPass( VK_WORLD_PASS_TRANSLUCENT );
 	VK_RecordSceneModels(
 		view, projection, VK_WORLD_PASS_TRANSLUCENT, vk.worldEntities, true, vk.worldRefdef.time );
-	VK_RecordDynamicEffects(
-		mvp, vk.worldRefdef, vk.worldEntities, vk.worldPolys,
-		VK_WORLD_PASS_TRANSLUCENT, true );
 	if ( vk.world.hasGlobalFog )
 	{
 		recordWorldPass( VK_WORLD_PASS_FOG );
 		VK_RecordSceneModels(
 			view, projection, VK_WORLD_PASS_FOG, vk.worldEntities, true, vk.worldRefdef.time );
 	}
+	// Global fog is a geometry pass. Draw non-depth-writing effects after it so
+	// distant fogged surfaces cannot composite over nearby saber glow and beams.
+	VK_RecordDynamicEffects(
+		mvp, vk.worldRefdef, vk.worldEntities, vk.worldPolys,
+		VK_WORLD_PASS_TRANSLUCENT, true );
 	VK_RecordWeather( mvp );
 
 	if ( !vk.loggedWorldDraw )
@@ -6678,7 +7724,7 @@ static void VK_RecordScreenScenes( int eye, size_t firstScene, size_t endScene )
 					vk.screenSceneClips.push_back( {
 						previewGhoul2,
 						static_cast<float>( scene.refdef.x ),
-						targetHeight - static_cast<float>( scene.refdef.y + scene.refdef.height ),
+						static_cast<float>( scene.refdef.y ),
 						static_cast<float>( scene.refdef.width ),
 						static_cast<float>( scene.refdef.height ),
 					} );
@@ -6687,8 +7733,7 @@ static void VK_RecordScreenScenes( int eye, size_t firstScene, size_t endScene )
 				else if ( area < savedArea )
 				{
 					savedClip->x = static_cast<float>( scene.refdef.x );
-					savedClip->y =
-						targetHeight - static_cast<float>( scene.refdef.y + scene.refdef.height );
+					savedClip->y = static_cast<float>( scene.refdef.y );
 					savedClip->width = static_cast<float>( scene.refdef.width );
 					savedClip->height = static_cast<float>( scene.refdef.height );
 				}
@@ -6708,8 +7753,7 @@ static void VK_RecordScreenScenes( int eye, size_t firstScene, size_t endScene )
 		}
 		else
 		{
-			viewport.y =
-				targetHeight - static_cast<float>( scene.refdef.y + scene.refdef.height );
+			viewport.y = static_cast<float>( scene.refdef.y );
 		}
 		viewport.width = static_cast<float>( scene.refdef.width );
 		viewport.height = static_cast<float>( scene.refdef.height );
@@ -6828,6 +7872,291 @@ static void VK_UpdateJkxrHmdPose( XrTime displayTime )
 	}
 }
 
+static bool VK_GetControllerBoolean( XrAction action, int hand )
+{
+	XrActionStateGetInfo getInfo = {};
+	getInfo.type = XR_TYPE_ACTION_STATE_GET_INFO;
+	getInfo.action = action;
+	getInfo.subactionPath = vk.handPaths[hand];
+	XrActionStateBoolean state = {};
+	state.type = XR_TYPE_ACTION_STATE_BOOLEAN;
+	return VK_CheckXr(
+		xrGetActionStateBoolean( vk.xrSession, &getInfo, &state ),
+		"xrGetActionStateBoolean" ) && state.isActive && state.currentState;
+}
+
+static float VK_GetControllerFloat( XrAction action, int hand )
+{
+	XrActionStateGetInfo getInfo = {};
+	getInfo.type = XR_TYPE_ACTION_STATE_GET_INFO;
+	getInfo.action = action;
+	getInfo.subactionPath = vk.handPaths[hand];
+	XrActionStateFloat state = {};
+	state.type = XR_TYPE_ACTION_STATE_FLOAT;
+	if ( !VK_CheckXr(
+			xrGetActionStateFloat( vk.xrSession, &getInfo, &state ),
+			"xrGetActionStateFloat" ) || !state.isActive )
+	{
+		return 0.0f;
+	}
+	return state.currentState;
+}
+
+static XrVector2f VK_GetControllerVector2(
+	XrAction action, int hand, qboolean *active,
+	XrBool32 *changed, XrTime *lastChangeTime )
+{
+	XrActionStateGetInfo getInfo = {};
+	getInfo.type = XR_TYPE_ACTION_STATE_GET_INFO;
+	getInfo.action = action;
+	getInfo.subactionPath = vk.handPaths[hand];
+	XrActionStateVector2f state = {};
+	state.type = XR_TYPE_ACTION_STATE_VECTOR2F;
+	if ( !VK_CheckXr(
+			xrGetActionStateVector2f( vk.xrSession, &getInfo, &state ),
+			"xrGetActionStateVector2f" ) || !state.isActive )
+	{
+		if ( active != nullptr )
+		{
+			*active = qfalse;
+		}
+		if ( changed != nullptr )
+		{
+			*changed = XR_FALSE;
+		}
+		if ( lastChangeTime != nullptr )
+		{
+			*lastChangeTime = 0;
+		}
+		return {};
+	}
+	if ( active != nullptr )
+	{
+		*active = qtrue;
+	}
+	if ( changed != nullptr )
+	{
+		*changed = state.changedSinceLastSync;
+	}
+	if ( lastChangeTime != nullptr )
+	{
+		*lastChangeTime = state.lastChangeTime;
+	}
+	return state.currentState;
+}
+
+static void VK_CopyControllerPose(
+	const XrPosef &pose, float position[3], float orientation[4] )
+{
+	position[0] = pose.position.x;
+	position[1] = pose.position.y;
+	position[2] = pose.position.z;
+	orientation[0] = pose.orientation.x;
+	orientation[1] = pose.orientation.y;
+	orientation[2] = pose.orientation.z;
+	orientation[3] = pose.orientation.w;
+}
+
+static void VK_UpdateControllerType()
+{
+	XrInteractionProfileState profileState = {};
+	profileState.type = XR_TYPE_INTERACTION_PROFILE_STATE;
+	if ( !VK_CheckXr(
+			xrGetCurrentInteractionProfile( vk.xrSession, vk.handPaths[1], &profileState ),
+			"xrGetCurrentInteractionProfile" ) ||
+		 profileState.interactionProfile == XR_NULL_PATH )
+	{
+		return;
+	}
+
+	char profileName[XR_MAX_PATH_LENGTH] = {};
+	uint32_t profileLength = 0;
+	if ( !VK_CheckXr(
+			xrPathToString(
+				vk.xrInstance, profileState.interactionProfile,
+				sizeof( profileName ), &profileLength, profileName ),
+			"xrPathToString(controller profile)" ) )
+	{
+		return;
+	}
+
+	vrControllerType_t type = VR_CONTROLLER_TYPE_UNKNOWN;
+	if ( std::strstr( profileName, "oculus/touch_controller" ) != nullptr ||
+		 std::strstr( profileName, "meta/touch_controller" ) != nullptr )
+	{
+		type = VR_CONTROLLER_TYPE_TOUCH;
+	}
+	else if ( std::strstr( profileName, "valve/index_controller" ) != nullptr )
+	{
+		type = VR_CONTROLLER_TYPE_INDEX;
+	}
+	else if ( std::strstr( profileName, "htc/vive_controller" ) != nullptr )
+	{
+		type = VR_CONTROLLER_TYPE_VIVE;
+	}
+	else if ( std::strstr( profileName, "pico" ) != nullptr )
+	{
+		type = VR_CONTROLLER_TYPE_PICO;
+	}
+
+	if ( type != vk.controllerType )
+	{
+		vk.controllerType = type;
+		ri.Printf( PRINT_ALL, "rd-vulkan: OpenXR controller profile %s\n", profileName );
+	}
+}
+
+static void VK_LocateController(
+	int hand, XrTime displayTime, vrControllerState_t *state )
+{
+	state->aimOrientation[3] = 1.0f;
+	state->gripOrientation[3] = 1.0f;
+	const XrSpace baseSpace =
+		vk.stageSpace != XR_NULL_HANDLE ? vk.stageSpace : vk.localSpace;
+
+	XrSpaceVelocity velocity = {};
+	velocity.type = XR_TYPE_SPACE_VELOCITY;
+	XrSpaceLocation aim = {};
+	aim.type = XR_TYPE_SPACE_LOCATION;
+	aim.next = &velocity;
+	if ( !VK_CheckXr(
+			xrLocateSpace( vk.aimSpaces[hand], baseSpace, displayTime, &aim ),
+			"xrLocateSpace(controller aim)" ) )
+	{
+		return;
+	}
+
+	const XrSpaceLocationFlags required =
+		XR_SPACE_LOCATION_POSITION_VALID_BIT |
+		XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
+	if ( ( aim.locationFlags & required ) != required )
+	{
+		return;
+	}
+	state->active = qtrue;
+	VK_CopyControllerPose( aim.pose, state->aimPosition, state->aimOrientation );
+	state->velocityFlags = velocity.velocityFlags;
+	state->linearVelocity[0] = velocity.linearVelocity.x;
+	state->linearVelocity[1] = velocity.linearVelocity.y;
+	state->linearVelocity[2] = velocity.linearVelocity.z;
+	state->angularVelocity[0] = velocity.angularVelocity.x;
+	state->angularVelocity[1] = velocity.angularVelocity.y;
+	state->angularVelocity[2] = velocity.angularVelocity.z;
+
+	XrSpaceLocation grip = {};
+	grip.type = XR_TYPE_SPACE_LOCATION;
+	if ( VK_CheckXr(
+			xrLocateSpace( vk.gripSpaces[hand], baseSpace, displayTime, &grip ),
+			"xrLocateSpace(controller grip)" ) &&
+		 ( grip.locationFlags & required ) == required )
+	{
+		VK_CopyControllerPose( grip.pose, state->gripPosition, state->gripOrientation );
+	}
+	else
+	{
+		std::memcpy( state->gripPosition, state->aimPosition, sizeof( state->gripPosition ) );
+		std::memcpy( state->gripOrientation, state->aimOrientation, sizeof( state->gripOrientation ) );
+	}
+}
+
+static void VK_UpdateJkxrControllers( XrTime displayTime )
+{
+	if ( ri.TBXR_UpdateControllers == nullptr || vk.controllerActionSet == XR_NULL_HANDLE )
+	{
+		return;
+	}
+
+	XrActiveActionSet activeSet = {};
+	activeSet.actionSet = vk.controllerActionSet;
+	XrActionsSyncInfo syncInfo = {};
+	syncInfo.type = XR_TYPE_ACTIONS_SYNC_INFO;
+	syncInfo.countActiveActionSets = 1;
+	syncInfo.activeActionSets = &activeSet;
+	if ( !VK_CheckXr( xrSyncActions( vk.xrSession, &syncInfo ), "xrSyncActions" ) )
+	{
+		return;
+	}
+
+	VK_UpdateControllerType();
+	vrControllerState_t controllers[VK_BACKEND_EYE_COUNT] = {};
+	XrBool32 joystickChanged[VK_BACKEND_EYE_COUNT] = {};
+	XrTime joystickLastChangeTime[VK_BACKEND_EYE_COUNT] = {};
+	for ( int hand = 0; hand < VK_BACKEND_EYE_COUNT; ++hand )
+	{
+		vrControllerState_t &state = controllers[hand];
+		VK_LocateController( hand, displayTime, &state );
+		state.indexTrigger = VK_GetControllerFloat( vk.triggerAction, hand );
+		state.gripTrigger = VK_GetControllerFloat( vk.squeezeAction, hand );
+		const XrVector2f joystick = VK_GetControllerVector2(
+			vk.thumbstickAction, hand, &state.joystickActive,
+			&joystickChanged[hand], &joystickLastChangeTime[hand] );
+		state.joystick[0] = joystick.x;
+		state.joystick[1] = joystick.y;
+
+		const uint32_t primary = hand == 0
+			? VR_CONTROLLER_BUTTON_X : VR_CONTROLLER_BUTTON_A;
+		const uint32_t secondary = hand == 0
+			? VR_CONTROLLER_BUTTON_Y : VR_CONTROLLER_BUTTON_B;
+		const uint32_t thumb = hand == 0
+			? VR_CONTROLLER_BUTTON_LEFT_THUMB : VR_CONTROLLER_BUTTON_RIGHT_THUMB;
+		if ( VK_GetControllerBoolean( vk.primaryButtonAction, hand ) ) state.buttons |= primary;
+		if ( VK_GetControllerBoolean( vk.secondaryButtonAction, hand ) ) state.buttons |= secondary;
+		if ( VK_GetControllerBoolean( vk.primaryTouchAction, hand ) ) state.touches |= primary;
+		if ( VK_GetControllerBoolean( vk.secondaryTouchAction, hand ) ) state.touches |= secondary;
+		if ( VK_GetControllerBoolean( vk.thumbstickClickAction, hand ) )
+		{
+			state.buttons |= thumb | VR_CONTROLLER_BUTTON_JOYSTICK;
+		}
+		if ( VK_GetControllerBoolean( vk.thumbstickTouchAction, hand ) )
+		{
+			state.touches |= thumb | VR_CONTROLLER_BUTTON_JOYSTICK;
+		}
+		if ( VK_GetControllerBoolean( vk.menuAction, hand ) )
+		{
+			state.buttons |= VR_CONTROLLER_BUTTON_MENU;
+		}
+		if ( state.indexTrigger > 0.5f ||
+			 VK_GetControllerBoolean( vk.triggerClickAction, hand ) )
+		{
+			state.buttons |= VR_CONTROLLER_BUTTON_TRIGGER;
+		}
+		if ( VK_GetControllerBoolean( vk.triggerTouchAction, hand ) )
+		{
+			state.touches |= VR_CONTROLLER_BUTTON_TRIGGER;
+		}
+		if ( VK_GetControllerBoolean( vk.thumbrestTouchAction, hand ) )
+		{
+			state.touches |= VR_CONTROLLER_TOUCH_THUMBREST;
+		}
+	}
+
+	static uint32_t controllerDebugFrame = 0;
+	if ( ri.Cvar_VariableIntegerValue( "vr_controller_debug" ) &&
+		 ++controllerDebugFrame % 22 == 0 )
+	{
+		ri.Printf(
+			PRINT_ALL,
+			"rd-vulkan-controller-debug: sticks=L%d(%.3f %.3f chg=%d t=%lld) "
+			"R%d(%.3f %.3f chg=%d t=%lld)\n",
+			controllers[0].joystickActive,
+			controllers[0].joystick[0], controllers[0].joystick[1],
+			joystickChanged[0], static_cast<long long>( joystickLastChangeTime[0] ),
+			controllers[1].joystickActive,
+			controllers[1].joystick[0], controllers[1].joystick[1],
+			joystickChanged[1], static_cast<long long>( joystickLastChangeTime[1] ) );
+	}
+
+	ri.TBXR_UpdateControllers( &controllers[0], &controllers[1], vk.controllerType );
+	if ( !vk.loggedControllerInput && ( controllers[0].active || controllers[1].active ) )
+	{
+		ri.Printf(
+			PRINT_ALL,
+			"rd-vulkan: forwarding tracked controllers (left=%d right=%d)\n",
+			controllers[0].active, controllers[1].active );
+		vk.loggedControllerInput = true;
+	}
+}
+
 static bool VK_LocateXrViews( XrTime displayTime )
 {
 	XrViewState viewState = {};
@@ -6925,6 +8254,7 @@ static bool VK_PrepareXrFrame()
 	vk.frameBegun = true;
 
 	VK_UpdateJkxrHmdPose( vk.frameState.predictedDisplayTime );
+	VK_UpdateJkxrControllers( vk.frameState.predictedDisplayTime );
 	if ( vk.frameState.shouldRender )
 	{
 		vk.viewsValid = VK_LocateXrViews( vk.frameState.predictedDisplayTime );
@@ -7008,6 +8338,9 @@ static void VK_RecordScreenRects( int eye, size_t firstRect, size_t endRect )
 			case VK_BLEND_ADDITIVE:
 				desiredPipeline = vk.texturedRectAdditivePipeline;
 				break;
+			case VK_BLEND_SOURCE_ALPHA_ADDITIVE:
+				desiredPipeline = vk.texturedRectSourceAlphaAdditivePipeline;
+				break;
 			case VK_BLEND_DESTINATION_COLOR_ADDITIVE:
 				desiredPipeline = vk.texturedRectDestinationColorAdditivePipeline;
 				break;
@@ -7016,6 +8349,9 @@ static void VK_RecordScreenRects( int eye, size_t firstRect, size_t endRect )
 				break;
 			case VK_BLEND_MODULATE:
 				desiredPipeline = vk.texturedRectModulatePipeline;
+				break;
+			case VK_BLEND_DOUBLE_MODULATE:
+				desiredPipeline = vk.texturedRectDoubleModulatePipeline;
 				break;
 			case VK_BLEND_ALPHA:
 			default:
@@ -7036,20 +8372,30 @@ static void VK_RecordScreenRects( int eye, size_t firstRect, size_t endRect )
 				vk.pipelineLayout,
 				0,
 				1,
-				&vk.textures[rect.texture].descriptorSet,
+				rect.repeatTexture
+					? &vk.textures[rect.texture].repeatDescriptorSet
+					: &vk.textures[rect.texture].descriptorSet,
 				0,
 				nullptr );
 		}
 
 		const bool fullScreen = rect.rect[0] <= -0.996f && rect.rect[1] <= -0.996f &&
 			rect.rect[2] >= 0.996f && rect.rect[3] >= 0.996f;
-		const float rectXOffset = fullScreen ? 0.0f : hudXOffset;
-		const float rectYOffset = fullScreen ? 0.0f : hudYOffset;
-		float pushConstants[12] = {
-			rect.rect[0] + rectXOffset, rect.rect[1] + rectYOffset,
-			rect.rect[2] + rectXOffset, rect.rect[3] + rectYOffset,
+		const bool stereoOffset = !fullScreen || rect.forceHudStereo;
+		const float rectXOffset = stereoOffset ? hudXOffset : 0.0f;
+		const float rectYOffset = stereoOffset ? hudYOffset : 0.0f;
+		float scopeAspectScale = 1.0f;
+		if ( rect.forceHudStereo )
+		{
+			scopeAspectScale = VK_DisruptorScopeAspectScale();
+		}
+		float pushConstants[20] = {
+			rect.rect[0], rect.rect[1], rect.rect[2], rect.rect[3],
 			rect.uv[0], rect.uv[1], rect.uv[2], rect.uv[3],
 			rect.color[0], rect.color[1], rect.color[2], rect.color[3],
+			rect.rotation[0], rect.rotation[1],
+			rect.rotation[2], rect.rotation[3],
+			scopeAspectScale, rectXOffset, rectYOffset, 0.0f,
 		};
 		vkCmdPushConstants(
 			vk.commandBuffer,
@@ -7253,13 +8599,17 @@ bool VK_Backend_Init()
 		VK_Backend_Shutdown();
 		return false;
 	}
+	VK_CreateReferenceSpace( XR_REFERENCE_SPACE_TYPE_STAGE, &vk.stageSpace, "xrCreateReferenceSpace(STAGE)" );
+	if ( !VK_CreateControllerActions() )
+	{
+		VK_Backend_Shutdown();
+		return false;
+	}
 	if ( !VK_CreateFallbackTexture() )
 	{
 		VK_Backend_Shutdown();
 		return false;
 	}
-
-	VK_CreateReferenceSpace( XR_REFERENCE_SPACE_TYPE_STAGE, &vk.stageSpace, "xrCreateReferenceSpace(STAGE)" );
 
 	vk.initialized = true;
 	VK_LoadPendingRegistrations();
@@ -7342,6 +8692,10 @@ void VK_Backend_Shutdown()
 	{
 		vkDestroyPipeline( vk.device, vk.texturedRectAdditivePipeline, nullptr );
 	}
+	if ( vk.texturedRectSourceAlphaAdditivePipeline != VK_NULL_HANDLE )
+	{
+		vkDestroyPipeline( vk.device, vk.texturedRectSourceAlphaAdditivePipeline, nullptr );
+	}
 	if ( vk.texturedRectDestinationColorAdditivePipeline != VK_NULL_HANDLE )
 	{
 		vkDestroyPipeline( vk.device, vk.texturedRectDestinationColorAdditivePipeline, nullptr );
@@ -7353,6 +8707,10 @@ void VK_Backend_Shutdown()
 	if ( vk.texturedRectModulatePipeline != VK_NULL_HANDLE )
 	{
 		vkDestroyPipeline( vk.device, vk.texturedRectModulatePipeline, nullptr );
+	}
+	if ( vk.texturedRectDoubleModulatePipeline != VK_NULL_HANDLE )
+	{
+		vkDestroyPipeline( vk.device, vk.texturedRectDoubleModulatePipeline, nullptr );
 	}
 	if ( vk.diagnostic3dPipeline != VK_NULL_HANDLE )
 	{
@@ -7421,6 +8779,21 @@ void VK_Backend_Shutdown()
 	if ( vk.textureSetLayout != VK_NULL_HANDLE )
 	{
 		vkDestroyDescriptorSetLayout( vk.device, vk.textureSetLayout, nullptr );
+	}
+	for ( int hand = 0; hand < VK_BACKEND_EYE_COUNT; ++hand )
+	{
+		if ( vk.aimSpaces[hand] != XR_NULL_HANDLE )
+		{
+			xrDestroySpace( vk.aimSpaces[hand] );
+		}
+		if ( vk.gripSpaces[hand] != XR_NULL_HANDLE )
+		{
+			xrDestroySpace( vk.gripSpaces[hand] );
+		}
+	}
+	if ( vk.controllerActionSet != XR_NULL_HANDLE )
+	{
+		xrDestroyActionSet( vk.controllerActionSet );
 	}
 	if ( vk.viewSpace != XR_NULL_HANDLE )
 	{
@@ -7764,13 +9137,24 @@ static bool VK_LoadMD3Model( const char *name, qhandle_t handle )
 	const md3Header_t *header = reinterpret_cast<const md3Header_t *>( fileBase );
 	const int ident = LittleLong( header->ident );
 	const int version = LittleLong( header->version );
+	const int numFrames = LittleLong( header->numFrames );
+	const int numTags = LittleLong( header->numTags );
 	const int numSurfaces = LittleLong( header->numSurfaces );
+	const int ofsTags = LittleLong( header->ofsTags );
 	const int ofsSurfaces = LittleLong( header->ofsSurfaces );
 	const int ofsEnd = LittleLong( header->ofsEnd );
+	const size_t tagBytes = numFrames > 0 && numTags > 0
+		? static_cast<size_t>( numFrames ) * static_cast<size_t>( numTags ) * sizeof( md3Tag_t )
+		: 0;
 	if ( ident != MD3_IDENT || version != MD3_VERSION ||
-		 numSurfaces <= 0 || numSurfaces > MD3_MAX_SURFACES ||
+		 numFrames <= 0 || numFrames > MD3_MAX_FRAMES ||
+		 numTags < 0 || numTags > MD3_MAX_TAGS ||
+		 numSurfaces < 0 || numSurfaces > MD3_MAX_SURFACES ||
 		 ofsEnd <= 0 || static_cast<size_t>( ofsEnd ) > fileSize ||
-		 !VK_ModelBufferRangeValid( static_cast<size_t>( ofsSurfaces ), sizeof( md3Surface_t ), static_cast<size_t>( ofsEnd ) ) )
+		 ( tagBytes > 0 && ( ofsTags < 0 || !VK_ModelBufferRangeValid(
+			 static_cast<size_t>( ofsTags ), tagBytes, static_cast<size_t>( ofsEnd ) ) ) ) ||
+		 ( numSurfaces > 0 && !VK_ModelBufferRangeValid(
+			 static_cast<size_t>( ofsSurfaces ), sizeof( md3Surface_t ), static_cast<size_t>( ofsEnd ) ) ) )
 	{
 		ri.FS_FreeFile( buffer );
 		return false;
@@ -7783,6 +9167,33 @@ static bool VK_LoadMD3Model( const char *name, qhandle_t handle )
 	model.inlineModelIndex = -1;
 	model.boneCount = 0;
 	model.animationHandle = 0;
+	model.frameCount = numFrames;
+	model.tagCount = numTags;
+	model.tags.reserve( static_cast<size_t>( numFrames ) * static_cast<size_t>( numTags ) );
+	if ( numTags > 0 )
+	{
+		const md3Tag_t *sourceTags =
+			reinterpret_cast<const md3Tag_t *>( fileBase + ofsTags );
+		for ( int tagIndex = 0; tagIndex < numFrames * numTags; ++tagIndex )
+		{
+			char tagName[MAX_QPATH];
+			std::memcpy( tagName, sourceTags[tagIndex].name, sizeof( tagName ) );
+			tagName[sizeof( tagName ) - 1] = '\0';
+			vk_model_tag_t loadedTag = {};
+			loadedTag.name = tagName;
+			for ( int component = 0; component < 3; ++component )
+			{
+				loadedTag.origin[component] =
+					LittleFloat( sourceTags[tagIndex].origin[component] );
+				for ( int axisIndex = 0; axisIndex < 3; ++axisIndex )
+				{
+					loadedTag.axis[axisIndex][component] =
+						LittleFloat( sourceTags[tagIndex].axis[axisIndex][component] );
+				}
+			}
+			model.tags.push_back( std::move( loadedTag ) );
+		}
+	}
 
 	size_t surfaceOffset = static_cast<size_t>( ofsSurfaces );
 	for ( int i = 0; i < numSurfaces; ++i )
@@ -7808,7 +9219,7 @@ static bool VK_LoadMD3Model( const char *name, qhandle_t handle )
 	}
 
 	ri.FS_FreeFile( buffer );
-	if ( model.surfaces.empty() )
+	if ( model.surfaces.empty() && model.tags.empty() )
 	{
 		return false;
 	}
@@ -8602,6 +10013,99 @@ int VK_Backend_FindModelBone( qhandle_t modelHandle, const char *boneName )
 		}
 	}
 	return -1;
+}
+
+qboolean VK_Backend_GenerateBoneOverrideMatrix(
+	qhandle_t modelHandle,
+	int boneNumber,
+	const vec3_t angles,
+	int flags,
+	Eorientations up,
+	Eorientations left,
+	Eorientations forward,
+	mdxaBone_t *matrix )
+{
+	const vk_model_t *model = VK_ModelForHandle( modelHandle );
+	if ( model == nullptr || model->animation == nullptr || matrix == nullptr ||
+		 angles == nullptr || boneNumber < 0 ||
+		 static_cast<size_t>( boneNumber ) >= model->animation->bones.size() )
+	{
+		return qfalse;
+	}
+
+	if ( ( flags & ( BONE_ANGLES_PREMULT | BONE_ANGLES_POSTMULT ) ) != 0 )
+	{
+		vec3_t remapped = {};
+		switch ( up )
+		{
+		case NEGATIVE_X: remapped[YAW] = angles[ROLL] + 180.0f; break;
+		case POSITIVE_X: remapped[YAW] = angles[ROLL]; break;
+		case NEGATIVE_Y:
+		case POSITIVE_Y: remapped[YAW] = angles[PITCH]; break;
+		case NEGATIVE_Z: remapped[YAW] = angles[YAW] + 180.0f; break;
+		case POSITIVE_Z: remapped[YAW] = angles[YAW]; break;
+		default: return qfalse;
+		}
+		switch ( left )
+		{
+		case NEGATIVE_X: remapped[PITCH] = angles[ROLL]; break;
+		case POSITIVE_X: remapped[PITCH] = angles[ROLL] + 180.0f; break;
+		case NEGATIVE_Y: remapped[PITCH] = angles[PITCH]; break;
+		case POSITIVE_Y: remapped[PITCH] = angles[PITCH] + 180.0f; break;
+		case NEGATIVE_Z:
+		case POSITIVE_Z: remapped[PITCH] = angles[YAW]; break;
+		default: return qfalse;
+		}
+		switch ( forward )
+		{
+		case NEGATIVE_X:
+		case POSITIVE_X: remapped[ROLL] = angles[ROLL]; break;
+		case NEGATIVE_Y: remapped[ROLL] = angles[PITCH]; break;
+		case POSITIVE_Y: remapped[ROLL] = angles[PITCH] + 180.0f; break;
+		case NEGATIVE_Z: remapped[ROLL] = angles[YAW]; break;
+		case POSITIVE_Z: remapped[ROLL] = angles[YAW] + 180.0f; break;
+		default: return qfalse;
+		}
+
+		mdxaBone_t rotation = {};
+		mdxaBone_t localRotation = {};
+		VK_CreateGhoul2AngleMatrix( remapped, &rotation );
+		const vk_gla_bone_t &bone = model->animation->bones[boneNumber];
+		VK_MultiplyBoneMatrices( rotation, bone.basePoseInverse, &localRotation );
+		VK_MultiplyBoneMatrices( bone.basePose, localRotation, matrix );
+		return qtrue;
+	}
+
+	vec3_t remapped;
+	VectorCopy( angles, remapped );
+	if ( left == POSITIVE_Y )
+	{
+		remapped[PITCH] += 180.0f;
+	}
+	mdxaBone_t rotation = {};
+	mdxaBone_t permutation = {};
+	VK_CreateGhoul2AngleMatrix( remapped, &rotation );
+	auto setPermutation = [&]( Eorientations orientation, int column ) -> bool
+	{
+		switch ( orientation )
+		{
+		case NEGATIVE_X: permutation.matrix[0][column] = -1.0f; return true;
+		case POSITIVE_X: permutation.matrix[0][column] = 1.0f; return true;
+		case NEGATIVE_Y: permutation.matrix[1][column] = -1.0f; return true;
+		case POSITIVE_Y: permutation.matrix[1][column] = 1.0f; return true;
+		case NEGATIVE_Z: permutation.matrix[2][column] = -1.0f; return true;
+		case POSITIVE_Z: permutation.matrix[2][column] = 1.0f; return true;
+		default: return false;
+		}
+	};
+	if ( !setPermutation( forward, 0 ) ||
+		 !setPermutation( left, 1 ) ||
+		 !setPermutation( up, 2 ) )
+	{
+		return qfalse;
+	}
+	VK_MultiplyBoneMatrices( rotation, permutation, matrix );
+	return qtrue;
 }
 
 int VK_Backend_GetModelAnimationFrameCount( qhandle_t modelHandle, int animationIndex )
@@ -10430,6 +11934,8 @@ qhandle_t VK_Backend_RegisterTexture( const char *name )
 			stage.alpha = stageDefinition.alpha;
 			stage.scroll[0] = stageDefinition.scroll[0];
 			stage.scroll[1] = stageDefinition.scroll[1];
+			stage.tcScale[0] = stageDefinition.tcScale[0];
+			stage.tcScale[1] = stageDefinition.tcScale[1];
 			stage.stretchType = stageDefinition.stretchType;
 			std::memcpy( stage.stretch, stageDefinition.stretch, sizeof( stage.stretch ) );
 			std::memcpy( stage.turbulence, stageDefinition.turbulence, sizeof( stage.turbulence ) );
@@ -10463,14 +11969,23 @@ qhandle_t VK_Backend_RegisterTexture( const char *name )
 	return handle;
 }
 
-void VK_Backend_DrawStretchPic(
+static void VK_Backend_DrawPic(
 	float x, float y, float w, float h,
 	float s1, float t1, float s2, float t2,
+	float angle, float pivotX, float pivotY,
 	qhandle_t shader )
 {
 	if ( shader <= 0 || static_cast<size_t>( shader ) >= vk.textures.size() )
 	{
 		shader = 2;
+	}
+
+	const bool disruptorScope = VK_IsDisruptorScopeShader( shader );
+	if ( disruptorScope && !vk.loggedDisruptorScope )
+	{
+		ri.Printf( PRINT_ALL,
+			"rd-vulkan-scope: enabling Tenloss stereo artwork and material blending\n" );
+		vk.loggedDisruptorScope = true;
 	}
 
 	if ( static_cast<size_t>( shader ) < vk.materials.size() && !vk.materials[shader].stages.empty() )
@@ -10496,13 +12011,45 @@ void VK_Backend_DrawStretchPic(
 			const float scrollT = stage.scroll[1] * seconds;
 			VK_Backend_AppendScreenRect(
 				x, y, w, h, color,
-				s1 + scrollS, t1 + scrollT,
-				s2 + scrollS, t2 + scrollT,
-				stage.texture, stage.blendMode );
+				s1 * stage.tcScale[0] + scrollS,
+				t1 * stage.tcScale[1] + scrollT,
+				s2 * stage.tcScale[0] + scrollS,
+				t2 * stage.tcScale[1] + scrollT,
+				stage.texture, stage.blendMode,
+				angle, pivotX, pivotY, disruptorScope, !stage.clampMap );
 		}
 		return;
 	}
-	VK_Backend_AppendScreenRect( x, y, w, h, vk.currentColor, s1, t1, s2, t2, shader, VK_BLEND_ALPHA );
+	VK_Backend_AppendScreenRect(
+		x, y, w, h, vk.currentColor, s1, t1, s2, t2,
+		shader, VK_BLEND_ALPHA, angle, pivotX, pivotY, disruptorScope );
+}
+
+void VK_Backend_DrawStretchPic(
+	float x, float y, float w, float h,
+	float s1, float t1, float s2, float t2,
+	qhandle_t shader )
+{
+	VK_Backend_DrawPic( x, y, w, h, s1, t1, s2, t2, 0.0f, x, y, shader );
+}
+
+void VK_Backend_DrawRotatePic(
+	float x, float y, float w, float h,
+	float s1, float t1, float s2, float t2,
+	float angle, qhandle_t shader, bool centerPivot )
+{
+	if ( centerPivot )
+	{
+		VK_Backend_DrawPic(
+			x - w * 0.5f, y - h * 0.5f, w, h,
+			s1, t1, s2, t2, angle, x, y, shader );
+	}
+	else
+	{
+		VK_Backend_DrawPic(
+			x, y, w, h, s1, t1, s2, t2,
+			angle, x + w, y, shader );
+	}
 }
 
 void VK_Backend_DrawStretchRaw( int x, int y, int w, int h )

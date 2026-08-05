@@ -455,9 +455,30 @@ Ghoul2 Insert Start
 				cent->gent->activator->s.eFlags & EF_LOCKED_TO_WEAPON &&
 				cent->gent->activator->owner->s.number == cent->currentState.number ) // gun number must be same as current entities number
 		{
+			// The rider updates the mounted gun's trajectory angles.  Apply them
+			// before resolving muzzle bolts so model, effects and shots agree.
+			VectorCopy( cent->gent->s.apos.trBase, cent->lerpAngles );
+
 			centity_t *cc = &cg_entities[cent->gent->activator->s.number];
 
 const weaponData_t  *wData = NULL;
+			if ( cent->gent->bounceCount && cc->gent && cc->gent->client )
+			{
+				vec3_t yawAngles = { 0, 0, 0 };
+				vec3_t pitchAngles = { 0, 0, 0 };
+				yawAngles[YAW] = AngleSubtract(
+					cc->gent->client->ps.viewangles[YAW], cent->gent->s.angles[YAW] );
+				pitchAngles[PITCH] = cc->gent->client->ps.viewangles[PITCH];
+
+				gi.G2API_SetBoneAnglesIndex( &cent->gent->ghoul2[cent->gent->playerModel],
+					cent->gent->lowerLumbarBone, yawAngles, BONE_ANGLES_POSTMULT,
+					POSITIVE_Z, NEGATIVE_X, NEGATIVE_Y, cgs.model_draw, 0, 0 );
+				gi.G2API_SetBoneAnglesIndex( &cent->gent->ghoul2[cent->gent->playerModel],
+					cent->gent->upperLumbarBone, pitchAngles, BONE_ANGLES_POSTMULT,
+					POSITIVE_Z, NEGATIVE_X, NEGATIVE_Y, cgs.model_draw, 0, 0 );
+				VectorCopy( yawAngles, cent->gent->pos1 );
+				VectorCopy( pitchAngles, cent->gent->lastAngles );
+			}
 
 			if ( cc->currentState.weapon )
 			{
@@ -473,11 +494,13 @@ const weaponData_t  *wData = NULL;
 //						0, 0, BONE_ANIM_OVERRIDE, 1.0f, cg.time );
 			}
 
-			// get alternating muzzle end bolts
-			int			bolt = cent->gent->handRBolt;
+			// The seated gun has two muzzles; the E-Web has only *cannonflash.
+			int			bolt = cent->gent->bounceCount
+				? cent->gent->handLBolt
+				: cent->gent->handRBolt;
 			mdxaBone_t	boltMatrix;
 
-			if ( !cc->gent->fxID || bolt == -1 )
+			if ( !cent->gent->bounceCount && (!cc->gent->fxID || bolt == -1) )
 			{
 				bolt = cent->gent->handLBolt;
 			}
@@ -545,7 +568,6 @@ const weaponData_t  *wData = NULL;
 				}
 			}
 
-			VectorCopy( cent->gent->s.apos.trBase, cent->lerpAngles );
 		}
 		//-------------------------------------------------------
 		// End of chair
