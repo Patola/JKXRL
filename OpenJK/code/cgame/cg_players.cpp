@@ -1077,13 +1077,27 @@ static void CG_PlayerAnimEventDo( centity_t *cent, animevent_t *animEvent )
 					{
 						modelIndex = cent->gent->cinematicModel;
 					}
-					if ( modelIndex > 0 )
+					if ( modelIndex > 0 && modelIndex < cent->gent->ghoul2.size() )
 					{//we have a cinematic model
 						int boltIndex = gi.G2API_AddBolt( &cent->gent->ghoul2[modelIndex], "*flash" );
+						CG_Printf(
+							"jkxr-scepter: event entity=%d model=%d weapon1=%d cinematic=%d "
+							"bolt=%d duration=%d\n",
+							cent->currentState.clientNum, modelIndex,
+							cent->gent->weaponModel[1], cent->gent->cinematicModel,
+							boltIndex, animEvent->eventData[AED_EFFECT_PROBABILITY] );
 						if ( boltIndex > -1 )
 						{//cinematic model has a flash bolt
 							CG_PlayEffectBolted( "scepter/beam.efx", modelIndex, boltIndex, cent->currentState.clientNum, cent->lerpOrigin, animEvent->eventData[AED_EFFECT_PROBABILITY], qtrue );//AED_EFFECT_PROBABILITY in this case is the number of ms for the effect to last
 						}
+					}
+					else
+					{
+						CG_Printf(
+							"jkxr-scepter: event entity=%d has no valid effect model "
+							"(weapon1=%d cinematic=%d ghoul2=%d)\n",
+							cent->currentState.clientNum, cent->gent->weaponModel[1],
+							cent->gent->cinematicModel, cent->gent->ghoul2.size() );
 					}
 				}
 				//FIXME: add more

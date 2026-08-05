@@ -736,6 +736,35 @@ qboolean VK_G2API_AttachG2Model(
 	return qtrue;
 }
 
+qboolean VK_G2API_AttachEnt(
+	int *boltInfo,
+	CGhoul2Info *ghoul2,
+	int boltIndex,
+	int entityNumber,
+	int modelIndex )
+{
+	if ( boltInfo == nullptr )
+	{
+		return qfalse;
+	}
+	*boltInfo = 0;
+	if ( !VK_G2ModelUsable( ghoul2 ) || boltIndex < 0 ||
+		 static_cast<size_t>( boltIndex ) >= ghoul2->mBltlist.size() )
+	{
+		return qfalse;
+	}
+	const boltInfo_t &bolt = ghoul2->mBltlist[boltIndex];
+	if ( bolt.boneNumber < 0 && bolt.surfaceNumber < 0 )
+	{
+		return qfalse;
+	}
+	*boltInfo =
+		( ( boltIndex & BOLT_AND ) << BOLT_SHIFT ) |
+		( ( modelIndex & MODEL_AND ) << MODEL_SHIFT ) |
+		( ( entityNumber & ENTITY_AND ) << ENTITY_SHIFT );
+	return qtrue;
+}
+
 qboolean VK_G2API_DetachG2Model( CGhoul2Info *ghoul2 )
 {
 	if ( !VK_G2ModelUsable( ghoul2 ) )

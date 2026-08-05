@@ -92,5 +92,20 @@ void VK_Backend_DrawRotatePic(
 	float x, float y, float w, float h,
 	float s1, float t1, float s2, float t2,
 	float angle, qhandle_t shader, bool centerPivot );
-void VK_Backend_DrawStretchRaw( int x, int y, int w, int h );
+void VK_Backend_DrawStretchRaw(
+	int x,
+	int y,
+	int w,
+	int h,
+	int cols,
+	int rows,
+	const byte *data,
+	int client,
+	qboolean dirty );
+void VK_Backend_UploadCinematic(
+	int cols,
+	int rows,
+	const byte *data,
+	int client,
+	qboolean dirty );
 void VK_Backend_SubmitClearFrame();

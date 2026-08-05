@@ -51,6 +51,8 @@ enum vk_blend_mode_t
 	VK_BLEND_ONE_MINUS_DESTINATION_ALPHA_ADDITIVE,
 	VK_BLEND_MODULATE,
 	VK_BLEND_DOUBLE_MODULATE,
+	VK_BLEND_INVERSE_SOURCE_COLOR_MODULATE,
+	VK_BLEND_SCREEN,
 };
 
 enum vk_alpha_test_t
@@ -182,6 +184,8 @@ struct vk_texture_name_t
 struct vk_material_stage_t
 {
 	qhandle_t texture;
+	int videoHandle;
+	bool videoMap;
 	vk_blend_mode_t blendMode;
 	vk_alpha_test_t alphaTest;
 	float alpha;
@@ -196,6 +200,7 @@ struct vk_material_stage_t
 	bool entityColor;
 	bool depthWrite;
 	bool clampMap;
+	bool environmentMap;
 	vk_surface_sprite_config_t surfaceSprite;
 };
 
@@ -207,6 +212,7 @@ struct vk_material_t
 struct vk_shader_stage_definition_t
 {
 	std::string imageName;
+	std::string videoName;
 	vk_blend_mode_t blendMode;
 	vk_alpha_test_t alphaTest;
 	float alpha;
@@ -220,7 +226,20 @@ struct vk_shader_stage_definition_t
 	bool entityColor;
 	bool depthWrite;
 	bool clampMap;
+	bool environmentMap;
 	vk_surface_sprite_config_t surfaceSprite;
+};
+
+struct vk_cinematic_texture_t
+{
+	int client;
+	qhandle_t texture;
+	uint32_t width;
+	uint32_t height;
+	bool loggedUpload;
+	uint32_t runCount;
+	uint32_t uploadCount;
+	bool loggedNonzero;
 };
 
 struct vk_shader_definition_t
@@ -317,6 +336,10 @@ struct vk_world_inline_model_t
 {
 	uint32_t firstSurface;
 	uint32_t surfaceCount;
+	vec3_t mins;
+	vec3_t maxs;
+	vec3_t facingNormal;
+	bool hasFacingNormal;
 };
 
 struct vk_world_geometry_t
@@ -605,6 +628,8 @@ struct vk_backend_state_t
 	VkPipeline texturedRectOneMinusDestinationAlphaAdditivePipeline;
 	VkPipeline texturedRectModulatePipeline;
 	VkPipeline texturedRectDoubleModulatePipeline;
+	VkPipeline texturedRectInverseSourceColorModulatePipeline;
+	VkPipeline texturedRectScreenPipeline;
 	VkPipeline diagnostic3dPipeline;
 	VkPipeline worldPipeline;
 	VkPipeline worldAlphaPipeline;
@@ -616,6 +641,8 @@ struct vk_backend_state_t
 	VkPipeline worldOneMinusDestinationAlphaAdditivePipeline;
 	VkPipeline worldModulatePipeline;
 	VkPipeline worldDoubleModulatePipeline;
+	VkPipeline worldInverseSourceColorModulatePipeline;
+	VkPipeline worldScreenPipeline;
 	VkDescriptorSetLayout textureSetLayout;
 	VkDescriptorPool descriptorPool;
 	VkSampler textureSampler;
@@ -635,6 +662,9 @@ struct vk_backend_state_t
 	std::vector<vk_model_t> models;
 	std::vector<std::shared_ptr<vk_gla_t>> animations;
 	std::vector<vk_material_t> materials;
+	std::vector<vk_cinematic_texture_t> videoMaps;
+	std::vector<int> videoMapsUsed;
+	std::vector<vk_cinematic_texture_t> rawCinematics;
 	std::vector<vk_shader_definition_t> shaderDefinitions;
 	bool shaderDefinitionsLoaded;
 	uint64_t frameIndex;
@@ -648,6 +678,11 @@ struct vk_backend_state_t
 	bool loggedHudStereo;
 	bool loggedDisruptorScope;
 	bool loggedForcePushEffect;
+	bool loggedScepterLine;
+	int loggedVideoSelectionClient;
+	int loggedVideoSelectionInlineModel;
+	uint32_t loggedVideoSelectionChanges;
+	std::unordered_map<int, std::array<float, 3>> loggedVideoNeighborOrigins;
 	bool loggedGhoul2Skinning;
 	bool loggedGhoul2StreamInvalid;
 	bool loggedGhoul2StreamOverflow;
@@ -808,6 +843,8 @@ static void VK_Backend_Clear()
 	vk.texturedRectOneMinusDestinationAlphaAdditivePipeline = VK_NULL_HANDLE;
 	vk.texturedRectModulatePipeline = VK_NULL_HANDLE;
 	vk.texturedRectDoubleModulatePipeline = VK_NULL_HANDLE;
+	vk.texturedRectInverseSourceColorModulatePipeline = VK_NULL_HANDLE;
+	vk.texturedRectScreenPipeline = VK_NULL_HANDLE;
 	vk.diagnostic3dPipeline = VK_NULL_HANDLE;
 	vk.worldPipeline = VK_NULL_HANDLE;
 	vk.worldAlphaPipeline = VK_NULL_HANDLE;
@@ -819,6 +856,8 @@ static void VK_Backend_Clear()
 	vk.worldOneMinusDestinationAlphaAdditivePipeline = VK_NULL_HANDLE;
 	vk.worldModulatePipeline = VK_NULL_HANDLE;
 	vk.worldDoubleModulatePipeline = VK_NULL_HANDLE;
+	vk.worldInverseSourceColorModulatePipeline = VK_NULL_HANDLE;
+	vk.worldScreenPipeline = VK_NULL_HANDLE;
 	vk.textureSetLayout = VK_NULL_HANDLE;
 	vk.descriptorPool = VK_NULL_HANDLE;
 	vk.textureSampler = VK_NULL_HANDLE;
@@ -839,6 +878,9 @@ static void VK_Backend_Clear()
 	vk.models.clear();
 	vk.animations.clear();
 	vk.materials.clear();
+	vk.videoMaps.clear();
+	vk.videoMapsUsed.clear();
+	vk.rawCinematics.clear();
 	vk.shaderDefinitions.clear();
 	vk.shaderDefinitionsLoaded = false;
 	vk.frameIndex = 0;
@@ -852,6 +894,11 @@ static void VK_Backend_Clear()
 	vk.loggedHudStereo = false;
 	vk.loggedDisruptorScope = false;
 	vk.loggedForcePushEffect = false;
+	vk.loggedScepterLine = false;
+	vk.loggedVideoSelectionClient = -2;
+	vk.loggedVideoSelectionInlineModel = -2;
+	vk.loggedVideoSelectionChanges = 0;
+	vk.loggedVideoNeighborOrigins.clear();
 	vk.loggedGhoul2Skinning = false;
 	vk.loggedGhoul2StreamInvalid = false;
 	vk.loggedGhoul2StreamOverflow = false;
@@ -1977,7 +2024,7 @@ static void VK_ParseShaderFile( const char *filename )
 			}
 			if ( Q_stricmp( token, "}" ) == 0 )
 			{
-				if ( depth == 2 && !stage.imageName.empty() )
+				if ( depth == 2 && ( !stage.imageName.empty() || !stage.videoName.empty() ) )
 				{
 					definition.stages.push_back( stage );
 				}
@@ -2022,7 +2069,7 @@ static void VK_ParseShaderFile( const char *filename )
 			}
 			else if ( Q_stricmp( token, "videoMap" ) == 0 )
 			{
-				COM_ParseExt( &text, qtrue );
+				stage.videoName = COM_ParseExt( &text, qtrue );
 			}
 			else if ( Q_stricmp( token, "blendFunc" ) == 0 )
 			{
@@ -2087,6 +2134,16 @@ static void VK_ParseShaderFile( const char *filename )
 					{
 						stage.blendMode = VK_BLEND_DOUBLE_MODULATE;
 					}
+					else if ( Q_stricmp( source.c_str(), "GL_ZERO" ) == 0 &&
+						 Q_stricmp( destination.c_str(), "GL_ONE_MINUS_SRC_COLOR" ) == 0 )
+					{
+						stage.blendMode = VK_BLEND_INVERSE_SOURCE_COLOR_MODULATE;
+					}
+					else if ( Q_stricmp( source.c_str(), "GL_ONE" ) == 0 &&
+						 Q_stricmp( destination.c_str(), "GL_ONE_MINUS_SRC_COLOR" ) == 0 )
+					{
+						stage.blendMode = VK_BLEND_SCREEN;
+					}
 					else
 					{
 						stage.blendMode = VK_BLEND_ALPHA;
@@ -2100,6 +2157,11 @@ static void VK_ParseShaderFile( const char *filename )
 				{
 					stage.alpha = static_cast<float>( std::atof( COM_ParseExt( &text, qtrue ) ) );
 				}
+			}
+			else if ( Q_stricmp( token, "tcGen" ) == 0 )
+			{
+				stage.environmentMap =
+					Q_stricmp( COM_ParseExt( &text, qtrue ), "environment" ) == 0;
 			}
 			else if ( Q_stricmp( token, "alphaFunc" ) == 0 )
 			{
@@ -2314,7 +2376,8 @@ static const vk_shader_definition_t *VK_FindShaderDefinition( const char *name )
 
 static qhandle_t VK_FindOrLoadImage( const char *name )
 {
-	if ( Q_stricmp( name, "$whiteimage" ) == 0 || Q_stricmp( name, "white" ) == 0 )
+	if ( Q_stricmp( name, "$whiteimage" ) == 0 || Q_stricmp( name, "*white" ) == 0 ||
+		 Q_stricmp( name, "white" ) == 0 )
 	{
 		return 1;
 	}
@@ -2356,6 +2419,195 @@ static qhandle_t VK_FindOrLoadImage( const char *name )
 	vk.materials.emplace_back();
 	vk.imageNames.push_back( { name, handle } );
 	return handle;
+}
+
+static qhandle_t VK_CreateCinematicTexture( uint32_t width, uint32_t height )
+{
+	if ( width == 0 || height == 0 || width > 4096 || height > 4096 || vk.textures.size() >= 4096 )
+	{
+		return 2;
+	}
+
+	std::vector<byte> pixels( static_cast<size_t>( width ) * height * 4, 0 );
+	vk_texture_t texture = {};
+	if ( !VK_CreateTextureFromPixels( pixels.data(), width, height, &texture ) )
+	{
+		return 2;
+	}
+
+	const qhandle_t handle = static_cast<qhandle_t>( vk.textures.size() );
+	vk.textures.push_back( texture );
+	vk.materials.emplace_back();
+	return handle;
+}
+
+static bool VK_UpdateTexturePixels(
+	qhandle_t handle,
+	uint32_t width,
+	uint32_t height,
+	const byte *pixels )
+{
+	if ( pixels == nullptr || handle <= 2 || static_cast<size_t>( handle ) >= vk.textures.size() )
+	{
+		return false;
+	}
+	vk_texture_t &texture = vk.textures[handle];
+	if ( texture.width != width || texture.height != height )
+	{
+		return false;
+	}
+
+	const VkDeviceSize uploadSize = static_cast<VkDeviceSize>( width ) * height * 4;
+	VkBuffer stagingBuffer = VK_NULL_HANDLE;
+	VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
+	if ( !VK_CreateBuffer(
+		uploadSize,
+		VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+		&stagingBuffer,
+		&stagingMemory,
+		"cinematic staging" ) )
+	{
+		return false;
+	}
+
+	void *mapped = nullptr;
+	bool uploaded = VK_CheckVk(
+		vkMapMemory( vk.device, stagingMemory, 0, uploadSize, 0, &mapped ),
+		"vkMapMemory(cinematic staging)" );
+	if ( uploaded )
+	{
+		std::memcpy( mapped, pixels, static_cast<size_t>( uploadSize ) );
+		vkUnmapMemory( vk.device, stagingMemory );
+		uploaded = VK_CheckVk( vkQueueWaitIdle( vk.queue ), "vkQueueWaitIdle(cinematic upload)" ) &&
+			VK_CheckVk( vkResetCommandPool( vk.device, vk.commandPool, 0 ),
+				"vkResetCommandPool(cinematic upload)" );
+	}
+
+	VkCommandBufferBeginInfo beginInfo = {};
+	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+	if ( uploaded )
+	{
+		uploaded = VK_CheckVk(
+			vkBeginCommandBuffer( vk.commandBuffer, &beginInfo ),
+			"vkBeginCommandBuffer(cinematic upload)" );
+	}
+	if ( uploaded )
+	{
+		VkImageMemoryBarrier toTransfer = {};
+		toTransfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		toTransfer.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+		toTransfer.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+		toTransfer.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		toTransfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+		toTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		toTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		toTransfer.image = texture.image;
+		toTransfer.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		toTransfer.subresourceRange.levelCount = 1;
+		toTransfer.subresourceRange.layerCount = 1;
+		vkCmdPipelineBarrier(
+			vk.commandBuffer,
+			VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+			VK_PIPELINE_STAGE_TRANSFER_BIT,
+			0, 0, nullptr, 0, nullptr, 1, &toTransfer );
+
+		VkBufferImageCopy copy = {};
+		copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		copy.imageSubresource.layerCount = 1;
+		copy.imageExtent.width = width;
+		copy.imageExtent.height = height;
+		copy.imageExtent.depth = 1;
+		vkCmdCopyBufferToImage(
+			vk.commandBuffer,
+			stagingBuffer,
+			texture.image,
+			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			1,
+			&copy );
+
+		VkImageMemoryBarrier toShaderRead = toTransfer;
+		toShaderRead.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+		toShaderRead.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+		toShaderRead.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+		toShaderRead.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		vkCmdPipelineBarrier(
+			vk.commandBuffer,
+			VK_PIPELINE_STAGE_TRANSFER_BIT,
+			VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+			0, 0, nullptr, 0, nullptr, 1, &toShaderRead );
+		uploaded = VK_CheckVk(
+			vkEndCommandBuffer( vk.commandBuffer ),
+			"vkEndCommandBuffer(cinematic upload)" );
+	}
+	if ( uploaded )
+	{
+		VkSubmitInfo submitInfo = {};
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &vk.commandBuffer;
+		uploaded = VK_CheckVk(
+			vkQueueSubmit( vk.queue, 1, &submitInfo, VK_NULL_HANDLE ),
+			"vkQueueSubmit(cinematic upload)" ) &&
+			VK_CheckVk( vkQueueWaitIdle( vk.queue ), "vkQueueWaitIdle(cinematic upload complete)" );
+	}
+
+	VK_DestroyBuffer( &stagingBuffer, &stagingMemory );
+	return uploaded;
+}
+
+static vk_cinematic_texture_t *VK_FindCinematicTexture(
+	std::vector<vk_cinematic_texture_t> &cinematics,
+	int client )
+{
+	auto found = std::find_if(
+		cinematics.begin(), cinematics.end(),
+		[client]( const vk_cinematic_texture_t &cinematic ) {
+			return cinematic.client == client;
+		} );
+	return found == cinematics.end() ? nullptr : &*found;
+}
+
+static void VK_UpdateVideoMaps()
+{
+	std::vector<int> usedClients;
+	usedClients.swap( vk.videoMapsUsed );
+	if ( usedClients.empty() )
+	{
+		return;
+	}
+
+	// The legacy RoQ decoder owns one shared codebook and frame buffer. The
+	// frontmost submitted video wins when a scene contains parked alternatives.
+	const int client = usedClients.back();
+	vk_cinematic_texture_t *cinematic = VK_FindCinematicTexture( vk.videoMaps, client );
+	if ( cinematic == nullptr )
+	{
+		return;
+	}
+	const e_status status = ri.CIN_RunCinematic( client );
+	++cinematic->runCount;
+	ri.CIN_UploadCinematic( client );
+	if ( cinematic->runCount <= 3 || ( cinematic->runCount % 60 ) == 0 )
+	{
+		const cvar_t *inGameVideo = ri.Cvar_Get( "cl_inGameVideo", "1", 0 );
+		ri.Printf( PRINT_ALL,
+			"rd-vulkan: videoMap client=%d run=%u uploads=%u status=%d enabled=%d candidates=%zu\n",
+			client, cinematic->runCount, cinematic->uploadCount,
+			static_cast<int>( status ), inGameVideo != nullptr ? inGameVideo->integer : -1,
+			usedClients.size() );
+	}
+}
+
+static void VK_MarkVideoMapUsed( int client )
+{
+	if ( client < 0 || std::find( vk.videoMapsUsed.begin(), vk.videoMapsUsed.end(), client ) !=
+		 vk.videoMapsUsed.end() )
+	{
+		return;
+	}
+	vk.videoMapsUsed.push_back( client );
 }
 
 static bool VK_CreateXrSession()
@@ -2842,7 +3094,7 @@ static bool VK_CreatePipeline(
 	VkPipelineVertexInputStateCreateInfo vertexInput = {};
 	vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
 	VkVertexInputBindingDescription vertexBinding = {};
-	VkVertexInputAttributeDescription vertexAttributes[4] = {};
+	VkVertexInputAttributeDescription vertexAttributes[5] = {};
 	if ( worldVertexInput )
 	{
 		vertexBinding.binding = 0;
@@ -2868,6 +3120,11 @@ static bool VK_CreatePipeline(
 		vertexAttributes[3].binding = 0;
 		vertexAttributes[3].format = VK_FORMAT_R32G32_SFLOAT;
 		vertexAttributes[3].offset = offsetof( vk_world_vertex_t, lightmapUv );
+
+		vertexAttributes[4].location = 4;
+		vertexAttributes[4].binding = 0;
+		vertexAttributes[4].format = VK_FORMAT_R32G32B32_SFLOAT;
+		vertexAttributes[4].offset = offsetof( vk_world_vertex_t, normal );
 
 		vertexInput.vertexBindingDescriptionCount = 1;
 		vertexInput.pVertexBindingDescriptions = &vertexBinding;
@@ -2956,6 +3213,20 @@ static bool VK_CreatePipeline(
 		colorAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_SRC_COLOR;
 		colorAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_DST_ALPHA;
 		colorAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+	}
+	else if ( blendMode == VK_BLEND_INVERSE_SOURCE_COLOR_MODULATE )
+	{
+		colorAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ZERO;
+		colorAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
+		colorAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+		colorAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	}
+	else if ( blendMode == VK_BLEND_SCREEN )
+	{
+		colorAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+		colorAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
+		colorAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+		colorAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
 	}
 
 	VkPipelineColorBlendStateCreateInfo colorBlend = {};
@@ -3064,6 +3335,15 @@ static bool VK_CreatePipelines()
 			texturedRectFragSpv, ARRAY_LEN( texturedRectFragSpv ),
 			&vk.texturedRectDoubleModulatePipeline,
 			"vkCreateGraphicsPipelines(textured-rect-double-modulate)", VK_BLEND_DOUBLE_MODULATE ) &&
+		VK_CreatePipeline( texturedRectVertSpv, ARRAY_LEN( texturedRectVertSpv ),
+			texturedRectFragSpv, ARRAY_LEN( texturedRectFragSpv ),
+			&vk.texturedRectInverseSourceColorModulatePipeline,
+			"vkCreateGraphicsPipelines(textured-rect-inverse-source-color-modulate)",
+			VK_BLEND_INVERSE_SOURCE_COLOR_MODULATE ) &&
+		VK_CreatePipeline( texturedRectVertSpv, ARRAY_LEN( texturedRectVertSpv ),
+			texturedRectFragSpv, ARRAY_LEN( texturedRectFragSpv ),
+			&vk.texturedRectScreenPipeline,
+			"vkCreateGraphicsPipelines(textured-rect-screen)", VK_BLEND_SCREEN ) &&
 		VK_CreatePipeline( diagnostic3dVertSpv, ARRAY_LEN( diagnostic3dVertSpv ),
 			diagnostic3dFragSpv, ARRAY_LEN( diagnostic3dFragSpv ),
 			&vk.diagnostic3dPipeline, "vkCreateGraphicsPipelines(diagnostic-3d)",
@@ -3112,7 +3392,18 @@ static bool VK_CreatePipelines()
 		VK_CreatePipeline( worldVertSpv, ARRAY_LEN( worldVertSpv ),
 			worldFragSpv, ARRAY_LEN( worldFragSpv ),
 			&vk.worldDoubleModulatePipeline, "vkCreateGraphicsPipelines(world-double-modulate)",
-			VK_BLEND_DOUBLE_MODULATE, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, true, false, true );
+			VK_BLEND_DOUBLE_MODULATE, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, true, false, true ) &&
+		VK_CreatePipeline( worldVertSpv, ARRAY_LEN( worldVertSpv ),
+			worldFragSpv, ARRAY_LEN( worldFragSpv ),
+			&vk.worldInverseSourceColorModulatePipeline,
+			"vkCreateGraphicsPipelines(world-inverse-source-color-modulate)",
+			VK_BLEND_INVERSE_SOURCE_COLOR_MODULATE,
+			VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, true, false, true ) &&
+		VK_CreatePipeline( worldVertSpv, ARRAY_LEN( worldVertSpv ),
+			worldFragSpv, ARRAY_LEN( worldFragSpv ),
+			&vk.worldScreenPipeline,
+			"vkCreateGraphicsPipelines(world-screen)", VK_BLEND_SCREEN,
+			VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, true, false, true );
 }
 
 static void VK_DestroyEyeDepthResources( int eye )
@@ -3726,6 +4017,10 @@ static VkPipeline VK_WorldPipelineForBlend( vk_blend_mode_t blendMode, bool dept
 		return vk.worldModulatePipeline;
 	case VK_BLEND_DOUBLE_MODULATE:
 		return vk.worldDoubleModulatePipeline;
+	case VK_BLEND_INVERSE_SOURCE_COLOR_MODULATE:
+		return vk.worldInverseSourceColorModulatePipeline;
+	case VK_BLEND_SCREEN:
+		return vk.worldScreenPipeline;
 	case VK_BLEND_OPAQUE:
 	default:
 		return vk.worldPipeline;
@@ -3752,7 +4047,8 @@ static void VK_PushWorldStage(
 {
 	vk_world_stage_push_t push = {};
 	push.alpha = 1.0f;
-	push.useLightmap = useLightmap ? 1.0f : 0.0f;
+	push.useLightmap =
+		stage != nullptr && stage->environmentMap ? 2.0f : ( useLightmap ? 1.0f : 0.0f );
 	push.uvScale[0] = 1.0f;
 	push.uvScale[1] = 1.0f;
 	push.color[0] = 1.0f;
@@ -3762,6 +4058,10 @@ static void VK_PushWorldStage(
 	push.flags[0] = stage == nullptr ? 1.0f : 0.0f;
 	if ( stage != nullptr )
 	{
+		if ( stage->videoMap )
+		{
+			VK_MarkVideoMapUsed( stage->videoHandle );
+		}
 		const float seconds = static_cast<float>( vk.worldRefdef.time ) * 0.001f;
 		if ( stage->stretchType != VK_WAVE_NONE )
 		{
@@ -4182,6 +4482,40 @@ static void VK_BuildEntityModelMatrix( const refEntity_t &entity, float matrix[1
 	matrix[15] = 1.0f;
 }
 
+static bool VK_InlineModelIntersectsView(
+	const vk_world_inline_model_t &inlineModel,
+	const refEntity_t &entity,
+	const float view[16],
+	const float projection[16] )
+{
+	float model[16] = {};
+	float modelView[16] = {};
+	float mvp[16] = {};
+	VK_BuildEntityModelMatrix( entity, model );
+	VK_MatrixMultiply( view, model, modelView );
+	VK_MatrixMultiply( projection, modelView, mvp );
+
+	bool outsideLeft = true;
+	bool outsideRight = true;
+	bool outsideBottom = true;
+	bool outsideTop = true;
+	for ( int corner = 0; corner < 8; ++corner )
+	{
+		const float x = ( corner & 1 ) != 0 ? inlineModel.maxs[0] : inlineModel.mins[0];
+		const float y = ( corner & 2 ) != 0 ? inlineModel.maxs[1] : inlineModel.mins[1];
+		const float z = ( corner & 4 ) != 0 ? inlineModel.maxs[2] : inlineModel.mins[2];
+		const float clipX = mvp[0] * x + mvp[4] * y + mvp[8] * z + mvp[12];
+		const float clipY = mvp[1] * x + mvp[5] * y + mvp[9] * z + mvp[13];
+		const float clipW = mvp[3] * x + mvp[7] * y + mvp[11] * z + mvp[15];
+		outsideLeft &= clipX < -clipW;
+		outsideRight &= clipX > clipW;
+		outsideBottom &= clipY < -clipW;
+		outsideTop &= clipY > clipW;
+	}
+
+	return !( outsideLeft || outsideRight || outsideBottom || outsideTop );
+}
+
 static void VK_PushModelMvp( const float view[16], const float projection[16], const refEntity_t &entity )
 {
 	float model[16] = {};
@@ -4203,7 +4537,8 @@ static uint32_t VK_RecordInlineModelSurfaces(
 	const vk_model_t &model,
 	vk_world_pass_t pass,
 	VkPipeline *boundPipeline,
-	VkDescriptorSet *boundTexture )
+	VkDescriptorSet *boundTexture,
+	int selectedVideoInlineModel )
 {
 	if ( model.inlineModelIndex < 0 ||
 		 static_cast<size_t>( model.inlineModelIndex ) >= vk.world.inlineModels.size() ||
@@ -4237,6 +4572,19 @@ static uint32_t VK_RecordInlineModelSurfaces(
 			continue;
 		}
 		const vk_world_batch_t &batch = vk.world.batches[batchIndex];
+		if ( selectedVideoInlineModel != -1 &&
+			 model.inlineModelIndex != selectedVideoInlineModel && batch.shader > 0 &&
+			 static_cast<size_t>( batch.shader ) < vk.materials.size() )
+		{
+			const vk_material_t &material = vk.materials[batch.shader];
+			const auto videoStage = std::find_if(
+				material.stages.begin(), material.stages.end(),
+				[]( const vk_material_stage_t &stage ) { return stage.videoMap; } );
+			if ( videoStage != material.stages.end() )
+			{
+				continue;
+			}
+		}
 		if ( pass == VK_WORLD_PASS_FOG )
 		{
 			drawCount += VK_RecordBoundIndexedFog(
@@ -4250,6 +4598,112 @@ static uint32_t VK_RecordInlineModelSurfaces(
 		}
 	}
 	return drawCount;
+}
+
+static int VK_InlineModelVideoClient( const vk_model_t &model )
+{
+	if ( model.inlineModelIndex < 0 ||
+		 static_cast<size_t>( model.inlineModelIndex ) >= vk.world.inlineModels.size() )
+	{
+		return -1;
+	}
+
+	const vk_world_inline_model_t &inlineModel = vk.world.inlineModels[model.inlineModelIndex];
+	for ( uint32_t i = 0; i < inlineModel.surfaceCount; ++i )
+	{
+		const uint32_t surfaceIndex = inlineModel.firstSurface + i;
+		if ( surfaceIndex >= vk.world.surfaceBatchIndex.size() )
+		{
+			continue;
+		}
+		const uint32_t batchIndex = vk.world.surfaceBatchIndex[surfaceIndex];
+		if ( batchIndex >= vk.world.batches.size() )
+		{
+			continue;
+		}
+		const qhandle_t shader = vk.world.batches[batchIndex].shader;
+		if ( shader <= 0 || static_cast<size_t>( shader ) >= vk.materials.size() )
+		{
+			continue;
+		}
+		for ( const vk_material_stage_t &stage : vk.materials[shader].stages )
+		{
+			if ( stage.videoMap )
+			{
+				return stage.videoHandle;
+			}
+		}
+	}
+	return -1;
+}
+
+static float VK_InlineModelViewDistanceSquared(
+	const vk_world_inline_model_t &inlineModel,
+	const refEntity_t &entity,
+	const float view[16] )
+{
+	float model[16] = {};
+	float modelView[16] = {};
+	VK_BuildEntityModelMatrix( entity, model );
+	VK_MatrixMultiply( view, model, modelView );
+	const float center[3] = {
+		( inlineModel.mins[0] + inlineModel.maxs[0] ) * 0.5f,
+		( inlineModel.mins[1] + inlineModel.maxs[1] ) * 0.5f,
+		( inlineModel.mins[2] + inlineModel.maxs[2] ) * 0.5f,
+	};
+	const float viewCenter[3] = {
+		modelView[0] * center[0] + modelView[4] * center[1] +
+			modelView[8] * center[2] + modelView[12],
+		modelView[1] * center[0] + modelView[5] * center[1] +
+			modelView[9] * center[2] + modelView[13],
+		modelView[2] * center[0] + modelView[6] * center[1] +
+			modelView[10] * center[2] + modelView[14],
+	};
+	return viewCenter[0] * viewCenter[0] + viewCenter[1] * viewCenter[1] +
+		viewCenter[2] * viewCenter[2];
+}
+
+static bool VK_InlineModelFacesView(
+	const vk_world_inline_model_t &inlineModel,
+	const refEntity_t &entity,
+	const float view[16] )
+{
+	if ( !inlineModel.hasFacingNormal )
+	{
+		return true;
+	}
+
+	float model[16] = {};
+	float modelView[16] = {};
+	VK_BuildEntityModelMatrix( entity, model );
+	VK_MatrixMultiply( view, model, modelView );
+	const float center[3] = {
+		( inlineModel.mins[0] + inlineModel.maxs[0] ) * 0.5f,
+		( inlineModel.mins[1] + inlineModel.maxs[1] ) * 0.5f,
+		( inlineModel.mins[2] + inlineModel.maxs[2] ) * 0.5f,
+	};
+	const float viewCenter[3] = {
+		modelView[0] * center[0] + modelView[4] * center[1] +
+			modelView[8] * center[2] + modelView[12],
+		modelView[1] * center[0] + modelView[5] * center[1] +
+			modelView[9] * center[2] + modelView[13],
+		modelView[2] * center[0] + modelView[6] * center[1] +
+			modelView[10] * center[2] + modelView[14],
+	};
+	const float viewNormal[3] = {
+		modelView[0] * inlineModel.facingNormal[0] +
+			modelView[4] * inlineModel.facingNormal[1] +
+			modelView[8] * inlineModel.facingNormal[2],
+		modelView[1] * inlineModel.facingNormal[0] +
+			modelView[5] * inlineModel.facingNormal[1] +
+			modelView[9] * inlineModel.facingNormal[2],
+		modelView[2] * inlineModel.facingNormal[0] +
+			modelView[6] * inlineModel.facingNormal[1] +
+			modelView[10] * inlineModel.facingNormal[2],
+	};
+
+	// In view space the camera is at the origin, so negate the center vector.
+	return viewCenter[2] < -0.001f && DotProduct( viewNormal, viewCenter ) < -0.001f;
 }
 
 static const vk_model_surface_t *VK_GLMSurfaceForIndex(
@@ -6042,6 +6496,82 @@ void VK_Backend_Ghoul2CollisionDetect(
 	}
 }
 
+static const char *VK_TextureNameForHandle( qhandle_t handle );
+
+static bool VK_InlineModelUsesMaterial( const vk_model_t &model, const char *name )
+{
+	if ( model.inlineModelIndex < 0 ||
+		 static_cast<size_t>( model.inlineModelIndex ) >= vk.world.inlineModels.size() )
+	{
+		return false;
+	}
+
+	const vk_world_inline_model_t &inlineModel = vk.world.inlineModels[model.inlineModelIndex];
+	for ( uint32_t i = 0; i < inlineModel.surfaceCount; ++i )
+	{
+		const uint32_t surfaceIndex = inlineModel.firstSurface + i;
+		if ( surfaceIndex >= vk.world.surfaceBatchIndex.size() )
+		{
+			continue;
+		}
+		const uint32_t batchIndex = vk.world.surfaceBatchIndex[surfaceIndex];
+		if ( batchIndex < vk.world.batches.size() &&
+			 Q_stricmp( VK_TextureNameForHandle( vk.world.batches[batchIndex].shader ), name ) == 0 )
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+static refEntity_t VK_AdjustInlineVideoEntity(
+	const vk_model_t &model,
+	const refEntity_t &entity )
+{
+	refEntity_t adjusted = entity;
+	if ( !VK_InlineModelUsesMaterial( model, "textures/video/mon_mothma_back" ) )
+	{
+		return adjusted;
+	}
+
+	const vk_world_inline_model_t &inlineModel = vk.world.inlineModels[model.inlineModelIndex];
+	vec3_t worldNormal;
+	if ( VectorLength( entity.axis[0] ) > 0.0001f &&
+		 VectorLength( entity.axis[1] ) > 0.0001f &&
+		 VectorLength( entity.axis[2] ) > 0.0001f )
+	{
+		for ( int component = 0; component < 3; ++component )
+		{
+			worldNormal[component] =
+				entity.axis[0][component] * inlineModel.facingNormal[0] +
+				entity.axis[1][component] * inlineModel.facingNormal[1] +
+				entity.axis[2][component] * inlineModel.facingNormal[2];
+		}
+	}
+	else
+	{
+		VectorCopy( inlineModel.facingNormal, worldNormal );
+	}
+	if ( VectorNormalize( worldNormal ) > 0.0f )
+	{
+		// The reverse-angle hologram brush sits against the cockpit panel.
+		// Pull it into the cabin while preserving its authored orientation.
+		VectorMA( adjusted.origin, -3.0f, worldNormal, adjusted.origin );
+		static bool loggedAdjustment = false;
+		if ( !loggedAdjustment )
+		{
+			ri.Printf( PRINT_ALL,
+				"rd-vulkan-video: shifted rear Mon Mothma hologram inline=%d "
+				"origin=(%.1f %.1f %.1f)->(%.1f %.1f %.1f)\n",
+				model.inlineModelIndex,
+				entity.origin[0], entity.origin[1], entity.origin[2],
+				adjusted.origin[0], adjusted.origin[1], adjusted.origin[2] );
+			loggedAdjustment = true;
+		}
+	}
+	return adjusted;
+}
+
 static void VK_RecordSceneModels(
 	const float view[16],
 	const float projection[16],
@@ -6063,6 +6593,127 @@ static void VK_RecordSceneModels(
 	uint32_t inlineEntities = 0;
 	uint32_t unsupportedEntities = 0;
 	uint32_t surfaceDraws = 0;
+	int selectedVideoClient = -1;
+	int selectedVideoInlineModel = -1;
+	bool hasVideoInlineModels = false;
+	int firstVideoInlineModel = std::numeric_limits<int>::max();
+	int lastVideoInlineModel = -1;
+	float selectedVideoDistanceSquared = std::numeric_limits<float>::max();
+	for ( const refEntity_t &entity : entities )
+	{
+		if ( entity.reType != RT_MODEL )
+		{
+			continue;
+		}
+		const vk_model_t *model = VK_ModelForHandle( entity.hModel );
+		if ( model == nullptr || model->type != VK_MODEL_INLINE_BSP ||
+			 model->inlineModelIndex < 0 ||
+			 static_cast<size_t>( model->inlineModelIndex ) >= vk.world.inlineModels.size() )
+		{
+			continue;
+		}
+		const refEntity_t adjustedEntity = VK_AdjustInlineVideoEntity( *model, entity );
+		const vk_world_inline_model_t &inlineModel = vk.world.inlineModels[model->inlineModelIndex];
+		const int videoClient = VK_InlineModelVideoClient( *model );
+		if ( videoClient < 0 )
+		{
+			continue;
+		}
+		hasVideoInlineModels = true;
+		firstVideoInlineModel = std::min( firstVideoInlineModel, model->inlineModelIndex );
+		lastVideoInlineModel = std::max( lastVideoInlineModel, model->inlineModelIndex );
+		if ( !VK_InlineModelIntersectsView( inlineModel, adjustedEntity, view, projection ) ||
+			 !VK_InlineModelFacesView( inlineModel, adjustedEntity, view ) )
+		{
+			continue;
+		}
+		const float distanceSquared =
+			VK_InlineModelViewDistanceSquared( inlineModel, adjustedEntity, view );
+		if ( distanceSquared < selectedVideoDistanceSquared )
+		{
+			selectedVideoClient = videoClient;
+			selectedVideoInlineModel = model->inlineModelIndex;
+			selectedVideoDistanceSquared = distanceSquared;
+		}
+	}
+	if ( hasVideoInlineModels && selectedVideoInlineModel < 0 )
+	{
+		// Suppress all video panels when every submitted candidate is culled or
+		// back-facing. -1 remains the sentinel for scenes without video panels.
+		selectedVideoInlineModel = -2;
+	}
+	if ( pass == VK_WORLD_PASS_OPAQUE && suppressThirdPerson && lastVideoInlineModel >= 0 &&
+		 vk.loggedVideoSelectionChanges < 64 )
+	{
+		if ( selectedVideoClient != vk.loggedVideoSelectionClient ||
+			 selectedVideoInlineModel != vk.loggedVideoSelectionInlineModel )
+		{
+			ri.Printf( PRINT_ALL,
+				"rd-vulkan-video-select: client=%d inline=%d distance=%.2f time=%d\n",
+				selectedVideoClient, selectedVideoInlineModel,
+				std::sqrt( selectedVideoDistanceSquared ), sceneTime );
+			vk.loggedVideoSelectionClient = selectedVideoClient;
+			vk.loggedVideoSelectionInlineModel = selectedVideoInlineModel;
+			++vk.loggedVideoSelectionChanges;
+		}
+
+		for ( const refEntity_t &entity : entities )
+		{
+			if ( entity.reType != RT_MODEL )
+			{
+				continue;
+			}
+			const vk_model_t *model = VK_ModelForHandle( entity.hModel );
+			if ( model == nullptr || model->type != VK_MODEL_INLINE_BSP ||
+				 model->inlineModelIndex < firstVideoInlineModel - 2 ||
+				 model->inlineModelIndex > lastVideoInlineModel + 2 )
+			{
+				continue;
+			}
+			const std::array<float, 3> origin = {
+				entity.origin[0], entity.origin[1], entity.origin[2],
+			};
+			const auto previous = vk.loggedVideoNeighborOrigins.find( model->inlineModelIndex );
+			if ( previous != vk.loggedVideoNeighborOrigins.end() &&
+				 std::fabs( previous->second[0] - origin[0] ) < 0.01f &&
+				 std::fabs( previous->second[1] - origin[1] ) < 0.01f &&
+				 std::fabs( previous->second[2] - origin[2] ) < 0.01f )
+			{
+				continue;
+			}
+			vk.loggedVideoNeighborOrigins[model->inlineModelIndex] = origin;
+			ri.Printf( PRINT_ALL,
+				"rd-vulkan-video-entity: model=%s inline=%d video=%d origin=(%.1f %.1f %.1f)\n",
+				model->name.c_str(), model->inlineModelIndex,
+				VK_InlineModelVideoClient( *model ), origin[0], origin[1], origin[2] );
+			const vk_world_inline_model_t &inlineModel =
+				vk.world.inlineModels[model->inlineModelIndex];
+			std::vector<qhandle_t> shaders;
+			for ( uint32_t i = 0; i < inlineModel.surfaceCount; ++i )
+			{
+				const uint32_t surfaceIndex = inlineModel.firstSurface + i;
+				if ( surfaceIndex >= vk.world.surfaceBatchIndex.size() )
+				{
+					continue;
+				}
+				const uint32_t batchIndex = vk.world.surfaceBatchIndex[surfaceIndex];
+				if ( batchIndex >= vk.world.batches.size() )
+				{
+					continue;
+				}
+				const qhandle_t shader = vk.world.batches[batchIndex].shader;
+				if ( std::find( shaders.begin(), shaders.end(), shader ) == shaders.end() )
+				{
+					shaders.push_back( shader );
+				}
+			}
+			for ( const qhandle_t shader : shaders )
+			{
+				ri.Printf( PRINT_ALL, "rd-vulkan-video-entity:   material=%s\n",
+					VK_TextureNameForHandle( shader ) );
+			}
+		}
+	}
 	for ( const refEntity_t &entity : entities )
 	{
 		if ( entity.reType != RT_MODEL )
@@ -6154,11 +6805,23 @@ static void VK_RecordSceneModels(
 			continue;
 		}
 
-		VK_PushModelMvp( view, projection, entity );
 		if ( model->type == VK_MODEL_INLINE_BSP )
 		{
+			if ( model->inlineModelIndex < 0 ||
+				 static_cast<size_t>( model->inlineModelIndex ) >= vk.world.inlineModels.size() )
+			{
+				++unsupportedEntities;
+				continue;
+			}
+			const refEntity_t adjustedEntity = VK_AdjustInlineVideoEntity( *model, entity );
+			if ( !VK_InlineModelIntersectsView(
+					 vk.world.inlineModels[model->inlineModelIndex], adjustedEntity, view, projection ) )
+			{
+				continue;
+			}
+			VK_PushModelMvp( view, projection, adjustedEntity );
 			const uint32_t draws = VK_RecordInlineModelSurfaces(
-				*model, pass, &boundPipeline, &boundTexture );
+				*model, pass, &boundPipeline, &boundTexture, selectedVideoInlineModel );
 			if ( draws > 0 )
 			{
 				++inlineEntities;
@@ -6167,6 +6830,7 @@ static void VK_RecordSceneModels(
 		}
 		else if ( model->type == VK_MODEL_MD3 )
 		{
+			VK_PushModelMvp( view, projection, entity );
 			const uint32_t draws = VK_RecordMD3ModelSurfaces(
 				*model,
 				pass,
@@ -6186,6 +6850,7 @@ static void VK_RecordSceneModels(
 		}
 		else if ( model->type == VK_MODEL_GLM )
 		{
+			VK_PushModelMvp( view, projection, entity );
 			const uint32_t draws = VK_RecordMD3ModelSurfaces(
 				*model,
 				pass,
@@ -6405,6 +7070,26 @@ static void VK_BuildDynamicEffectBatches(
 		if ( !VK_DynamicShaderUsesPass( shader, pass ) )
 		{
 			continue;
+		}
+		vec3_t lineDelta = {};
+		if ( entity.reType == RT_LINE )
+		{
+			VectorSubtract( entity.oldorigin, entity.origin, lineDelta );
+		}
+		if ( !vk.loggedScepterLine && entity.reType == RT_LINE &&
+			 VectorLengthSquared( lineDelta ) > 400.0f * 400.0f &&
+			 VK_IsNamedTexture( shader, "gfx/effects/sabers/orange_line" ) )
+		{
+			ri.Printf( PRINT_ALL,
+				"rd-vulkan-scepter: line submitted pass=%d start=(%.1f %.1f %.1f) "
+				"end=(%.1f %.1f %.1f) radius=%.2f rgba=(%u %u %u %u)\n",
+				static_cast<int>( pass ),
+				entity.origin[0], entity.origin[1], entity.origin[2],
+				entity.oldorigin[0], entity.oldorigin[1], entity.oldorigin[2],
+				entity.radius,
+				entity.shaderRGBA[0], entity.shaderRGBA[1],
+				entity.shaderRGBA[2], entity.shaderRGBA[3] );
+			vk.loggedScepterLine = true;
 		}
 		if ( !vk.loggedForcePushEffect &&
 			 VK_IsNamedTexture( shader, "gfx/effects/forcePush" ) )
@@ -7609,9 +8294,12 @@ static void VK_RecordWorld( int eye )
 	VK_RecordDynamicEffects(
 		mvp, vk.worldRefdef, vk.worldEntities, vk.worldPolys,
 		VK_WORLD_PASS_OPAQUE, true );
-	recordWorldPass( VK_WORLD_PASS_TRANSLUCENT );
+	// Complete model materials before translucent world surfaces. Opaque model
+	// depth then lets water and glass composite only where they are in front,
+	// without later model lighting stages painting back over them.
 	VK_RecordSceneModels(
 		view, projection, VK_WORLD_PASS_TRANSLUCENT, vk.worldEntities, true, vk.worldRefdef.time );
+	recordWorldPass( VK_WORLD_PASS_TRANSLUCENT );
 	if ( vk.world.hasGlobalFog )
 	{
 		recordWorldPass( VK_WORLD_PASS_FOG );
@@ -8353,6 +9041,12 @@ static void VK_RecordScreenRects( int eye, size_t firstRect, size_t endRect )
 			case VK_BLEND_DOUBLE_MODULATE:
 				desiredPipeline = vk.texturedRectDoubleModulatePipeline;
 				break;
+			case VK_BLEND_INVERSE_SOURCE_COLOR_MODULATE:
+				desiredPipeline = vk.texturedRectInverseSourceColorModulatePipeline;
+				break;
+			case VK_BLEND_SCREEN:
+				desiredPipeline = vk.texturedRectScreenPipeline;
+				break;
 			case VK_BLEND_ALPHA:
 			default:
 				desiredPipeline = vk.texturedRectPipeline;
@@ -8712,6 +9406,14 @@ void VK_Backend_Shutdown()
 	{
 		vkDestroyPipeline( vk.device, vk.texturedRectDoubleModulatePipeline, nullptr );
 	}
+	if ( vk.texturedRectInverseSourceColorModulatePipeline != VK_NULL_HANDLE )
+	{
+		vkDestroyPipeline( vk.device, vk.texturedRectInverseSourceColorModulatePipeline, nullptr );
+	}
+	if ( vk.texturedRectScreenPipeline != VK_NULL_HANDLE )
+	{
+		vkDestroyPipeline( vk.device, vk.texturedRectScreenPipeline, nullptr );
+	}
 	if ( vk.diagnostic3dPipeline != VK_NULL_HANDLE )
 	{
 		vkDestroyPipeline( vk.device, vk.diagnostic3dPipeline, nullptr );
@@ -8755,6 +9457,14 @@ void VK_Backend_Shutdown()
 	if ( vk.worldDoubleModulatePipeline != VK_NULL_HANDLE )
 	{
 		vkDestroyPipeline( vk.device, vk.worldDoubleModulatePipeline, nullptr );
+	}
+	if ( vk.worldInverseSourceColorModulatePipeline != VK_NULL_HANDLE )
+	{
+		vkDestroyPipeline( vk.device, vk.worldInverseSourceColorModulatePipeline, nullptr );
+	}
+	if ( vk.worldScreenPipeline != VK_NULL_HANDLE )
+	{
+		vkDestroyPipeline( vk.device, vk.worldScreenPipeline, nullptr );
 	}
 	if ( vk.pipelineLayout != VK_NULL_HANDLE )
 	{
@@ -8992,6 +9702,18 @@ static bool VK_LoadInlineModel( const char *name, qhandle_t handle )
 	return model.inlineModelIndex >= 0;
 }
 
+static void VK_DecodeMD3Normal( short packedValue, float normal[3] )
+{
+	const uint16_t packed = static_cast<uint16_t>( LittleShort( packedValue ) );
+	constexpr float byteToRadians = 2.0f * static_cast<float>( M_PI ) / 255.0f;
+	const float latitude = static_cast<float>( ( packed >> 8 ) & 0xff ) * byteToRadians;
+	const float longitude = static_cast<float>( packed & 0xff ) * byteToRadians;
+	const float sinLongitude = std::sin( longitude );
+	normal[0] = std::cos( latitude ) * sinLongitude;
+	normal[1] = std::sin( latitude ) * sinLongitude;
+	normal[2] = std::cos( longitude );
+}
+
 static bool VK_LoadMD3Surface(
 	const byte *surfaceBase,
 	size_t surfaceSize,
@@ -9045,6 +9767,7 @@ static bool VK_LoadMD3Surface(
 		vertex.color[3] = 1.0f;
 		vertex.uv[0] = LittleFloat( texCoords[i].st[0] );
 		vertex.uv[1] = LittleFloat( texCoords[i].st[1] );
+		VK_DecodeMD3Normal( positions[i].normal, vertex.normal );
 		vertices.push_back( vertex );
 	}
 
@@ -10384,28 +11107,63 @@ static void VK_LoadPendingRegistrations()
 	}
 }
 
-void VK_Backend_ModelBounds( qhandle_t, vec3_t mins, vec3_t maxs )
+void VK_Backend_ModelBounds( qhandle_t handle, vec3_t mins, vec3_t maxs )
 {
-	if ( mins != nullptr )
+	if ( mins == nullptr || maxs == nullptr )
 	{
-		VectorClear( mins );
+		return;
 	}
-	if ( maxs != nullptr )
+
+	VectorClear( mins );
+	VectorClear( maxs );
+	const vk_model_t *model = VK_ModelForHandle( handle );
+	if ( model == nullptr )
 	{
-		VectorClear( maxs );
+		return;
+	}
+
+	if ( model->type == VK_MODEL_INLINE_BSP && model->inlineModelIndex >= 0 &&
+		 static_cast<size_t>( model->inlineModelIndex ) < vk.world.inlineModels.size() )
+	{
+		VectorCopy( vk.world.inlineModels[model->inlineModelIndex].mins, mins );
+		VectorCopy( vk.world.inlineModels[model->inlineModelIndex].maxs, maxs );
+		return;
+	}
+
+	bool haveBounds = false;
+	for ( const vk_model_surface_t &surface : model->surfaces )
+	{
+		for ( const vk_world_vertex_t &vertex : surface.glmBaseVertices )
+		{
+			for ( int axis = 0; axis < 3; ++axis )
+			{
+				if ( !haveBounds || vertex.position[axis] < mins[axis] )
+				{
+					mins[axis] = vertex.position[axis];
+				}
+				if ( !haveBounds || vertex.position[axis] > maxs[axis] )
+				{
+					maxs[axis] = vertex.position[axis];
+				}
+			}
+			haveBounds = true;
+		}
+	}
+	static bool loggedLogoBounds = false;
+	if ( haveBounds && !loggedLogoBounds &&
+		 Q_stricmp( model->name.c_str(), "models/map_objects/bespin/jk2logo.md3" ) == 0 )
+	{
+		ri.Printf( PRINT_ALL,
+			"rd-vulkan-model: JKII logo bounds mins=(%.3f %.3f %.3f) "
+			"maxs=(%.3f %.3f %.3f)\n",
+			mins[0], mins[1], mins[2], maxs[0], maxs[1], maxs[2] );
+		loggedLogoBounds = true;
 	}
 }
 
-void VK_Backend_GetModelBounds( refEntity_t *, vec3_t mins, vec3_t maxs )
+void VK_Backend_GetModelBounds( refEntity_t *entity, vec3_t mins, vec3_t maxs )
 {
-	if ( mins != nullptr )
-	{
-		VectorClear( mins );
-	}
-	if ( maxs != nullptr )
-	{
-		VectorClear( maxs );
-	}
+	VK_Backend_ModelBounds( entity != nullptr ? entity->hModel : 0, mins, maxs );
 }
 
 struct vk_bsp_lump_view_t
@@ -11368,6 +12126,9 @@ static void VK_WorldLoadInlineModels(
 	const byte *fileBase,
 	size_t fileSize,
 	size_t surfaceCount,
+	const dsurface_t *surfaces,
+	const mapVert_t *drawVerts,
+	size_t drawVertCount,
 	vk_world_geometry_t *world )
 {
 	vk_bsp_lump_view_t modelLump = {};
@@ -11384,10 +12145,31 @@ static void VK_WorldLoadInlineModels(
 		const int firstSurface = LittleLong( bspModels[i].firstSurface );
 		const int numSurfaces = LittleLong( bspModels[i].numSurfaces );
 		vk_world_inline_model_t model = {};
+		for ( int axis = 0; axis < 3; ++axis )
+		{
+			model.mins[axis] = LittleFloat( bspModels[i].mins[axis] ) - 1.0f;
+			model.maxs[axis] = LittleFloat( bspModels[i].maxs[axis] ) + 1.0f;
+		}
 		if ( VK_BspRangeValid( firstSurface, numSurfaces, surfaceCount ) )
 		{
 			model.firstSurface = static_cast<uint32_t>( firstSurface );
 			model.surfaceCount = static_cast<uint32_t>( numSurfaces );
+			for ( int surfaceOffset = 0; surfaceOffset < numSurfaces; ++surfaceOffset )
+			{
+				const dsurface_t &surface = surfaces[firstSurface + surfaceOffset];
+				const int firstVert = LittleLong( surface.firstVert );
+				const int numVerts = LittleLong( surface.numVerts );
+				if ( numVerts <= 0 || !VK_BspRangeValid( firstVert, numVerts, drawVertCount ) )
+				{
+					continue;
+				}
+				for ( int axis = 0; axis < 3; ++axis )
+				{
+					model.facingNormal[axis] = LittleFloat( drawVerts[firstVert].normal[axis] );
+				}
+				model.hasFacingNormal = VectorNormalize( model.facingNormal ) > 0.0f;
+				break;
+			}
 		}
 		else
 		{
@@ -11411,6 +12193,7 @@ void VK_Backend_LoadWorld( const char *name )
 	vk.loggedFirstModelDraw = false;
 	vk.loggedDynamicEffects = false;
 	vk.loggedDynamicEffectOverflow = false;
+	vk.loggedScepterLine = false;
 	VK_DestroyWorldGeometry();
 
 	char *buffer = nullptr;
@@ -11607,7 +12390,9 @@ void VK_Backend_LoadWorld( const char *name )
 			world.surfaceBatchIndex[surfaceIndex] = static_cast<uint32_t>( i );
 		}
 	}
-	VK_WorldLoadInlineModels( header, fileBase, fileSizeBytes, surfaceLump.count, &world );
+	VK_WorldLoadInlineModels(
+		header, fileBase, fileSizeBytes, surfaceLump.count,
+		surfaces, drawVerts, vertexLump.count, &world );
 	VK_WorldLoadVisibilityData( header, fileBase, fileSizeBytes, surfaceLump.count, &world );
 	for ( const vk_world_batch_t &batch : world.batches )
 	{
@@ -11865,6 +12650,7 @@ void VK_Backend_RenderScene( const refdef_t *refdef )
 
 void VK_Backend_BeginFrame()
 {
+	VK_UpdateVideoMaps();
 	vk.rects.clear();
 	vk.sceneRenderedThisFrame = false;
 	vk.sceneWorldRenderedThisFrame = false;
@@ -11924,12 +12710,35 @@ qhandle_t VK_Backend_RegisterTexture( const char *name )
 		for ( const vk_shader_stage_definition_t &stageDefinition : definition->stages )
 		{
 			vk_material_stage_t stage = {};
+			stage.videoHandle = -1;
 			stage.lightmap = Q_stricmp( stageDefinition.imageName.c_str(), "$lightmap" ) == 0;
-			stage.texture = stage.lightmap ? 2 : VK_FindOrLoadImage( stageDefinition.imageName.c_str() );
+			if ( !stageDefinition.videoName.empty() )
+			{
+				stage.videoMap = true;
+				stage.videoHandle = ri.CIN_PlayCinematic(
+					stageDefinition.videoName.c_str(),
+					0, 0, 256, 256,
+					CIN_loop | CIN_silent | CIN_shader,
+					nullptr );
+				stage.texture = stage.videoHandle < 0 ? 2 : VK_CreateCinematicTexture( 256, 256 );
+				if ( stage.videoHandle >= 0 && stage.texture > 2 )
+				{
+					vk.videoMaps.push_back( {
+						stage.videoHandle, stage.texture, 256, 256, false, 0, 0, false } );
+					ri.Printf( PRINT_ALL,
+						"rd-vulkan: cinematic material %s -> client %d texture %d\n",
+						stageDefinition.videoName.c_str(), stage.videoHandle, stage.texture );
+				}
+			}
+			else
+			{
+				stage.texture = stage.lightmap ? 2 : VK_FindOrLoadImage( stageDefinition.imageName.c_str() );
+			}
 			stage.blendMode = stageDefinition.blendMode;
 			stage.alphaTest = stageDefinition.alphaTest;
 			stage.depthWrite = stageDefinition.depthWrite;
 			stage.clampMap = stageDefinition.clampMap;
+			stage.environmentMap = stageDefinition.environmentMap;
 			stage.surfaceSprite = stageDefinition.surfaceSprite;
 			stage.alpha = stageDefinition.alpha;
 			stage.scroll[0] = stageDefinition.scroll[0];
@@ -12052,21 +12861,144 @@ void VK_Backend_DrawRotatePic(
 	}
 }
 
-void VK_Backend_DrawStretchRaw( int x, int y, int w, int h )
+void VK_Backend_UploadCinematic(
+	int cols,
+	int rows,
+	const byte *data,
+	int client,
+	qboolean dirty )
 {
+	vk_cinematic_texture_t *cinematic = VK_FindCinematicTexture( vk.videoMaps, client );
+	if ( cinematic == nullptr )
+	{
+		return;
+	}
+	++cinematic->uploadCount;
+	if ( !dirty || cols <= 0 || rows <= 0 || data == nullptr )
+	{
+		return;
+	}
+	if ( static_cast<uint32_t>( cols ) != cinematic->width ||
+		 static_cast<uint32_t>( rows ) != cinematic->height )
+	{
+		ri.Printf( PRINT_WARNING,
+			"rd-vulkan: cinematic client %d changed dimensions from %ux%u to %dx%d\n",
+			client, cinematic->width, cinematic->height, cols, rows );
+		return;
+	}
+	if ( !cinematic->loggedUpload )
+	{
+		byte minimum = 255;
+		byte maximum = 0;
+		const size_t byteCount = static_cast<size_t>( cols ) * rows * 4;
+		for ( size_t i = 0; i < byteCount; ++i )
+		{
+			minimum = std::min( minimum, data[i] );
+			maximum = std::max( maximum, data[i] );
+		}
+		ri.Printf( PRINT_ALL,
+			"rd-vulkan: first videoMap frame client=%d size=%dx%d range=%u..%u\n",
+			client, cols, rows, minimum, maximum );
+		cinematic->loggedUpload = true;
+	}
+	if ( !cinematic->loggedNonzero )
+	{
+		byte maximum = 0;
+		const size_t byteCount = static_cast<size_t>( cols ) * rows * 4;
+		for ( size_t i = 0; i < byteCount; ++i )
+		{
+			maximum = std::max( maximum, data[i] );
+		}
+		if ( maximum != 0 )
+		{
+			ri.Printf( PRINT_ALL,
+				"rd-vulkan: videoMap client=%d produced first non-black frame on upload=%u\n",
+				client, cinematic->uploadCount );
+			cinematic->loggedNonzero = true;
+		}
+	}
+	VK_UpdateTexturePixels(
+		cinematic->texture,
+		cinematic->width,
+		cinematic->height,
+		data );
+}
+
+void VK_Backend_DrawStretchRaw(
+	int x,
+	int y,
+	int w,
+	int h,
+	int cols,
+	int rows,
+	const byte *data,
+	int client,
+	qboolean dirty )
+{
+	if ( cols <= 0 || rows <= 0 || data == nullptr )
+	{
+		return;
+	}
+	vk_cinematic_texture_t *cinematic = VK_FindCinematicTexture( vk.rawCinematics, client );
+	if ( cinematic == nullptr || cinematic->width != static_cast<uint32_t>( cols ) ||
+		 cinematic->height != static_cast<uint32_t>( rows ) )
+	{
+		const qhandle_t texture = VK_CreateCinematicTexture(
+			static_cast<uint32_t>( cols ), static_cast<uint32_t>( rows ) );
+		if ( texture <= 2 )
+		{
+			return;
+		}
+		vk.rawCinematics.push_back( {
+			client, texture, static_cast<uint32_t>( cols ), static_cast<uint32_t>( rows ),
+			false, 0, 0, false } );
+		cinematic = &vk.rawCinematics.back();
+		dirty = qtrue;
+	}
+	if ( dirty )
+	{
+		if ( !cinematic->loggedUpload )
+		{
+			byte minimum = 255;
+			byte maximum = 0;
+			const size_t byteCount = static_cast<size_t>( cols ) * rows * 4;
+			for ( size_t i = 0; i < byteCount; ++i )
+			{
+				minimum = std::min( minimum, data[i] );
+				maximum = std::max( maximum, data[i] );
+			}
+			ri.Printf( PRINT_ALL,
+				"rd-vulkan: first raw cinematic frame client=%d size=%dx%d range=%u..%u\n",
+				client, cols, rows, minimum, maximum );
+			cinematic->loggedUpload = true;
+		}
+		VK_UpdateTexturePixels(
+			cinematic->texture,
+			cinematic->width,
+			cinematic->height,
+			data );
+	}
 	if ( !vk.loggedRawStretch )
 	{
-		ri.Printf( PRINT_ALL, "rd-vulkan: DrawStretchRaw placeholder queued at %d,%d %dx%d\n", x, y, w, h );
+		ri.Printf( PRINT_ALL,
+			"rd-vulkan: DrawStretchRaw cinematic queued at %d,%d %dx%d (%dx%d client=%d)\n",
+			x, y, w, h, cols, rows, client );
 		vk.loggedRawStretch = true;
 	}
 
-	const float rawColor[4] = { 0.00f, 0.55f, 0.62f, 0.92f };
+	const float rawColor[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 	VK_Backend_AppendScreenRect(
 		static_cast<float>( x ),
 		static_cast<float>( y ),
 		static_cast<float>( w ),
 		static_cast<float>( h ),
-		rawColor );
+		rawColor,
+		0.5f / static_cast<float>( cols ),
+		0.5f / static_cast<float>( rows ),
+		( static_cast<float>( cols ) - 0.5f ) / static_cast<float>( cols ),
+		( static_cast<float>( rows ) - 0.5f ) / static_cast<float>( rows ),
+		cinematic->texture,
+		VK_BLEND_OPAQUE );
 }
 
 static XrVector3f VK_RotateVector( const XrQuaternionf &q, const XrVector3f &v )

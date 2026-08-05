@@ -78,6 +78,12 @@ qboolean VK_G2API_SetSurfaceOnOff(
 int VK_G2API_AddBolt( CGhoul2Info *ghoul2, const char *name );
 int VK_G2API_AddBoltSurfNum( CGhoul2Info *ghoul2, int surfaceListIndex );
 qboolean VK_G2API_RemoveBolt( CGhoul2Info *ghoul2, int boltIndex );
+qboolean VK_G2API_AttachEnt(
+	int *boltInfo,
+	CGhoul2Info *ghoul2,
+	int boltIndex,
+	int entityNumber,
+	int modelIndex );
 qboolean VK_G2API_AttachG2Model(
 	CGhoul2Info *ghoul2,
 	CGhoul2Info *parent,

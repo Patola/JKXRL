@@ -1381,6 +1381,7 @@ void CFxScheduler::AddScheduledEffects( bool portal )
 	vec3_t						axis[3];
 	int							oldEntNum = -1, oldBoltIndex = -1, oldModelNum = -1;
 	qboolean					doesBoltExist  = qfalse;
+	static bool				loggedLongRelativeBolt = false;
 
 	if (portal)
 	{
@@ -1420,6 +1421,14 @@ void CFxScheduler::AddScheduledEffects( bool portal )
 			}
 			else
 			{	//bolted on effect
+				const bool longRelativeLine = effect->mIsRelative &&
+					effect->mpTemplate->mType == Line &&
+					( fabs( effect->mpTemplate->mOrigin2X.GetMin() ) > 400.0f ||
+					  fabs( effect->mpTemplate->mOrigin2X.GetMax() ) > 400.0f ||
+					  fabs( effect->mpTemplate->mOrigin2Y.GetMin() ) > 400.0f ||
+					  fabs( effect->mpTemplate->mOrigin2Y.GetMax() ) > 400.0f ||
+					  fabs( effect->mpTemplate->mOrigin2Z.GetMin() ) > 400.0f ||
+					  fabs( effect->mpTemplate->mOrigin2Z.GetMax() ) > 400.0f );
 				// do we need to go and re-get the bolt matrix again? Since it takes time lets try to do it only once
 				if ((effect->mModelNum != oldModelNum) || (effect->mEntNum != oldEntNum) || (effect->mBoltNum != (char)oldBoltIndex))
 				{
@@ -1438,6 +1447,14 @@ void CFxScheduler::AddScheduledEffects( bool portal )
 					oldModelNum = effect->mModelNum;
 					oldEntNum = effect->mEntNum;
 					oldBoltIndex = effect->mBoltNum;
+				}
+				if ( longRelativeLine && !loggedLongRelativeBolt )
+				{
+					theFxHelper.Print(
+						"jkxr-scepter: scheduler bolt entity=%d model=%d bolt=%d resolved=%d\n",
+						effect->mEntNum, effect->mModelNum, effect->mBoltNum,
+						doesBoltExist );
+					loggedLongRelativeBolt = true;
 				}
 
 				// only do this if we found the bolt
@@ -1732,6 +1749,18 @@ void CFxScheduler::CreateEffect( CPrimitiveTemplate *fx, const vec3_t origin, ve
 	//---------
 	case Line:
 	//---------
+		if ( flags & FX_RELATIVE && VectorLengthSquared( org2 ) > 400.0f * 400.0f )
+		{
+			static bool loggedLongRelativeLine = false;
+			if ( !loggedLongRelativeLine )
+			{
+				theFxHelper.Print(
+					"jkxr-scepter: create line entity=%d model=%d bolt=%d "
+					"offset=(%.1f %.1f %.1f)\n",
+					clientID, modelNum, boltNum, org2[0], org2[1], org2[2] );
+				loggedLongRelativeLine = true;
+			}
+		}
 
 		FX_AddLine( clientID, org, org2,
 						fx->mSizeStart.GetVal(), fx->mSizeEnd.GetVal(), fx->mSizeParm.GetVal(),

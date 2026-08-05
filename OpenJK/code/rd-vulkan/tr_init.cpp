@@ -237,10 +237,11 @@ extern "C" Q_EXPORT refexport_t* QDECL GetRefAPI( int apiVersion, refimport_t *r
 	re.LAGoggles = []() {};
 	re.Scissor = []( float, float, float, float ) {};
 
-	re.DrawStretchRaw = []( int x, int y, int w, int h, int, int, const byte *, int, qboolean ) {
-		VK_Backend_DrawStretchRaw( x, y, w, h );
+	re.DrawStretchRaw = []( int x, int y, int w, int h,
+		int cols, int rows, const byte *data, int client, qboolean dirty ) {
+		VK_Backend_DrawStretchRaw( x, y, w, h, cols, rows, data, client, dirty );
 	};
-	re.UploadCinematic = []( int, int, const byte *, int, qboolean ) {};
+	re.UploadCinematic = VK_Backend_UploadCinematic;
 
 	re.BeginFrame = []( stereoFrame_t ) { VK_Backend_BeginFrame(); };
 	re.EndFrame = []( int *, int * ) { VK_Backend_SubmitClearFrame(); };
@@ -308,12 +309,12 @@ extern "C" Q_EXPORT refexport_t* QDECL GetRefAPI( int apiVersion, refimport_t *r
 	re.G2API_AddBoltSurfNum = VK_G2API_AddBoltSurfNum;
 	re.G2API_AddSurface = []( CGhoul2Info *, int, int, float, float, int ) -> int { return 0; };
 	re.G2API_AnimateG2Models = []( CGhoul2Info_v &, int, CRagDollUpdateParams * ) {};
-	re.G2API_AttachEnt = []( int *, CGhoul2Info *, int, int, int ) -> qboolean { return qfalse; };
+	re.G2API_AttachEnt = VK_G2API_AttachEnt;
 	re.G2API_AttachG2Model = VK_G2API_AttachG2Model;
 	re.G2API_CollisionDetect = VK_G2API_CollisionDetect;
 	re.G2API_CleanGhoul2Models = VK_G2API_CleanGhoul2Models;
 	re.G2API_CopyGhoul2Instance = VK_G2API_CopyGhoul2Instance;
-	re.G2API_DetachEnt = []( int * ) {};
+	re.G2API_DetachEnt = []( int *boltInfo ) { if ( boltInfo != nullptr ) { *boltInfo = 0; } };
 	re.G2API_DetachG2Model = VK_G2API_DetachG2Model;
 	re.G2API_GetAnimFileName = VK_G2API_GetAnimFileName;
 	re.G2API_GetAnimFileNameIndex = []( qhandle_t ) -> char * { return nullptr; };

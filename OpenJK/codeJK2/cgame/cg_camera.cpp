@@ -97,6 +97,26 @@ static void CGCam_CaptureImmersivePose( void )
 	vr->cinematic_pose_valid = true;
 }
 
+static void CGCam_AdjustImmersiveShot( void )
+{
+	if ( Q_stricmp( cgs.mapname, "maps/kejim_post.bsp" ) != 0 ||
+		 cg.refdef.vieworg[0] < 4104.0f || cg.refdef.vieworg[0] > 4112.0f ||
+		 cg.refdef.vieworg[1] < -1752.0f || cg.refdef.vieworg[1] > -1736.0f ||
+		 cg.refdef.vieworg[2] < 56.0f || cg.refdef.vieworg[2] > 72.0f )
+	{
+		return;
+	}
+
+	vec3_t forward;
+	AngleVectors( cg.refdefViewAngles, forward, nullptr, nullptr );
+	if ( forward[0] < -0.8f )
+	{
+		// This rear shot was authored only ten game units from the hologram.
+		// Move the immersive viewpoint just beyond the cockpit frame.
+		VectorMA( cg.refdef.vieworg, 6.0f, forward, cg.refdef.vieworg );
+	}
+}
+
 /*
 TODO:
 CloseUp, FullShot & Longshot commands:
@@ -1251,6 +1271,7 @@ void CGCam_Update( void )
 
 	if (vr->immersive_cinematics)
 	{
+		CGCam_AdjustImmersiveShot();
 		if (!vr->cinematic_pose_valid)
 		{
 			CGCam_CaptureImmersivePose();
