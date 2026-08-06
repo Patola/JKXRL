@@ -70,7 +70,7 @@ void R_MorphMallocTag( void *ptr, memtag_t tag )
 
 qhandle_t RE_RegisterShaderNoMip( const char *name )
 {
-	return VK_Backend_RegisterTexture( name );
+	return VK_Backend_RegisterTextureNoMip( name );
 }
 
 void RE_SetColor( const float *color )
@@ -198,7 +198,7 @@ extern "C" Q_EXPORT refexport_t* QDECL GetRefAPI( int apiVersion, refimport_t *r
 	re.RegisterSkin = VK_Backend_RegisterSkin;
 	re.GetAnimationCFG = RE_GetAnimationCFG;
 	re.RegisterShader = VK_Backend_RegisterTexture;
-	re.RegisterShaderNoMip = VK_Backend_RegisterTexture;
+	re.RegisterShaderNoMip = RE_RegisterShaderNoMip;
 	re.LoadWorld = VK_Backend_LoadWorld;
 	re.R_LoadImage = R_LoadImage;
 

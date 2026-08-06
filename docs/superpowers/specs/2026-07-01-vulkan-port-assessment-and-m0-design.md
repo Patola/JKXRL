@@ -157,15 +157,29 @@ with its own spec→plan→implement cycle.
 
 ### Tracked cinematic parity follow-ups
 
-- [ ] Correct the Jedi Academy Star Wars crawl start time so its first line
+- [x] Correct the Jedi Academy Star Wars crawl start time so its first line
   enters from the bottom after the logo instead of appearing partly advanced.
-- [ ] Restore the original yellow crawl color in both Jedi Academy and Jedi
+- [x] Restore the original yellow crawl color in both Jedi Academy and Jedi
   Outcast; the current Vulkan result is too close to white.
-- [ ] Diagnose the choppy audio in the short startup logo cinematics in both
+- [x] Diagnose the choppy audio in the short startup logo cinematics in both
   games. This predates the Vulkan backend, so keep the SDL3 buffering/timing
   work isolated from renderer video playback changes.
+- [ ] Level the immersive-cinematic reference frame at entry so a temporarily
+  leaned or tilted headset does not rotate the entire sequence, while
+  preserving comfortable yaw recentering and live 6DOF tracking.
 - [x] Correct Jedi Outcast's rear Mon Mothma camera framing and hologram-plane
   placement for VR while preserving cinematic 6DOF.
+
+### Tracked controller-pose parity follow-ups
+
+- [ ] Align the Jedi Academy rendered lightsaber blade origin with each hilt's
+  emitter instead of leaving a visible gap above the physical controller-held
+  hilt. Jedi Outcast's distinct hilt model already aligns correctly, so compare
+  its model bolt and per-hilt transform path before changing the global blade
+  origin.
+- [ ] Align the saber collision sweep with the rendered blade so low targets,
+  including Yavin howlers and the scripted cuttable trunks, register hits at
+  their visible height rather than only when aiming into the ground.
 
 ### Tracked UI parity follow-up
 

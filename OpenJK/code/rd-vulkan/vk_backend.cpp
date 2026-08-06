@@ -35,6 +35,7 @@ published by the Free Software Foundation.
 #include <numeric>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -655,6 +656,7 @@ struct vk_backend_state_t
 	std::vector<vk_rect_t> rects;
 	std::vector<vk_texture_t> textures;
 	std::vector<vk_texture_name_t> textureNames;
+	std::unordered_set<qhandle_t> clampTextureHandles;
 	std::vector<vk_texture_name_t> imageNames;
 	std::vector<vk_texture_name_t> modelNames;
 	std::vector<vk_texture_name_t> skinNames;
@@ -871,6 +873,7 @@ static void VK_Backend_Clear()
 	vk.rects.clear();
 	vk.textures.clear();
 	vk.textureNames.clear();
+	vk.clampTextureHandles.clear();
 	vk.imageNames.clear();
 	vk.modelNames.clear();
 	vk.skinNames.clear();
@@ -3964,6 +3967,11 @@ static const std::vector<byte> *VK_WorldVisibleSurfaceMask( const refdef_t &refd
 }
 
 static qhandle_t VK_WorldResolveTexture( qhandle_t shader );
+
+static bool VK_TextureUsesClamp( qhandle_t texture )
+{
+	return vk.clampTextureHandles.find( texture ) != vk.clampTextureHandles.end();
+}
 
 static bool VK_BindWorldTexture(
 	qhandle_t texture,
@@ -7354,7 +7362,8 @@ static uint32_t VK_RecordDynamicEffectBatch(
 	fallback.color[3] = 1.0f;
 	fallback.vertexColor = true;
 	VK_BindWorldPipeline( fallback.blendMode, boundPipeline );
-	if ( !VK_BindWorldTexture( fallback.texture, boundTexture ) )
+	if ( !VK_BindWorldTexture(
+			fallback.texture, boundTexture, !VK_TextureUsesClamp( fallback.texture ) ) )
 	{
 		return 0;
 	}
@@ -9337,6 +9346,7 @@ void VK_Backend_Shutdown()
 	}
 	vk.textures.clear();
 	vk.textureNames.clear();
+	vk.clampTextureHandles.clear();
 
 	for ( int eye = 0; eye < VK_BACKEND_EYE_COUNT; ++eye )
 	{
@@ -12778,6 +12788,16 @@ qhandle_t VK_Backend_RegisterTexture( const char *name )
 	return handle;
 }
 
+qhandle_t VK_Backend_RegisterTextureNoMip( const char *name )
+{
+	const qhandle_t handle = VK_Backend_RegisterTexture( name );
+	if ( handle > 0 )
+	{
+		vk.clampTextureHandles.insert( handle );
+	}
+	return handle;
+}
+
 static void VK_Backend_DrawPic(
 	float x, float y, float w, float h,
 	float s1, float t1, float s2, float t2,
@@ -12831,7 +12851,8 @@ static void VK_Backend_DrawPic(
 	}
 	VK_Backend_AppendScreenRect(
 		x, y, w, h, vk.currentColor, s1, t1, s2, t2,
-		shader, VK_BLEND_ALPHA, angle, pivotX, pivotY, disruptorScope );
+		shader, VK_BLEND_ALPHA, angle, pivotX, pivotY, disruptorScope,
+		!VK_TextureUsesClamp( shader ) );
 }
 
 void VK_Backend_DrawStretchPic(

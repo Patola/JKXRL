@@ -1023,11 +1023,12 @@ void CL_Frame ( int msec,float fractionMsec ) {
 		// update the screen
 		SCR_UpdateScreen();
 	}
+	// Decode streaming cinematic audio before the mixer paints the next DMA
+	// region. The rendered cinematic frame still advances for the next frame.
+	SCR_RunCinematic();
+
 	// update audio
 	S_Update();
-
-	// advance local effects for next frame
-	SCR_RunCinematic();
 
 	Con_RunConsole();
 

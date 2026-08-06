@@ -2761,7 +2761,12 @@ void S_GetSoundtime(void)
 	}
 #endif
 
-	if ( dma.submission_chunk < 256 ) {
+	if ( s_rawend > s_soundtime ) {
+		// Cinematic chunks can be shorter than s_mixPreStep. Repaint from the
+		// playback cursor so newly decoded samples do not remain behind a
+		// protected region of prepainted silence.
+		s_paintedtime = s_soundtime;
+	} else if ( dma.submission_chunk < 256 ) {
 		s_paintedtime = (int)(s_soundtime + s_mixPreStep->value * dma.speed);
 	} else {
 		s_paintedtime = s_soundtime + dma.submission_chunk;

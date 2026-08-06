@@ -84,6 +84,7 @@ void VK_Backend_WorldEffectCommand( const char *command );
 void VK_Backend_AddWeatherZone( vec3_t mins, vec3_t maxs );
 void VK_Backend_SetColor( const float *color );
 qhandle_t VK_Backend_RegisterTexture( const char *name );
+qhandle_t VK_Backend_RegisterTextureNoMip( const char *name );
 void VK_Backend_DrawStretchPic(
 	float x, float y, float w, float h,
 	float s1, float t1, float s2, float t2,
