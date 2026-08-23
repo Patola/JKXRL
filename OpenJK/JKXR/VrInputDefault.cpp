@@ -23,6 +23,26 @@ Authors		:	Simon Brown
 
 void Sys_QueEvent(int time, sysEventType_t type, int value, int value2, int ptrLength, void* ptr);
 
+static float JKXR_VectorLength( const XrVector3f &vector )
+{
+    return sqrtf(
+            vector.x * vector.x +
+            vector.y * vector.y +
+            vector.z * vector.z);
+}
+
+static float JKXR_SaberSwingSpeed( const ovrTrackedController *controller,
+                                   float linearSpeed )
+{
+    const float angularSpeed = JKXR_VectorLength(controller->Velocity.angularVelocity);
+
+    // Approximate the speed at the middle of a one-metre blade. This captures
+    // wrist-driven cuts whose controller centre has little linear movement.
+    constexpr float saberCentreFromController = 0.55f;
+    const float rotationalSpeed = angularSpeed * saberCentreFromController;
+    return sqrtf(linearSpeed * linearSpeed + rotationalSpeed * rotationalSpeed);
+}
+
 
 void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew, ovrInputStateTrackedRemote *pDominantTrackedRemoteOld, ovrTrackedController* pDominantTracking,
                           ovrInputStateTrackedRemote *pOffTrackedRemoteNew, ovrInputStateTrackedRemote *pOffTrackedRemoteOld, ovrTrackedController* pOffTracking,
@@ -623,14 +643,20 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
             vr.weaponoffset_timestamp = Sys_Milliseconds();
 
 
-            vec3_t velocity;
-            VectorSet(velocity, pWeapon->Velocity.linearVelocity.x,
-                      pWeapon->Velocity.linearVelocity.y, pWeapon->Velocity.linearVelocity.z);
-            vr.primaryswingvelocity = VectorLength(velocity);
+            const float primaryLinearVelocity =
+                    JKXR_VectorLength(pWeapon->Velocity.linearVelocity);
+            const float secondaryLinearVelocity =
+                    JKXR_VectorLength(pOff->Velocity.linearVelocity);
 
-            VectorSet(velocity, pOff->Velocity.linearVelocity.x,
-                      pOff->Velocity.linearVelocity.y, pOff->Velocity.linearVelocity.z);
-            vr.secondaryswingvelocity = VectorLength(velocity);
+            if (cl.frame.ps.weapon == WP_SABER) {
+                vr.primaryswingvelocity = JKXR_SaberSwingSpeed(
+                        pWeapon, primaryLinearVelocity);
+                vr.secondaryswingvelocity = JKXR_SaberSwingSpeed(
+                        pOff, secondaryLinearVelocity);
+            } else {
+                vr.primaryswingvelocity = primaryLinearVelocity;
+                vr.secondaryswingvelocity = secondaryLinearVelocity;
+            }
 
 
             //For melee right hand is alt attack and left hand is attack

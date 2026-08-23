@@ -43,7 +43,11 @@ cvar_t		*cl_graphshift;
 static qboolean SCR_UsingVulkanRenderer()
 {
 	const char *renderer = Cvar_VariableString( "cl_renderer" );
-	return ( !Q_stricmp( renderer, "rdsp-vulkan" ) || !Q_stricmp( renderer, "rdjosp-vulkan" ) ) ? qtrue : qfalse;
+	const qboolean jkaVulkan = ( !Q_stricmpn( renderer, "rdsp-vulkan", 11 ) &&
+		( renderer[11] == '\0' || renderer[11] == '-' ) ) ? qtrue : qfalse;
+	const qboolean jkoVulkan = ( !Q_stricmpn( renderer, "rdjosp-vulkan", 13 ) &&
+		( renderer[13] == '\0' || renderer[13] == '-' ) ) ? qtrue : qfalse;
+	return ( jkaVulkan || jkoVulkan ) ? qtrue : qfalse;
 }
 
 /*

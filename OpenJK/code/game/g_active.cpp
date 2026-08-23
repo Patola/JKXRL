@@ -46,6 +46,8 @@ extern void G_MaintainFormations(gentity_t *self);
 extern void BG_CalculateOffsetAngles( gentity_t *ent, usercmd_t *ucmd );//in bg_pangles.cpp
 extern void BG_CalculateVRWeaponPosition( vec3_t origin, vec3_t angles );//in bg_pmisc.cpp
 extern void BG_CalculateVROffHandPosition( vec3_t origin, vec3_t angles );//in bg_pmisc.cpp
+extern void PM_BeginMovementAudit( qboolean enabled );
+extern void PM_DumpMovementAudit( void );
 extern void TryUse( gentity_t *ent );
 extern void TryAltUse( gentity_t *ent );
 extern qboolean TryUseNearbyEmplacedWeapon( gentity_t *ent, bool offHand );
@@ -5510,13 +5512,16 @@ extern cvar_t	*g_skippingcin;
 	VectorCopy( client->ps.origin, oldOrigin );
 
 	// perform a pmove
+	static cvar_t *controllerDebug = gi.cvar( "vr_controller_debug", "0", 0 );
+	PM_BeginMovementAudit(
+		ent->s.number == 0 && controllerDebug != nullptr && controllerDebug->integer
+			? qtrue : qfalse );
 	const usercmd_t movementDebugPmoveCmd = pm.cmd;
 	Pmove( &pm );
 	pm.gent = 0;
 
 	if ( ent->s.number == 0 )
 	{
-		static cvar_t *controllerDebug = gi.cvar( "vr_controller_debug", "0", 0 );
 		static int lastMovementDebugTime = 0;
 		static qboolean movementAnomalyActive = qfalse;
 		const float commandMagnitude = std::sqrt(
@@ -5576,6 +5581,10 @@ extern cvar_t	*g_skippingcin;
 				pm.numtouch > 2 ? pm.touchents[2] : -1,
 				pm.numtouch > 3 ? pm.touchents[3] : -1 );
 			lastMovementDebugTime = level.time;
+			if ( movementAnomaly )
+			{
+				PM_DumpMovementAudit();
+			}
 		}
 		movementAnomalyActive = movementAnomaly;
 	}

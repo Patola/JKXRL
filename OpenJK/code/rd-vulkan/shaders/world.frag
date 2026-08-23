@@ -16,11 +16,18 @@ layout(push_constant) uniform WorldPush
 	vec4 stageColor;
 	vec4 stageFlags;
 	vec2 uvScale;
+	float lightmapGamma;
+	float padding;
 } pc;
 
 void main()
 {
 	vec4 texel = texture(baseTexture, vUv);
+	if (pc.useLightmap > 0.5 && pc.useLightmap < 1.5 &&
+		abs(pc.lightmapGamma - 1.0) > 0.0001)
+	{
+		texel.rgb = pow(max(texel.rgb, vec3(0.0)), vec3(1.0 / pc.lightmapGamma));
+	}
 	if (pc.stageFlags.w >= 10.0)
 	{
 		float maskMode = pc.stageFlags.w - 10.0;
@@ -40,7 +47,8 @@ void main()
 		return;
 	}
 	vec4 generatedColor = mix(vec4(1.0), vColor, pc.stageFlags.x);
-	float fragmentAlpha = texel.a * pc.stageColor.a * generatedColor.a * pc.alpha;
+	float fragmentAlpha = clamp(
+		texel.a * pc.stageColor.a * generatedColor.a * pc.alpha, 0.0, 1.0);
 	float alphaTest = pc.stageFlags.w;
 	if ((alphaTest > 0.5 && alphaTest < 1.5 && fragmentAlpha <= 0.0) ||
 		(alphaTest > 1.5 && alphaTest < 2.5 && fragmentAlpha >= 0.5) ||
@@ -50,5 +58,5 @@ void main()
 		discard;
 	}
 	outColor = texel * pc.stageColor * generatedColor;
-	outColor.a *= pc.alpha;
+	outColor.a = fragmentAlpha;
 }

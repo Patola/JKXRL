@@ -19,6 +19,8 @@ layout(push_constant) uniform WorldPush
 	vec4 stageColor;
 	vec4 stageFlags;
 	vec2 uvScale;
+	float lightmapGamma;
+	float padding;
 } pc;
 
 void main()

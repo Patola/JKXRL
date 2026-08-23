@@ -6042,6 +6042,98 @@ void CG_CheckSaberInWater( centity_t *cent, centity_t *scent, int saberNum, int 
 	client->ps.saberEventFlags &= ~SEF_INWATER;
 }
 
+static constexpr float JKXR_FIRST_PERSON_SABER_SCALE = 0.8f;
+
+static const char *CG_FirstPersonSaberModelName( const centity_t *cent, int saberNum )
+{
+	const char *model = cent->gent->client->ps.saber[saberNum].model;
+	return model != nullptr ? model : "models/weapons2/saber_1/saber_1.glm";
+}
+
+static qboolean CG_EnsureFirstPersonSaberModel( const centity_t *cent, int saberNum )
+{
+	const char *saberModel = CG_FirstPersonSaberModelName( cent, saberNum );
+	const int saberModelIndex = G_ModelIndex( saberModel );
+	if ( saberModelIndex != cg.saberModelIndex[saberNum] ||
+		 cg.saber_ghoul2[saberNum].size() == 0 )
+	{
+		if ( cg.saber_ghoul2[saberNum].size() != 0 )
+		{
+			gi.G2API_RemoveGhoul2Model( cg.saber_ghoul2[saberNum], cg.saberG2Num[saberNum] );
+		}
+		cg.saberG2Num[saberNum] = gi.G2API_InitGhoul2Model(
+			cg.saber_ghoul2[saberNum], saberModel, saberModelIndex,
+			NULL_HANDLE, NULL_HANDLE, 0, 0 );
+		cg.saberModelIndex[saberNum] = saberModelIndex;
+	}
+
+	return cg.saberG2Num[saberNum] >= 0 &&
+		cg.saber_ghoul2[saberNum].size() > cg.saberG2Num[saberNum] ? qtrue : qfalse;
+}
+
+static void CG_FirstPersonSaberHiltTransform(
+	int saberNum, vec3_t origin, vec3_t angles, vec3_t axis[3] )
+{
+	BG_CalculateVRSaberPosition( saberNum, origin, angles );
+
+	vec3_t controllerAxis[3];
+	AnglesToAxis( angles, controllerAxis );
+	VectorSubtract( vec3_origin, controllerAxis[2], axis[0] );
+	VectorCopy( controllerAxis[1], axis[1] );
+	VectorCopy( controllerAxis[0], axis[2] );
+}
+
+static qboolean CG_FirstPersonSaberBladeTransform(
+	const centity_t *cent, int saberNum, int bladeNum, vec3_t origin, vec3_t direction )
+{
+	if ( !CG_EnsureFirstPersonSaberModel( cent, saberNum ) )
+	{
+		return qfalse;
+	}
+
+	const int modelIndex = cg.saberG2Num[saberNum];
+	const int bolt = gi.G2API_AddBolt(
+		&cg.saber_ghoul2[saberNum][modelIndex], va( "*blade%d", bladeNum + 1 ) );
+	if ( bolt < 0 )
+	{
+		return qfalse;
+	}
+
+	const vec3_t modelScale = {
+		JKXR_FIRST_PERSON_SABER_SCALE,
+		JKXR_FIRST_PERSON_SABER_SCALE,
+		JKXR_FIRST_PERSON_SABER_SCALE
+	};
+	mdxaBone_t boltMatrix;
+	if ( !gi.G2API_GetBoltMatrix(
+			cg.saber_ghoul2[saberNum], modelIndex, bolt, &boltMatrix,
+			vec3_origin, vec3_origin, cg.time, cgs.model_draw, modelScale ) )
+	{
+		return qfalse;
+	}
+
+	vec3_t localOrigin;
+	vec3_t localDirection;
+	gi.G2API_GiveMeVectorFromMatrix( boltMatrix, ORIGIN, localOrigin );
+	gi.G2API_GiveMeVectorFromMatrix( boltMatrix, NEGATIVE_X, localDirection );
+
+	vec3_t hiltOrigin;
+	vec3_t hiltAngles;
+	vec3_t hiltAxis[3];
+	CG_FirstPersonSaberHiltTransform( saberNum, hiltOrigin, hiltAngles, hiltAxis );
+
+	VectorCopy( hiltOrigin, origin );
+	VectorMA( origin, localOrigin[0], hiltAxis[0], origin );
+	VectorMA( origin, localOrigin[1], hiltAxis[1], origin );
+	VectorMA( origin, localOrigin[2], hiltAxis[2], origin );
+
+	VectorScale( hiltAxis[0], localDirection[0], direction );
+	VectorMA( direction, localDirection[1], hiltAxis[1], direction );
+	VectorMA( direction, localDirection[2], hiltAxis[2], direction );
+	VectorNormalize( direction );
+	return qtrue;
+}
+
 static void CG_AddSaberBladeGo( centity_t *cent, centity_t *scent, refEntity_t *saber, int renderfx, int modelIndex, vec3_t origin, vec3_t angles, int saberNum, int bladeNum )
 {
 	vec3_t	org_, end,//org_future,
@@ -6165,15 +6257,20 @@ Ghoul2 Insert Start
 				!in_camera &&
 				cent->gent->client->ps.saberLockEnemy == ENTITYNUM_NONE)
 			{
-				vec3_t angles;
-				BG_CalculateVRSaberPosition(saberNum, org_, angles);
-				AnglesToAxis(angles, axis_);
-				if (bladeNum == 1)
+				if ( tagHack ||
+					 !CG_FirstPersonSaberBladeTransform( cent, saberNum, bladeNum, org_, axis_[0] ) )
 				{
-					VectorSubtract( vec3_origin, axis_[0], axis_[0] );
+					vec3_t vrAngles;
+					BG_CalculateVRSaberPosition( saberNum, org_, vrAngles );
+					AnglesToAxis( vrAngles, axis_ );
+					if ( bladeNum == 1 )
+					{
+						VectorSubtract( vec3_origin, axis_[0], axis_[0] );
+					}
+					const float dist =
+						cent->gent->client->ps.saber[saberNum].numBlades > 1 ? 12.0f : 5.5f;
+					VectorMA( org_, dist, axis_[0], org_ );
 				}
-				float dist = (cent->gent->client->ps.saber[saberNum].numBlades > 1) ? 12.0f : 5.5f;
-				VectorMA(org_, dist, axis_[0], org_);
 			}
 		}
 
@@ -8618,46 +8715,28 @@ Ghoul2 Insert End
 			{
 				continue;
 			}
-
-			char saberModel[256];
-			if (cent->gent->client->ps.saber[saberNum].model == nullptr)
+			if ( !CG_EnsureFirstPersonSaberModel( cent, saberNum ) )
 			{
-				//Bit of a fiddle, but if we have no saber model for some reason, just use a default one
-				strcpy(saberModel, "models/weapons2/saber_1/saber_1.glm");
-			}
-			else
-			{
-				strcpy(saberModel, cent->gent->client->ps.saber[saberNum].model);
+				continue;
 			}
 
 			refEntity_t hiltEnt;
 			memset( &hiltEnt, 0, sizeof(refEntity_t) );
 
-			BG_CalculateVRSaberPosition(saberNum, hiltEnt.origin, hiltEnt.angles);
-
-			int saberModelIndex = G_ModelIndex( saberModel );
-			if (saberModelIndex != cg.saberModelIndex[saberNum])
-			{
-				if (cg.saber_ghoul2[saberNum].size() != 0)
-				{
-					gi.G2API_RemoveGhoul2Model(cg.saber_ghoul2[saberNum], cg.saberG2Num[saberNum]);
-				}
-				cg.saberG2Num[saberNum] = gi.G2API_InitGhoul2Model( cg.saber_ghoul2[saberNum], saberModel, saberModelIndex , NULL_HANDLE, NULL_HANDLE, 0, 0 );
-				cg.saberModelIndex[saberNum] = saberModelIndex;
-			}
 			hiltEnt.ghoul2 = &cg.saber_ghoul2[saberNum];
 			hiltEnt.hModel = cgs.model_draw[0];
-			VectorSet( hiltEnt.modelScale, 0.8f, 0.8f, 0.8f ); // Scale down slightly or they are all just too big
+			VectorSet(
+				hiltEnt.modelScale,
+				JKXR_FIRST_PERSON_SABER_SCALE,
+				JKXR_FIRST_PERSON_SABER_SCALE,
+				JKXR_FIRST_PERSON_SABER_SCALE );
 			hiltEnt.radius = 60;
 
-			vec3_t axis[3];
-			AnglesToAxis(hiltEnt.angles, axis);
-			VectorSubtract(vec3_origin, axis[2], hiltEnt.axis[0]);
-			VectorCopy(axis[1], hiltEnt.axis[1]);
-			VectorCopy(axis[0], hiltEnt.axis[2]);
+			CG_FirstPersonSaberHiltTransform(
+				saberNum, hiltEnt.origin, hiltEnt.angles, hiltEnt.axis );
 			VectorCopy(hiltEnt.origin, hiltEnt.oldorigin);
 
-            CG_AddRefEntityWithPowerups(&hiltEnt, cent->currentState.powerups, cent, true);
+			CG_AddRefEntityWithPowerups(&hiltEnt, cent->currentState.powerups, cent, true);
 		}
 	}
 

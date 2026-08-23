@@ -137,7 +137,8 @@ makepkg -si
 
 It installs into the system (root-owned) paths:
 
-- `/usr/lib/jkxr/` — engines + renderer/game `.so` modules
+- `/usr/lib/jkxr/` — engines and renderer `.so` modules
+- `/usr/lib/jkxr/base/` — JKA/JKO gamecode `.so` modules
 - `/usr/share/jkxr/{jka,jko}/` — VR asset pk3s
 - `/usr/bin/jkxr-jka`, `/usr/bin/jkxr-jko` — launchers
 

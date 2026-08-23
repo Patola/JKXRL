@@ -36,6 +36,7 @@ console_t	con;
 
 cvar_t		*con_conspeed;
 cvar_t		*con_notifytime;
+cvar_t		*con_drawnotify;
 cvar_t		*con_opacity; // background alpha multiplier
 cvar_t		*con_autoclear;
 
@@ -274,6 +275,7 @@ void Con_Init (void) {
 	int		i;
 
 	con_notifytime = Cvar_Get ("con_notifytime", "3", 0);
+	con_drawnotify = Cvar_Get ("con_drawnotify", "0", CVAR_ARCHIVE_ND);
 	con_conspeed = Cvar_Get ("scr_conspeed", "3", 0);
 	Cvar_CheckRange (con_conspeed, 1.0f, 100.0f, qfalse);
 
@@ -684,7 +686,7 @@ void Con_DrawConsole( void ) {
 		Con_DrawSolidConsole( con.displayFrac );
 	} else {
 		// draw notify lines
-		if ( cls.state == CA_ACTIVE ) {
+		if ( cls.state == CA_ACTIVE && con_drawnotify->integer ) {
 			Con_DrawNotify ();
 		}
 	}

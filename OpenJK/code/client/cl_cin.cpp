@@ -1649,9 +1649,10 @@ static void CIN_AddTextCrawl()
 	}
 	for ( int i = 0; i < 4; i++ )
 	{
-		verts[i].modulate[0] = 254*fadeDown;
-		verts[i].modulate[1] = 218*fadeDown;
-		verts[i].modulate[2] = 74*fadeDown;
+		// Linear-light equivalent of the logo's #F1DC71 gold for the sRGB swapchain.
+		verts[i].modulate[0] = 224*fadeDown;
+		verts[i].modulate[1] = 183*fadeDown;
+		verts[i].modulate[2] = 42*fadeDown;
 		verts[i].modulate[3] = 255*fadeDown;
 	}
 

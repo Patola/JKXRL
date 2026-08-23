@@ -1251,6 +1251,17 @@ void FinishSpawningItem( gentity_t *ent ) {
 	}
 
 	gi.linkentity (ent);
+
+	if ( ent->item != nullptr && ent->item->classname != nullptr &&
+		Q_stricmp( ent->item->classname, "item_medpak_instant" ) == 0 )
+	{
+		gi.Printf(
+			"jkxr-item-audit: spawned ent=%d map=%s origin=(%.1f %.1f %.1f) "
+			"linked=%d eflags=0x%x contents=0x%x spawnflags=0x%x\n",
+			ent->s.number, level.mapname,
+			ent->currentOrigin[0], ent->currentOrigin[1], ent->currentOrigin[2],
+			ent->linked, ent->s.eFlags, ent->contents, ent->spawnflags );
+	}
 }
 
 
@@ -1661,4 +1672,3 @@ void ItemUse_Bacta(gentity_t *ent)
 
 	G_SoundOnEnt( ent, CHAN_VOICE, va( "sound/weapons/force/heal%d_%c.mp3", Q_irand( 1, 4 ), g_sex->string[0] ) );
 }
-

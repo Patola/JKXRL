@@ -4306,8 +4306,11 @@ static void CG_Draw2D( void )
 	{//force sight is on
 		//indicate this with sight cone thingy
 		cg.drawingHUD = CG_HUD_OTHER;
-		CG_DrawVignette(true);
-		CG_DrawPic( 50, 40, 540, 400, cgi_R_RegisterShader( "gfx/2d/jsense" ));
+		vec4_t vignetteColor = { 0.0f, 0.0f, 0.0f, 1.0f };
+		cgi_R_SetColor( vignetteColor );
+		CG_DrawPic( 0, 0, 640, 480, cgs.media.vignetteShader );
+		cgi_R_SetColor( nullptr );
+		CG_DrawPic( 0, 0, 640, 480, cgi_R_RegisterShader( "gfx/2d/jsense" ));
 		cg.drawingHUD = CG_HUD_SCALED;
 		CG_DrawHealthBars();
 	}
@@ -4318,7 +4321,7 @@ static void CG_Draw2D( void )
 
 
 
-	if (cg.zoomMode || (cg.snap->ps.forcePowersActive & (1 << FP_SEE)))
+	if (cg.zoomMode)
 	{
 		cg.drawingHUD = CG_HUD_NORMAL;
 		const auto xOffset = (-vr->off_center_fov_x * 640);

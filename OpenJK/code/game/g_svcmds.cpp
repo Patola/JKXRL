@@ -126,6 +126,44 @@ void	Svcmd_EntityList_f (void) {
 	}
 }
 
+static void Svcmd_JkxrItemAudit_f( void )
+{
+	const gentity_t *playerEnt = &g_entities[0];
+	gi.Printf(
+		"jkxr-item-audit: map=%s player=(%.1f %.1f %.1f) health=%d entities=%d\n",
+		level.mapname,
+		playerEnt->currentOrigin[0], playerEnt->currentOrigin[1], playerEnt->currentOrigin[2],
+		playerEnt->health, globals.num_entities );
+
+	int itemCount = 0;
+	for ( int entityNum = 0; entityNum < globals.num_entities; ++entityNum )
+	{
+		const gentity_t *ent = &g_entities[entityNum];
+		if ( !ent->inuse || ( ent->s.eType != ET_ITEM && ent->item == nullptr ) )
+		{
+			continue;
+		}
+
+		const char *classname = ent->classname != nullptr ? ent->classname : "<none>";
+		const char *itemClassname = ent->item != nullptr && ent->item->classname != nullptr
+			? ent->item->classname
+			: "<none>";
+		const char *worldModel = ent->item != nullptr && ent->item->world_model != nullptr
+			? ent->item->world_model
+			: "<none>";
+		gi.Printf(
+			"jkxr-item-audit: ent=%d class=%s item=%s model=%s "
+			"origin=(%.1f %.1f %.1f) linked=%d type=%d eflags=0x%x contents=0x%x "
+			"spawnflags=0x%x\n",
+			entityNum, classname, itemClassname, worldModel,
+			ent->currentOrigin[0], ent->currentOrigin[1], ent->currentOrigin[2],
+			ent->linked, ent->s.eType, ent->s.eFlags, ent->contents, ent->spawnflags );
+		++itemCount;
+	}
+
+	gi.Printf( "jkxr-item-audit: listed=%d\n", itemCount );
+}
+
 //---------------------------
 extern void G_StopCinematicSkip( void );
 extern void G_StartCinematicSkip( void );
@@ -922,6 +960,7 @@ static int svcmdcmp( const void *a, const void *b ) {
 // FIXME some of these should be made CMD_ALIVE too!
 static svcmd_t svcmds[] = {
 	{ "entitylist",					Svcmd_EntityList_f,							CMD_NONE },
+	{ "jkxr_itemaudit",				Svcmd_JkxrItemAudit_f,						CMD_NONE },
 	{ "game_memory",				Svcmd_GameMem_f,							CMD_NONE },
 
 	{ "nav",						Svcmd_Nav_f,								CMD_CHEAT },
@@ -1009,4 +1048,3 @@ qboolean	ConsoleCommand( void ) {
 		command->func();
 	return qtrue;
 }
-

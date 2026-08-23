@@ -50,6 +50,21 @@ static float	sabersCrossed;
 static int		saberHitEntity;
 static int		numVictims = 0;
 
+static float WP_DistanceToBladeSegment( const vec3_t point, const vec3_t base, const vec3_t tip )
+{
+	vec3_t segment;
+	vec3_t relative;
+	VectorSubtract( tip, base, segment );
+	VectorSubtract( point, base, relative );
+	const float lengthSquared = VectorLengthSquared( segment );
+	const float fraction = lengthSquared > 0.0001f
+		? std::clamp( DotProduct( relative, segment ) / lengthSquared, 0.0f, 1.0f )
+		: 0.0f;
+	vec3_t closest;
+	VectorMA( base, fraction, segment, closest );
+	return Distance( point, closest );
+}
+
 extern cvar_t	*g_sex;
 extern cvar_t	*g_timescale;
 extern cvar_t	*g_dismemberment;
@@ -1653,7 +1668,29 @@ qboolean WP_SaberApplyDamage( gentity_t *ent, float baseDamage, int baseDFlags,
 						{
 							damage = ceil(totalDmg[i]);
 						}
+						const bool auditHowler =
+							ent->s.number == 0 && victim->client != nullptr &&
+							victim->client->NPC_class == CLASS_HOWLER;
+						const int healthBefore = victim->health;
+						if ( auditHowler )
+						{
+							gi.Printf(
+								"jkxr-saber-howler: apply ent=%d health=%d damage=%d accumulated=%.3f "
+								"base=%.3f dflags=0x%x fraction=%.5f stopFraction=%.5f "
+								"anim=(%d/%d %d/%d) localState=%d\n",
+								victim->s.number, healthBefore, damage, totalDmg[i],
+								baseDamage, dFlags, dmgFraction[i], saberHitFraction,
+								victim->client->ps.legsAnim, victim->client->ps.legsAnimTimer,
+								victim->client->ps.torsoAnim, victim->client->ps.torsoAnimTimer,
+								victim->NPC != nullptr ? victim->NPC->localState : -1 );
+						}
 						G_Damage( victim, inflictor, ent, dmgDir[i], dmgSpot[i], damage, dFlags, MOD_SABER, hitDismemberLoc[i] );
+						if ( auditHowler )
+						{
+							gi.Printf( "jkxr-saber-howler: result ent=%d health=%d delta=%d takedamage=%d\n",
+								victim->s.number, victim->health, victim->health - healthBefore,
+								victim->takedamage );
+						}
 						if ( damage > 0 && cg.time )
 						{
 							float sizeTimeScale = 1.0f;
@@ -2538,7 +2575,6 @@ qboolean WP_SaberDamageForTrace( int ignore, vec3_t start, vec3_t end, float dmg
 	{
 		gi.trace( &tr, start, NULL, NULL, end2, ignore, mask, G2_NOCOLLIDE, 10 );
 	}
-
 
 #ifndef FINAL_BUILD
 	if ( d_saberCombat->integer > 1 )
@@ -4827,6 +4863,25 @@ void WP_SaberDamageTrace( gentity_t *ent, int saberNum, int bladeNum )
 			}
 		}
 
+		const bool sonicPainAnimation =
+			ent->client->ps.torsoAnim == BOTH_SONICPAIN_START ||
+			ent->client->ps.torsoAnim == BOTH_SONICPAIN_HOLD ||
+			ent->client->ps.torsoAnim == BOTH_SONICPAIN_END;
+		if ( ent->s.number == 0 && vr->primaryVelocityTriggeredAttack &&
+			 sonicPainAnimation && baseDamage <= 0.1f )
+		{
+			// A tracked VR hand remains physically free while the legacy player
+			// model is forced into the two-handed sonic-pain animation.
+			baseDamage = entPowerLevel > 0 ? 2.5f * static_cast<float>( entPowerLevel ) : 2.5f;
+			baseDFlags &= ~( DAMAGE_NO_DAMAGE | DAMAGE_NO_KILL );
+			static qboolean loggedSonicPainSwing = qfalse;
+			if ( !loggedSonicPainSwing )
+			{
+				gi.Printf( "jkxr-saber: tracked swing overrides sonic-pain animation gate\n" );
+				loggedSonicPainSwing = qtrue;
+			}
+		}
+
 		//Use current to next since can predict it
 		//FIXME: if they're closer than the saber blade start, we don't want the
 		//		arm to pass through them without any damage... so check the radius
@@ -5851,10 +5906,33 @@ void WP_SabersDamageTrace( gentity_t *ent, qboolean noEffects )
 		if ( debugControllerSaber && i == 0 )
 		{
 			const bladeInfo_t &blade = ent->client->ps.saber[0].blade[0];
+			vec3_t bladeTip;
+			VectorMA( blade.muzzlePoint, blade.length, blade.muzzleDir, bladeTip );
+			int nearestHowler = ENTITYNUM_NONE;
+			float nearestHowlerDistance = 999999.0f;
+			for ( int entityNum = MAX_CLIENTS; entityNum < ENTITYNUM_WORLD; ++entityNum )
+			{
+				gentity_t *candidate = &g_entities[entityNum];
+				if ( !candidate->inuse || candidate->client == nullptr ||
+					 candidate->client->NPC_class != CLASS_HOWLER )
+				{
+					continue;
+				}
+				vec3_t center;
+				VectorAdd( candidate->absmin, candidate->absmax, center );
+				VectorScale( center, 0.5f, center );
+				const float distance = WP_DistanceToBladeSegment(
+					center, blade.muzzlePoint, bladeTip );
+				if ( distance < nearestHowlerDistance )
+				{
+					nearestHowler = entityNum;
+					nearestHowlerDistance = distance;
+				}
+			}
 			gi.Printf(
 				"jkxr-saber-debug: speed=%.3f triggered=%d active=%d move=%d weaponState=%d "
 				"base=(%.1f %.1f %.1f) old=(%.1f %.1f %.1f) dir=(%.3f %.3f %.3f) "
-				"victims=%d hitEntity=%d\n",
+				"victims=%d hitEntity=%d nearestHowler=%d distance=%.2f\n",
 				vr->primaryswingvelocity,
 				vr->primaryVelocityTriggeredAttack,
 				vr->velocitytriggeractive,
@@ -5863,7 +5941,19 @@ void WP_SabersDamageTrace( gentity_t *ent, qboolean noEffects )
 				blade.muzzlePoint[0], blade.muzzlePoint[1], blade.muzzlePoint[2],
 				blade.muzzlePointOld[0], blade.muzzlePointOld[1], blade.muzzlePointOld[2],
 				blade.muzzleDir[0], blade.muzzleDir[1], blade.muzzleDir[2],
-				numVictims, saberHitEntity );
+				numVictims, saberHitEntity, nearestHowler, nearestHowlerDistance );
+			if ( nearestHowler != ENTITYNUM_NONE && nearestHowlerDistance < 96.0f )
+			{
+				const gentity_t *howler = &g_entities[nearestHowler];
+				gi.Printf(
+					"jkxr-saber-howler: nearby ent=%d distance=%.2f health=%d "
+					"anim=(%d/%d %d/%d) localState=%d victims=%d hitEntity=%d\n",
+					nearestHowler, nearestHowlerDistance, howler->health,
+					howler->client->ps.legsAnim, howler->client->ps.legsAnimTimer,
+					howler->client->ps.torsoAnim, howler->client->ps.torsoAnimTimer,
+					howler->NPC != nullptr ? howler->NPC->localState : -1,
+					numVictims, saberHitEntity );
+			}
 			lastControllerDebugTime = level.time;
 		}
 	}

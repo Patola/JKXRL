@@ -2,6 +2,8 @@
 
 layout(location = 0) out vec2 vUv;
 layout(location = 1) out vec4 vColor;
+layout(location = 2) out vec2 vOverlayUv;
+layout(location = 3) flat out float vOverlayMode;
 
 layout(push_constant) uniform RectPush
 {
@@ -9,6 +11,8 @@ layout(push_constant) uniform RectPush
 	vec4 uv;
 	vec4 color;
 	vec4 rotation;
+	vec4 uvRotation;
+	vec4 overlayUvTransform;
 	vec4 screenTransform;
 } pc;
 
@@ -24,7 +28,18 @@ const vec2 corners[6] = vec2[](
 void main()
 {
 	vec2 corner = corners[gl_VertexIndex];
-	vUv = mix(pc.uv.xy, pc.uv.zw, corner);
+	vec2 overlayCorner = corner * pc.overlayUvTransform.xy + pc.overlayUvTransform.zw;
+	if (pc.screenTransform.w > 1.5)
+	{
+		overlayCorner = vec2(0.5) + (overlayCorner - vec2(0.5)) * pc.uvRotation.z;
+	}
+	vOverlayUv = corner;
+	vOverlayMode = pc.screenTransform.w;
+	vec2 uv = mix(pc.uv.xy, pc.uv.zw, overlayCorner);
+	vec2 relativeUv = uv - vec2(0.5);
+	vUv = vec2(0.5) + vec2(
+		relativeUv.x * pc.uvRotation.y - relativeUv.y * pc.uvRotation.x,
+		relativeUv.x * pc.uvRotation.x + relativeUv.y * pc.uvRotation.y);
 	vColor = pc.color;
 	vec2 position = mix(pc.rect.xy, pc.rect.zw, corner);
 	vec2 relative = position - pc.rotation.zw;

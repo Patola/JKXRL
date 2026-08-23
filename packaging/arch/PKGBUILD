@@ -47,15 +47,18 @@ build() {
 }
 
 package() {
-	# Engines, renderers and game code all live together so the engine finds
-	# the .so modules next to the binary.
+	# Engines and renderers live together beside the executable.
 	install -Dm755 -t "$pkgdir/usr/lib/jkxr" \
 		build/openjk_sp.x86_64 \
 		build/openjo_sp.x86_64 \
 		build/code/rd-vanilla/rdsp-vanilla_x86_64.so \
 		build/code/rd-vanilla/rdjosp-vanilla_x86_64.so \
 		build/code/rd-vulkan/rdsp-vulkan_x86_64.so \
-		build/code/rd-vulkan/rdjosp-vulkan_x86_64.so \
+		build/code/rd-vulkan/rdjosp-vulkan_x86_64.so
+
+	# Game modules belong in the base search directory. This is checked before
+	# GameData-root modules left by older manual installations.
+	install -Dm755 -t "$pkgdir/usr/lib/jkxr/base" \
 		build/code/game/jagamex86_64.so \
 		build/codeJK2/game/jospgamex86_64.so
 

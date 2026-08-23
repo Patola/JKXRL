@@ -89,5 +89,3 @@ void BG_CalculateVRPositionInWorld( const vec3_t in_position,  vec3_t in_offset,
 
 #endif
 
-
-
