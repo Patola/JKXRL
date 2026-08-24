@@ -47,6 +47,7 @@ enum vk_blend_mode_t
 	VK_BLEND_OPAQUE,
 	VK_BLEND_ADDITIVE,
 	VK_BLEND_SOURCE_ALPHA_ADDITIVE,
+	VK_BLEND_INVERSE_SOURCE_ALPHA_ADDITIVE,
 	VK_BLEND_ONE_SOURCE_ALPHA,
 	VK_BLEND_DESTINATION_COLOR_ADDITIVE,
 	VK_BLEND_ONE_MINUS_DESTINATION_ALPHA_ADDITIVE,
@@ -664,6 +665,7 @@ struct vk_backend_state_t
 	VkPipeline texturedRectOpaquePipeline;
 	VkPipeline texturedRectAdditivePipeline;
 	VkPipeline texturedRectSourceAlphaAdditivePipeline;
+	VkPipeline texturedRectInverseSourceAlphaAdditivePipeline;
 	VkPipeline texturedRectDestinationColorAdditivePipeline;
 	VkPipeline texturedRectOneMinusDestinationAlphaAdditivePipeline;
 	VkPipeline texturedRectModulatePipeline;
@@ -676,6 +678,7 @@ struct vk_backend_state_t
 	VkPipeline worldAlphaDepthWritePipeline;
 	VkPipeline worldAdditivePipeline;
 	VkPipeline worldSourceAlphaAdditivePipeline;
+	VkPipeline worldInverseSourceAlphaAdditivePipeline;
 	VkPipeline worldOneSourceAlphaPipeline;
 	VkPipeline worldDestinationColorAdditivePipeline;
 	VkPipeline worldOneMinusDestinationAlphaAdditivePipeline;
@@ -766,6 +769,10 @@ struct vk_backend_state_t
 	std::vector<vk_scene_poly_t> scenePolys;
 	std::vector<refEntity_t> worldEntities;
 	std::vector<vk_scene_poly_t> worldPolys;
+	bool havePortalRefdef;
+	refdef_t portalRefdef;
+	std::vector<refEntity_t> portalEntities;
+	std::vector<vk_scene_poly_t> portalPolys;
 	std::vector<vk_scene_submission_t> screenScenes;
 	std::vector<vk_screen_scene_clip_t> screenSceneClips;
 	bool sceneRenderedThisFrame;
@@ -908,6 +915,7 @@ static void VK_Backend_Clear()
 	vk.texturedRectOpaquePipeline = VK_NULL_HANDLE;
 	vk.texturedRectAdditivePipeline = VK_NULL_HANDLE;
 	vk.texturedRectSourceAlphaAdditivePipeline = VK_NULL_HANDLE;
+	vk.texturedRectInverseSourceAlphaAdditivePipeline = VK_NULL_HANDLE;
 	vk.texturedRectDestinationColorAdditivePipeline = VK_NULL_HANDLE;
 	vk.texturedRectOneMinusDestinationAlphaAdditivePipeline = VK_NULL_HANDLE;
 	vk.texturedRectModulatePipeline = VK_NULL_HANDLE;
@@ -920,6 +928,7 @@ static void VK_Backend_Clear()
 	vk.worldAlphaDepthWritePipeline = VK_NULL_HANDLE;
 	vk.worldAdditivePipeline = VK_NULL_HANDLE;
 	vk.worldSourceAlphaAdditivePipeline = VK_NULL_HANDLE;
+	vk.worldInverseSourceAlphaAdditivePipeline = VK_NULL_HANDLE;
 	vk.worldOneSourceAlphaPipeline = VK_NULL_HANDLE;
 	vk.worldDestinationColorAdditivePipeline = VK_NULL_HANDLE;
 	vk.worldOneMinusDestinationAlphaAdditivePipeline = VK_NULL_HANDLE;
@@ -1011,6 +1020,10 @@ static void VK_Backend_Clear()
 	vk.scenePolys.clear();
 	vk.worldEntities.clear();
 	vk.worldPolys.clear();
+	vk.havePortalRefdef = false;
+	std::memset( &vk.portalRefdef, 0, sizeof( vk.portalRefdef ) );
+	vk.portalEntities.clear();
+	vk.portalPolys.clear();
 	vk.screenScenes.clear();
 	vk.screenSceneClips.clear();
 	vk.sceneRenderedThisFrame = false;
@@ -2299,6 +2312,11 @@ static void VK_ParseShaderFile( const char *filename )
 					{
 						stage.blendMode = VK_BLEND_SOURCE_ALPHA_ADDITIVE;
 					}
+					else if ( Q_stricmp( source.c_str(), "GL_ONE_MINUS_SRC_ALPHA" ) == 0 &&
+						 Q_stricmp( destination.c_str(), "GL_ONE" ) == 0 )
+					{
+						stage.blendMode = VK_BLEND_INVERSE_SOURCE_ALPHA_ADDITIVE;
+					}
 					else if ( Q_stricmp( source.c_str(), "GL_ONE" ) == 0 &&
 						 Q_stricmp( destination.c_str(), "GL_ZERO" ) == 0 )
 					{
@@ -2322,6 +2340,12 @@ static void VK_ParseShaderFile( const char *filename )
 					else if ( Q_stricmp( source.c_str(), "GL_DST_COLOR" ) == 0 &&
 						 Q_stricmp( destination.c_str(), "GL_ZERO" ) == 0 )
 					{
+						stage.blendMode = VK_BLEND_MODULATE;
+					}
+					else if ( Q_stricmp( source.c_str(), "GL_ZERO" ) == 0 &&
+						 Q_stricmp( destination.c_str(), "GL_SRC_COLOR" ) == 0 )
+					{
+						// Source * destination is commutative for both RGB and alpha.
 						stage.blendMode = VK_BLEND_MODULATE;
 					}
 					else if ( Q_stricmp( source.c_str(), "GL_DST_COLOR" ) == 0 &&
@@ -3440,6 +3464,13 @@ static bool VK_CreatePipeline(
 		colorAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
 		colorAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
 	}
+	else if ( blendMode == VK_BLEND_INVERSE_SOURCE_ALPHA_ADDITIVE )
+	{
+		colorAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+		colorAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+		colorAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+		colorAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+	}
 	else if ( blendMode == VK_BLEND_DESTINATION_COLOR_ADDITIVE )
 	{
 		colorAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_DST_COLOR;
@@ -3582,6 +3613,11 @@ static bool VK_CreatePipelines()
 			VK_BLEND_SOURCE_ALPHA_ADDITIVE ) &&
 		VK_CreatePipeline( texturedRectVertSpv, ARRAY_LEN( texturedRectVertSpv ),
 			texturedRectFragSpv, ARRAY_LEN( texturedRectFragSpv ),
+			&vk.texturedRectInverseSourceAlphaAdditivePipeline,
+			"vkCreateGraphicsPipelines(textured-rect-inverse-source-alpha-additive)",
+			VK_BLEND_INVERSE_SOURCE_ALPHA_ADDITIVE ) &&
+		VK_CreatePipeline( texturedRectVertSpv, ARRAY_LEN( texturedRectVertSpv ),
+			texturedRectFragSpv, ARRAY_LEN( texturedRectFragSpv ),
 			&vk.texturedRectDestinationColorAdditivePipeline,
 			"vkCreateGraphicsPipelines(textured-rect-destination-color-additive)", VK_BLEND_DESTINATION_COLOR_ADDITIVE ) &&
 		VK_CreatePipeline( texturedRectVertSpv, ARRAY_LEN( texturedRectVertSpv ),
@@ -3630,6 +3666,12 @@ static bool VK_CreatePipelines()
 			&vk.worldSourceAlphaAdditivePipeline,
 			"vkCreateGraphicsPipelines(world-source-alpha-additive)",
 			VK_BLEND_SOURCE_ALPHA_ADDITIVE,
+			VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, true, false, true ) &&
+		VK_CreatePipeline( worldVertSpv, ARRAY_LEN( worldVertSpv ),
+			worldFragSpv, ARRAY_LEN( worldFragSpv ),
+			&vk.worldInverseSourceAlphaAdditivePipeline,
+			"vkCreateGraphicsPipelines(world-inverse-source-alpha-additive)",
+			VK_BLEND_INVERSE_SOURCE_ALPHA_ADDITIVE,
 			VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, true, false, true ) &&
 		VK_CreatePipeline( worldVertSpv, ARRAY_LEN( worldVertSpv ),
 			worldFragSpv, ARRAY_LEN( worldFragSpv ),
@@ -4273,6 +4315,8 @@ static VkPipeline VK_WorldPipelineForBlend( vk_blend_mode_t blendMode, bool dept
 		return vk.worldAdditivePipeline;
 	case VK_BLEND_SOURCE_ALPHA_ADDITIVE:
 		return vk.worldSourceAlphaAdditivePipeline;
+	case VK_BLEND_INVERSE_SOURCE_ALPHA_ADDITIVE:
+		return vk.worldInverseSourceAlphaAdditivePipeline;
 	case VK_BLEND_ONE_SOURCE_ALPHA:
 		return vk.worldOneSourceAlphaPipeline;
 	case VK_BLEND_DESTINATION_COLOR_ADDITIVE:
@@ -4301,6 +4345,7 @@ static const char *VK_BlendModeName( vk_blend_mode_t blendMode )
 	case VK_BLEND_OPAQUE: return "opaque";
 	case VK_BLEND_ADDITIVE: return "add";
 	case VK_BLEND_SOURCE_ALPHA_ADDITIVE: return "src-alpha-add";
+	case VK_BLEND_INVERSE_SOURCE_ALPHA_ADDITIVE: return "inv-src-alpha-add";
 	case VK_BLEND_ONE_SOURCE_ALPHA: return "one-src-alpha";
 	case VK_BLEND_DESTINATION_COLOR_ADDITIVE: return "dst-color-add";
 	case VK_BLEND_ONE_MINUS_DESTINATION_ALPHA_ADDITIVE: return "inv-dst-alpha-add";
@@ -9008,7 +9053,7 @@ static void VK_RecordSky( const float view[16], const float projection[16] )
 	}
 }
 
-static void VK_RecordWorld( int eye )
+static void VK_RecordWorld( int eye, bool drawSky, bool drawWeather )
 {
 	if ( !vk.haveWorldRefdef ||
 		 vk.worldPipeline == VK_NULL_HANDLE ||
@@ -9023,12 +9068,17 @@ static void VK_RecordWorld( int eye )
 	float view[16] = {};
 	float projection[16] = {};
 	float mvp[16] = {};
-	VK_BuildViewMatrix( vk.worldRefdef, eye, view );
+	const bool applyStereoSeparation =
+		( vk.worldRefdef.rdflags & RDF_SKYBOXPORTAL ) == 0;
+	VK_BuildViewMatrix( vk.worldRefdef, eye, view, applyStereoSeparation );
 	VK_BuildProjectionMatrix(
 		vk.views[eye].fov, 1.0f, 65536.0f, projection,
 		VK_DisruptorZoomTangentScale() );
 	VK_MatrixMultiply( projection, view, mvp );
-	VK_RecordSky( view, projection );
+	if ( drawSky )
+	{
+		VK_RecordSky( view, projection );
+	}
 
 	const std::vector<byte> *visibleSurfaces = VK_WorldVisibleSurfaceMask( vk.worldRefdef );
 	VK_LogVisibleWorldMaterials(
@@ -9175,7 +9225,10 @@ static void VK_RecordWorld( int eye )
 	VK_RecordDynamicEffects(
 		mvp, vk.worldRefdef, vk.worldEntities, vk.worldPolys,
 		VK_WORLD_PASS_TRANSLUCENT, true );
-	VK_RecordWeather( mvp );
+	if ( drawWeather )
+	{
+		VK_RecordWeather( mvp );
+	}
 
 	if ( !vk.loggedWorldDraw )
 	{
@@ -9185,6 +9238,49 @@ static void VK_RecordWorld( int eye )
 			visibleSurfaces != nullptr ? "yes" : "no" );
 		vk.loggedWorldDraw = true;
 	}
+}
+
+static void VK_ClearWorldDepth( int eye )
+{
+	VkClearAttachment attachment = {};
+	attachment.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+	attachment.clearValue.depthStencil.depth = 1.0f;
+	VkClearRect rect = {};
+	rect.rect.extent.width = vk.viewConfiguration[eye].recommendedImageRectWidth;
+	rect.rect.extent.height = vk.viewConfiguration[eye].recommendedImageRectHeight;
+	rect.layerCount = 1;
+	vkCmdClearAttachments( vk.commandBuffer, 1, &attachment, 1, &rect );
+}
+
+static void VK_RecordSubmittedWorld( int eye )
+{
+	if ( vk.havePortalRefdef )
+	{
+		std::swap( vk.worldRefdef, vk.portalRefdef );
+		vk.worldEntities.swap( vk.portalEntities );
+		vk.worldPolys.swap( vk.portalPolys );
+
+		VK_RecordWorld( eye, true, false );
+
+		vk.worldPolys.swap( vk.portalPolys );
+		vk.worldEntities.swap( vk.portalEntities );
+		std::swap( vk.worldRefdef, vk.portalRefdef );
+
+		// Keep the portal color, then let foreground geometry own depth.
+		VK_ClearWorldDepth( eye );
+		VK_RecordWorld( eye, false, true );
+
+		static bool loggedPortalComposition = false;
+		if ( !loggedPortalComposition )
+		{
+			ri.Printf( PRINT_ALL,
+				"rd-vulkan-sky: composing authored portal sky behind the foreground world\n" );
+			loggedPortalComposition = true;
+		}
+		return;
+	}
+
+	VK_RecordWorld( eye, true, true );
 }
 
 static void VK_RecordDiagnosticWorld( int eye )
@@ -9939,6 +10035,9 @@ static void VK_RecordScreenRects( int eye, size_t firstRect, size_t endRect )
 			case VK_BLEND_SOURCE_ALPHA_ADDITIVE:
 				desiredPipeline = vk.texturedRectSourceAlphaAdditivePipeline;
 				break;
+			case VK_BLEND_INVERSE_SOURCE_ALPHA_ADDITIVE:
+				desiredPipeline = vk.texturedRectInverseSourceAlphaAdditivePipeline;
+				break;
 			case VK_BLEND_DESTINATION_COLOR_ADDITIVE:
 				desiredPipeline = vk.texturedRectDestinationColorAdditivePipeline;
 				break;
@@ -10113,7 +10212,7 @@ static bool VK_RecordTestPattern(
 
 	if ( !clearOnly && vk.sceneWorldRenderedThisFrame )
 	{
-		VK_RecordWorld( eye );
+		VK_RecordSubmittedWorld( eye );
 	}
 
 	if ( !clearOnly && vk.sceneWorldRenderedThisFrame &&
@@ -10364,6 +10463,10 @@ void VK_Backend_Shutdown()
 	{
 		vkDestroyPipeline( vk.device, vk.texturedRectSourceAlphaAdditivePipeline, nullptr );
 	}
+	if ( vk.texturedRectInverseSourceAlphaAdditivePipeline != VK_NULL_HANDLE )
+	{
+		vkDestroyPipeline( vk.device, vk.texturedRectInverseSourceAlphaAdditivePipeline, nullptr );
+	}
 	if ( vk.texturedRectDestinationColorAdditivePipeline != VK_NULL_HANDLE )
 	{
 		vkDestroyPipeline( vk.device, vk.texturedRectDestinationColorAdditivePipeline, nullptr );
@@ -10411,6 +10514,10 @@ void VK_Backend_Shutdown()
 	if ( vk.worldSourceAlphaAdditivePipeline != VK_NULL_HANDLE )
 	{
 		vkDestroyPipeline( vk.device, vk.worldSourceAlphaAdditivePipeline, nullptr );
+	}
+	if ( vk.worldInverseSourceAlphaAdditivePipeline != VK_NULL_HANDLE )
+	{
+		vkDestroyPipeline( vk.device, vk.worldInverseSourceAlphaAdditivePipeline, nullptr );
 	}
 	if ( vk.worldOneSourceAlphaPipeline != VK_NULL_HANDLE )
 	{
@@ -13834,19 +13941,29 @@ void VK_Backend_RenderScene( const refdef_t *refdef )
 	if ( ( refdef->rdflags & RDF_NOWORLDMODEL ) == 0 )
 	{
 		vk.sceneWorldRenderedThisFrame = true;
-		vk.worldRefdef = *refdef;
-		vk.haveWorldRefdef = true;
-		vk.worldEntities = vk.sceneEntities;
-		vk.worldPolys = vk.scenePolys;
-		if ( !vk.loggedGameplayViewMode )
+		if ( ( refdef->rdflags & RDF_SKYBOXPORTAL ) != 0 )
 		{
-			const cvar_t *thirdPerson = ri.Cvar_Get( "cg_thirdPerson", "0", 0 );
-			ri.Printf(
-				PRINT_ALL,
-				"rd-vulkan-scene: gameplay view mode cg_thirdPerson=%d worldscale=%.2f\n",
-				thirdPerson != nullptr ? thirdPerson->integer : 0,
-				refdef->worldscale );
-			vk.loggedGameplayViewMode = true;
+			vk.portalRefdef = *refdef;
+			vk.havePortalRefdef = true;
+			vk.portalEntities = vk.sceneEntities;
+			vk.portalPolys = vk.scenePolys;
+		}
+		else
+		{
+			vk.worldRefdef = *refdef;
+			vk.haveWorldRefdef = true;
+			vk.worldEntities = vk.sceneEntities;
+			vk.worldPolys = vk.scenePolys;
+			if ( !vk.loggedGameplayViewMode )
+			{
+				const cvar_t *thirdPerson = ri.Cvar_Get( "cg_thirdPerson", "0", 0 );
+				ri.Printf(
+					PRINT_ALL,
+					"rd-vulkan-scene: gameplay view mode cg_thirdPerson=%d worldscale=%.2f\n",
+					thirdPerson != nullptr ? thirdPerson->integer : 0,
+					refdef->worldscale );
+				vk.loggedGameplayViewMode = true;
+			}
 		}
 	}
 	else
@@ -13886,6 +14003,10 @@ void VK_Backend_BeginFrame()
 	vk.sceneWorldRenderedThisFrame = false;
 	vk.worldEntities.clear();
 	vk.worldPolys.clear();
+	vk.haveWorldRefdef = false;
+	vk.havePortalRefdef = false;
+	vk.portalEntities.clear();
+	vk.portalPolys.clear();
 	vk.screenScenes.clear();
 	VK_Backend_SetColor( nullptr );
 	VK_PrepareXrFrame();
