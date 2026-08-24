@@ -223,6 +223,7 @@ struct vk_material_stage_t
 struct vk_material_t
 {
 	std::vector<vk_material_stage_t> stages;
+	bool polygonOffset = false;
 };
 
 struct vk_shader_stage_definition_t
@@ -271,6 +272,7 @@ struct vk_shader_definition_t
 	float fogColor[3];
 	float fogDepth;
 	bool hasFog;
+	bool polygonOffset = false;
 	std::vector<vk_shader_stage_definition_t> stages;
 };
 
@@ -796,6 +798,10 @@ struct vk_backend_state_t
 	cvar_t *legacyColorCvar;
 	cvar_t *picmipCvar;
 	cvar_t *detailTexturesCvar;
+	cvar_t *offsetFactorCvar;
+	cvar_t *offsetUnitsCvar;
+	bool depthBiasStateKnown;
+	bool depthBiasEnabled;
 	cvar_t *worldDebugCvar;
 	uint8_t materialAuditPasses[2];
 	cvar_t *glowIntensityCvar;
@@ -1047,6 +1053,10 @@ static void VK_Backend_Clear()
 	vk.legacyColorCvar = nullptr;
 	vk.picmipCvar = nullptr;
 	vk.detailTexturesCvar = nullptr;
+	vk.offsetFactorCvar = nullptr;
+	vk.offsetUnitsCvar = nullptr;
+	vk.depthBiasStateKnown = false;
+	vk.depthBiasEnabled = false;
 	vk.worldDebugCvar = nullptr;
 	std::memset( vk.materialAuditPasses, 0, sizeof( vk.materialAuditPasses ) );
 	vk.glowIntensityCvar = nullptr;
@@ -2265,6 +2275,11 @@ static void VK_ParseShaderFile( const char *filename )
 				definition.hasFog = definition.fogDepth > 0.0f;
 				continue;
 			}
+			if ( depth == 1 && Q_stricmp( token, "polygonOffset" ) == 0 )
+			{
+				definition.polygonOffset = true;
+				continue;
+			}
 			if ( depth != 2 )
 			{
 				continue;
@@ -3432,6 +3447,7 @@ static bool VK_CreatePipeline(
 	rasterization.cullMode = VK_CULL_MODE_NONE;
 	rasterization.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 	rasterization.lineWidth = 1.0f;
+	rasterization.depthBiasEnable = worldVertexInput ? VK_TRUE : VK_FALSE;
 
 	VkPipelineMultisampleStateCreateInfo multisample = {};
 	multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
@@ -3537,6 +3553,7 @@ static bool VK_CreatePipeline(
 	VkDynamicState dynamicStates[] = {
 		VK_DYNAMIC_STATE_VIEWPORT,
 		VK_DYNAMIC_STATE_SCISSOR,
+		VK_DYNAMIC_STATE_DEPTH_BIAS,
 	};
 	VkPipelineDynamicStateCreateInfo dynamicState = {};
 	dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
@@ -4400,6 +4417,33 @@ static void VK_BindWorldPipeline(
 	}
 }
 
+static void VK_SetWorldDepthBias( bool polygonOffset )
+{
+	if ( vk.depthBiasStateKnown && vk.depthBiasEnabled == polygonOffset )
+	{
+		return;
+	}
+
+	vk.depthBiasStateKnown = true;
+	vk.depthBiasEnabled = polygonOffset;
+	const float factor = polygonOffset && vk.offsetFactorCvar != nullptr
+		? vk.offsetFactorCvar->value : 0.0f;
+	const float units = polygonOffset && vk.offsetUnitsCvar != nullptr
+		? vk.offsetUnitsCvar->value : 0.0f;
+	vkCmdSetDepthBias( vk.commandBuffer, units, 0.0f, factor );
+	if ( polygonOffset )
+	{
+		static bool loggedPolygonOffset = false;
+		if ( !loggedPolygonOffset )
+		{
+			ri.Printf( PRINT_ALL,
+				"rd-vulkan-material: polygon offset active factor=%.2f units=%.2f\n",
+				factor, units );
+			loggedPolygonOffset = true;
+		}
+	}
+}
+
 static void VK_PushWorldStage(
 	const vk_material_stage_t *stage,
 	bool useLightmap,
@@ -4562,6 +4606,10 @@ static uint32_t VK_RecordBoundIndexedFog(
 	{
 		return 0;
 	}
+	const bool polygonOffset = shader > 0 &&
+		static_cast<size_t>( shader ) < vk.materials.size() &&
+		vk.materials[shader].polygonOffset;
+	VK_SetWorldDepthBias( polygonOffset );
 
 	qhandle_t texture = 0;
 	vk_alpha_test_t alphaTest = VK_ALPHA_TEST_NONE;
@@ -4616,6 +4664,10 @@ static uint32_t VK_RecordBoundIndexedShader(
 	int materialStageFilter = -1,
 	bool drawRiverFinalOverlay = true )
 {
+	const bool polygonOffset = shader > 0 &&
+		static_cast<size_t>( shader ) < vk.materials.size() &&
+		vk.materials[shader].polygonOffset;
+	VK_SetWorldDepthBias( polygonOffset );
 	if ( shader > 0 && static_cast<size_t>( shader ) < vk.materials.size() &&
 		 !vk.materials[shader].stages.empty() )
 	{
@@ -8195,6 +8247,7 @@ static void VK_RecordDynamicEffects(
 	vk_world_pass_t pass,
 	bool suppressThirdPerson )
 {
+	VK_SetWorldDepthBias( false );
 	std::vector<vk_dynamic_effect_batch_t> batches;
 	uint32_t typeCounts[RT_MAX_REF_ENTITY_TYPE] = {};
 	VK_BuildDynamicEffectBatches(
@@ -8474,6 +8527,7 @@ static void VK_RecordWorldSurfaceSprites(
 	const float mvp[16],
 	const std::vector<byte> *visibleSurfaces )
 {
+	VK_SetWorldDepthBias( false );
 	if ( vk.world.surfaceSpriteBatches.empty() )
 	{
 		return;
@@ -8727,6 +8781,7 @@ static void VK_BuildWeatherSnowBatch()
 
 static void VK_RecordWeather( const float mvp[16] )
 {
+	VK_SetWorldDepthBias( false );
 	VK_BuildWeatherSnowBatch();
 	if ( vk.weatherSnowBatch.instances.empty() )
 	{
@@ -8958,6 +9013,7 @@ static void VK_LogShipInteriorModels()
 
 static void VK_RecordSky( const float view[16], const float projection[16] )
 {
+	VK_SetWorldDepthBias( false );
 	if ( !vk.world.hasSky || vk.skinnedVertexMapped == nullptr )
 	{
 		return;
@@ -9229,6 +9285,7 @@ static void VK_RecordWorld( int eye, bool drawSky, bool drawWeather )
 	{
 		VK_RecordWeather( mvp );
 	}
+	VK_SetWorldDepthBias( false );
 
 	if ( !vk.loggedWorldDraw )
 	{
@@ -10155,6 +10212,8 @@ static bool VK_RecordTestPattern(
 	{
 		return false;
 	}
+	vk.depthBiasStateKnown = false;
+	vk.depthBiasEnabled = false;
 
 	VkClearValue clearValues[2] = {};
 	clearValues[0].color.float32[0] =
@@ -10321,6 +10380,8 @@ bool VK_Backend_Init()
 	vk.detailTexturesCvar =
 		ri.Cvar_Get( "r_detailtextures", "1", CVAR_ARCHIVE_ND | CVAR_LATCH );
 #endif
+	vk.offsetFactorCvar = ri.Cvar_Get( "r_offsetfactor", "-1", CVAR_CHEAT );
+	vk.offsetUnitsCvar = ri.Cvar_Get( "r_offsetunits", "-2", CVAR_CHEAT );
 	vk.worldDebugCvar = ri.Cvar_Get( "r_vulkanWorldDebug", "0", 0 );
 	vk.glowIntensityCvar =
 		ri.Cvar_Get( "r_vulkanGlowIntensity", "1.45", CVAR_ARCHIVE );
@@ -14060,7 +14121,18 @@ qhandle_t VK_Backend_RegisterTexture( const char *name )
 		const qhandle_t handle = static_cast<qhandle_t>( vk.textures.size() );
 		vk.textures.emplace_back();
 		vk.materials.emplace_back();
+		vk.materials[handle].polygonOffset = definition->polygonOffset;
 		vk.textureNames.push_back( { name, handle } );
+		if ( definition->polygonOffset )
+		{
+			static uint32_t loggedPolygonOffsetMaterials = 0;
+			if ( loggedPolygonOffsetMaterials++ < 32 )
+			{
+				ri.Printf( PRINT_ALL,
+					"rd-vulkan-material: polygonOffset shader=%s handle=%d\n",
+					name, handle );
+			}
+		}
 		for ( const vk_shader_stage_definition_t &stageDefinition : definition->stages )
 		{
 			if ( stageDefinition.detail && vk.detailTexturesCvar != nullptr &&
