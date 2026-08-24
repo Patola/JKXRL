@@ -646,6 +646,7 @@ struct vk_backend_state_t
 	VkQueue queue;
 	VkCommandPool commandPool;
 	VkCommandBuffer commandBuffer;
+	VkCommandBuffer eyeCommandBuffers[VK_BACKEND_EYE_COUNT];
 	VkBuffer skinnedVertexBuffer;
 	VkDeviceMemory skinnedVertexMemory;
 	byte *skinnedVertexMapped;
@@ -900,6 +901,10 @@ static void VK_Backend_Clear()
 	vk.queue = VK_NULL_HANDLE;
 	vk.commandPool = VK_NULL_HANDLE;
 	vk.commandBuffer = VK_NULL_HANDLE;
+	for ( VkCommandBuffer &commandBuffer : vk.eyeCommandBuffers )
+	{
+		commandBuffer = VK_NULL_HANDLE;
+	}
 	vk.skinnedVertexBuffer = VK_NULL_HANDLE;
 	vk.skinnedVertexMemory = VK_NULL_HANDLE;
 	vk.skinnedVertexMapped = nullptr;
@@ -1451,9 +1456,15 @@ static bool VK_CreateCommandResources()
 	allocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
 	allocateInfo.commandPool = vk.commandPool;
 	allocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-	allocateInfo.commandBufferCount = 1;
+	allocateInfo.commandBufferCount = VK_BACKEND_EYE_COUNT;
 
-	return VK_CheckVk( vkAllocateCommandBuffers( vk.device, &allocateInfo, &vk.commandBuffer ), "vkAllocateCommandBuffers" );
+	if ( !VK_CheckVk( vkAllocateCommandBuffers(
+			vk.device, &allocateInfo, vk.eyeCommandBuffers ), "vkAllocateCommandBuffers" ) )
+	{
+		return false;
+	}
+	vk.commandBuffer = vk.eyeCommandBuffers[0];
+	return true;
 }
 
 static bool VK_FindMemoryType( uint32_t typeBits, VkMemoryPropertyFlags properties, uint32_t *typeIndex )
@@ -10192,6 +10203,7 @@ static bool VK_RecordTestPattern(
 	const float tint[4],
 	bool clearOnly )
 {
+	vk.commandBuffer = vk.eyeCommandBuffers[eye];
 	if ( vk.ghoul2CacheFrameIndex != vk.frameIndex )
 	{
 		vk.skinnedVertexOffset = 0;
@@ -10199,10 +10211,6 @@ static bool VK_RecordTestPattern(
 		vk.ghoul2SurfaceCache.clear();
 		vk.surfaceSpriteStreamCache.clear();
 		vk.ghoul2CacheFrameIndex = vk.frameIndex;
-	}
-	if ( !VK_CheckVk( vkResetCommandPool( vk.device, vk.commandPool, 0 ), "vkResetCommandPool" ) )
-	{
-		return false;
 	}
 
 	VkCommandBufferBeginInfo beginInfo = {};
@@ -10306,46 +10314,76 @@ static bool VK_RecordTestPattern(
 		return false;
 	}
 
-	VkSubmitInfo submitInfo = {};
-	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-	submitInfo.commandBufferCount = 1;
-	submitInfo.pCommandBuffers = &vk.commandBuffer;
-
-	if ( !VK_CheckVk( vkQueueSubmit( vk.queue, 1, &submitInfo, VK_NULL_HANDLE ), "vkQueueSubmit" ) )
-	{
-		return false;
-	}
-
-	return VK_CheckVk( vkQueueWaitIdle( vk.queue ), "vkQueueWaitIdle" );
+	return true;
 }
 
-static bool VK_RenderEye( int eye, const float tint[4], bool clearOnly = false )
+static bool VK_RenderEyes(
+	const float tints[VK_BACKEND_EYE_COUNT][4],
+	const bool clearOnly[VK_BACKEND_EYE_COUNT] )
 {
-	XrSwapchainImageAcquireInfo acquireInfo = {};
-	acquireInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO;
-	if ( !VK_CheckXr( xrAcquireSwapchainImage( vk.colorSwapchain[eye], &acquireInfo, &vk.colorImageIndex[eye] ),
-			"xrAcquireSwapchainImage" ) )
+	bool acquired[VK_BACKEND_EYE_COUNT] = {};
+	bool ready = true;
+	for ( int eye = 0; eye < VK_BACKEND_EYE_COUNT; ++eye )
 	{
-		return false;
+		XrSwapchainImageAcquireInfo acquireInfo = {};
+		acquireInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO;
+		if ( !VK_CheckXr( xrAcquireSwapchainImage(
+				vk.colorSwapchain[eye], &acquireInfo, &vk.colorImageIndex[eye] ),
+				"xrAcquireSwapchainImage" ) )
+		{
+			ready = false;
+			break;
+		}
+		acquired[eye] = true;
+
+		XrSwapchainImageWaitInfo waitInfo = {};
+		waitInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO;
+		waitInfo.timeout = XR_INFINITE_DURATION;
+		if ( !VK_CheckXr( xrWaitSwapchainImage(
+				vk.colorSwapchain[eye], &waitInfo ), "xrWaitSwapchainImage" ) )
+		{
+			ready = false;
+			break;
+		}
 	}
 
-	XrSwapchainImageWaitInfo waitInfo = {};
-	waitInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO;
-	waitInfo.timeout = XR_INFINITE_DURATION;
-	if ( !VK_CheckXr( xrWaitSwapchainImage( vk.colorSwapchain[eye], &waitInfo ), "xrWaitSwapchainImage" ) )
+	if ( ready )
 	{
-		return false;
+		ready = VK_CheckVk(
+			vkResetCommandPool( vk.device, vk.commandPool, 0 ),
+			"vkResetCommandPool(stereo frame)" );
+	}
+	for ( int eye = 0; ready && eye < VK_BACKEND_EYE_COUNT; ++eye )
+	{
+		ready = VK_RecordTestPattern(
+			eye, vk.colorImageIndex[eye], tints[eye], clearOnly[eye] );
+	}
+	if ( ready )
+	{
+		VkSubmitInfo submitInfo = {};
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submitInfo.commandBufferCount = VK_BACKEND_EYE_COUNT;
+		submitInfo.pCommandBuffers = vk.eyeCommandBuffers;
+		ready = VK_CheckVk(
+			vkQueueSubmit( vk.queue, 1, &submitInfo, VK_NULL_HANDLE ),
+			"vkQueueSubmit(stereo frame)" ) &&
+			VK_CheckVk( vkQueueWaitIdle( vk.queue ), "vkQueueWaitIdle(stereo frame)" );
 	}
 
-	const bool recorded =
-		VK_RecordTestPattern( eye, vk.colorImageIndex[eye], tint, clearOnly );
-
-	XrSwapchainImageReleaseInfo releaseInfo = {};
-	releaseInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO;
-	const bool released = VK_CheckXr( xrReleaseSwapchainImage( vk.colorSwapchain[eye], &releaseInfo ),
-		"xrReleaseSwapchainImage" );
-
-	return recorded && released;
+	bool released = true;
+	for ( int eye = 0; eye < VK_BACKEND_EYE_COUNT; ++eye )
+	{
+		if ( !acquired[eye] )
+		{
+			continue;
+		}
+		XrSwapchainImageReleaseInfo releaseInfo = {};
+		releaseInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO;
+		released = VK_CheckXr(
+			xrReleaseSwapchainImage( vk.colorSwapchain[eye], &releaseInfo ),
+			"xrReleaseSwapchainImage" ) && released;
+	}
+	return ready && released;
 }
 
 bool VK_Backend_Init()
@@ -14750,14 +14788,13 @@ void VK_Backend_SubmitClearFrame()
 			}
 			else
 			{
-				const float neutralTint[4] = { 0.08f, 0.10f, 0.12f, 1.0f };
-				const bool screenRendered = VK_RenderEye( 0, neutralTint );
-				bool backgroundRendered = false;
-				if ( screenRendered )
-				{
-					const float black[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-					backgroundRendered = VK_RenderEye( 1, black, true );
-				}
+				const float screenTints[VK_BACKEND_EYE_COUNT][4] = {
+					{ 0.08f, 0.10f, 0.12f, 1.0f },
+					{ 0.0f, 0.0f, 0.0f, 1.0f },
+				};
+				const bool clearOnly[VK_BACKEND_EYE_COUNT] = { false, true };
+				const bool screenRendered = VK_RenderEyes( screenTints, clearOnly );
+				const bool backgroundRendered = screenRendered;
 				if ( !vk.screenLayerPoseValid )
 				{
 					VK_CaptureScreenLayerPose( frameState.predictedDisplayTime );
@@ -14776,11 +14813,10 @@ void VK_Backend_SubmitClearFrame()
 				{ 1.00f, 0.22f, 0.04f, 1.0f },
 			};
 
-			bool rendered = true;
+			const bool clearOnly[VK_BACKEND_EYE_COUNT] = { false, false };
+			const bool rendered = VK_RenderEyes( eyeTints, clearOnly );
 			for ( int eye = 0; eye < VK_BACKEND_EYE_COUNT; ++eye )
 			{
-				rendered = VK_RenderEye( eye, eyeTints[eye] ) && rendered;
-
 				projectionViews[eye].type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
 				projectionViews[eye].pose = vk.views[eye].pose;
 				projectionViews[eye].fov = vk.views[eye].fov;
