@@ -15,6 +15,10 @@ repeatable acceptance test must agree.
 | `vulkan-m4` | `b0a8017` | Effects and VR interaction |
 | `vulkan-m4-cpp17` | `82b1c19` | Verified C++17 baseline |
 | `vulkan-m4-pre-m5` | `4e6287a` | Cinematic parity before shadow work |
+| `vulkan-m4-yavin-parity` | `aee0e4d` | Yavin water, texture, and lightgrid parity |
+| `vulkan-m4-portal-sky` | `f854ea2` | Authored portal-sky composition |
+| `vulkan-m4-portal-decals` | `4961d34` | Portal depth and polygon-offset decal stability |
+| `vulkan-m4-stereo-submit` | `5ea40ae` | Batched two-eye command submission |
 
 The worktree currently contains post-checkpoint changes. New fixes should be
 committed by subsystem after focused verification, rather than accumulating into
@@ -96,9 +100,9 @@ stage. River and temple tuning must never share a material-wide alpha override.
 
 Current status:
 
-- Starting-river color now closely matches the flat and Quest references: the
-  green component is present but subtle. Submerged boundaries still need a
-  focused comparison after the patch-tessellation correction below.
+- Starting-river color, submerged-boundary suppression, and mipmapped surface
+  motion now match the Quest reference. Temple water remains independently
+  tuned and must be checked whenever river ordering changes.
 - A river-only reproduction of the GL loader's `r_intensity` and software
   `r_gamma` transfer did not improve the match and coincided with a stronger
   green cast, so it was reverted. Applying one transfer in isolation while the
@@ -218,6 +222,176 @@ surfaces had previously remained fullbright. Packed MD3 normals use the legacy
 256-step angular decode rather than treating byte value 255 as a duplicate of
 zero.
 
+## Dynamic and animated lighting contract
+
+The engine submits dynamic lights between `ClearScene` and `RenderScene`.
+Those lists belong to a particular world, portal, or screen-scene submission;
+they must not be read from the mutable current scene after submission. The
+Vulkan backend snapshots each list with its scene and swaps portal lights with
+the portal refdef and entities while rendering the portal view.
+
+Opaque BSP surfaces receive a bounded additive dynamic-light pass after their
+base material. Surfaces marked `SURF_NODLIGHT` or `SURF_SKY` are excluded, and
+PVS plus surface AABB/radius tests reject unrelated draws. The fragment pass
+preserves an opaque stage's alpha mask, attenuates by radius and surface facing,
+and does not alter translucent material ordering.
+
+Model materials using `rgbGen lightingDiffuse` combine the BSP lightgrid with
+the scene's dynamic lights. Static MD3 surfaces retain per-vertex diffuse
+lighting. Applying weighted, bone-transformed normals to every Ghoul2 vertex
+raised CPU command-recording time to 40-70 ms in populated scenes while GPU
+stereo work remained 2-5 ms, and produced no visible benefit in the reference
+scenes. Animated Ghoul2 surfaces therefore retain the verified position-only
+skin stream and receive a per-entity hemispherical diffuse tint. This preserves
+scene and dynamic-light color at negligible vertex cost; full pose-dependent
+Ghoul2 diffuse lighting requires a later GPU skinning/lighting path rather than
+returning that work to the render thread.
+
+Animated BSP lighting may author up to four independent lightmap or vertex
+color styles per surface. Vulkan retains their handles and style metadata and
+applies the current packed `SetLightStyle` RGBA value to the primary slot.
+Secondary slots require independent UV/color attributes. An initial
+implementation appended those attributes to the shared vertex type, expanding
+every animated-model vertex from 56 to 80 bytes and materially regressing
+crowded scenes. Secondary composition is therefore deferred until it has a
+BSP-only attribute stream; animated models must keep the compact format.
+Bounded `rd-vulkan-lighting` messages confirm dynamic world draws and the first
+light-style updates. On world load, `rd-vulkan-lightstyles` inventories all
+authored style slots even when secondary composition is deferred. Yavin, Hoth,
+and `t1_sour` use only style 0. `kor1`, `kor2`, `t1_fatal`, and `t3_bounty`
+contain secondary or custom styles and are future acceptance maps for the
+dedicated stream.
+
+Acceptance test:
+
+1. A saber, projectile, explosion, or other submitted light produces a smooth
+   colored radial contribution on nearby BSP and tints `lightingDiffuse`
+   models, without duplicating the material texture or becoming an eye-filling
+   quad.
+2. Verify primary light-style updates do not alter unrelated surfaces. Once the
+   BSP-only secondary stream lands, load `kor1`, `kor2`, or `t1_fatal` and
+   verify the authored effects animate identically in both eyes.
+3. Portal sky, Yavin river and temple water, `t1_sour` decals, menus, and
+   cinematics retain their verified composition.
+
+This checkpoint deliberately does not include stencil shadows, translucent
+shadow masks, soft-shadow blur, or the later legacy glow/bloom target.
+
+### Timing protocol
+
+`r_vulkanTiming 1` enables renderer-local timing without changing render
+behavior. Every 120 successful stereo frames, `rd-vulkan-timing` reports
+average/maximum CPU command-recording time, queue submit/wait time, total GPU
+time bracketed across both eye command buffers, active scene-light count, and
+opaque stereo model candidate/culled/draw counts.
+The accompanying `rd-vulkan-phases` line separates stereo CPU recording into
+sky, static BSP, dynamic-light, surface-sprite/weather, model, and dynamic-effect
+work, and reports the static BSP stage-draw count. This breakdown includes
+authored portal-sky passes and is intended to distinguish open-level BSP costs
+from crowded animated-model costs.
+`rd-vulkan-model-phases` further divides model work into culling, bone
+evaluation, CPU vertex skinning, Vulkan submission, and unclassified setup.
+The ranked `rd-vulkan-skin-model` lines report cache hits, newly skinned
+surfaces, vertices, and elapsed time for the eight most expensive models.
+GPU timestamps are optional: if the selected graphics queue does not expose
+them, the report explicitly falls back to CPU-only timing. Disable the cvar for
+ordinary play because query collection is diagnostic instrumentation, not the
+external end-to-end frame-pacing measurement.
+
+The Vulkan backend rejects ordinary model entities whose conservative local
+bounds are entirely outside an eye's left, right, top, or bottom clip planes
+before Ghoul2 bone evaluation and surface recording. It deliberately does not
+apply near/far rejection, and first-person/depth-hacked models bypass it.
+`r_vulkanModelCull 0` disables this optimization for an A/B if a model is
+suspected of disappearing at an edge; the default is `1`.
+
+Static root-BSP opaque and global-fog submission uses grouped indexed indirect
+draws when the Vulkan device exposes `multiDrawIndirect`. Groups preserve exact
+shader, lightmap/style, surface-flag, and vertex-lighting state; per-surface PVS
+and Force Sense visibility is represented by each indirect command's instance
+count. Translucent materials, inline models, and the Yavin river's stage-major
+ordering remain on their established direct paths. The initial `t1_rail`
+profile motivating this path measured roughly 9 ms of CPU recording for about
+32,000 stereo BSP stage draws while total stereo GPU time remained near 7-8 ms.
+After indirect submission, BSP recording fell to roughly 3-4 ms and GPU stereo
+time remained about 4-6 ms. Looking backward from the moving train exposed
+roughly 180 models and raised model work to about 40 ms, of which 35-39 ms was
+CPU vertex skinning. GLM bone indices and normalized weights are therefore
+decoded once at model load instead of being unpacked again for every visible
+vertex on every frame; pose evaluation, surface selection, and material output
+remain unchanged.
+
+Shadow work is gated on a measured no-shadow baseline in the crowded JKA ship
+cutscene and representative gameplay. Record both renderer timing and the
+runtime/headset frame statistics first; any shadow implementation must expose a
+quality/off switch and remain inside an explicit frame budget rather than
+assuming the current playable margin is sufficient.
+
+## Scoped aiming contract
+
+Weapon traces in scope mode follow the stabilized headset/weapon forward axis.
+The scope reticle must therefore be projected at that same optical direction in
+each asymmetric OpenXR eye projection. It must not inherit `cg_hudStereo`,
+which intentionally places the ordinary HUD at a finite binocular depth and
+causes the reticle to disagree with the shot ray. Vulkan detects both the E-11
+scope artwork and the Tenloss overlay and applies the exact projection-center
+offset derived from each eye's tangent FOV.
+
+Acceptance test: aim the E-11 and Tenloss center marks at a small surface point
+at medium and long range, fire several shots, change Tenloss zoom, and exit each
+scope. The impact axis, scope fusion, circular Tenloss mask, and post-scope
+weapon state must all remain correct.
+
+## VR interaction contract
+
+The usable hint and activation must test the same source. With a gesture held,
+that source is the corresponding tracked hand; without a gesture, the primary
+thumbstick use follows the headset/player view ray. Extended hands also perform
+a latched bounds-contact check so moving onto a fixture after crossing the
+gesture boundary can activate it once. The latch clears when the hand leaves
+the target or the gesture ends, preventing a multi-use script from firing every
+frame. Successful activation retains the controller haptic response.
+
+An advertised use target owns the reaching gesture before Force Push/Pull is
+resolved. This prevents one extension from both using a fixture and emitting a
+Force power. One-shot `misc_model_breakable` fixtures stop advertising success
+after their use script clears `BSET_USE`; touching or directly using the spent
+fixture produces the stock panel-failure sound instead of silently doing
+nothing. The physical target continues to own the gesture in that unavailable
+state, so rejection feedback cannot misfire as Force Push.
+
+The bomb fixtures and usable E-Web in `t1_fatal` are the current acceptance
+pair. Model-specific `rd-vulkan-eweb-audit` lines list every E-Web surface,
+parent, effective hide flags, shader, and draw state. This distinguishes the
+authored destroyed state from a Vulkan multipart-model failure without changing
+the Ghoul2 `NODESCENDANTS` behavior shared by character dismemberment.
+
+The fixture interaction contract was hardware-verified on 2026-08-25: reaching
+into an available fixture activates it once without emitting Force Push, and a
+second reach after deactivation produces the rejection sound.
+
+The E-Web is a static seven-bone Ghoul2 model, not a ragdoll. On destruction,
+the game applies `NODESCENDANTS` to `eweb_damage`; the complete root surface
+must remain because its `cannon_Yrot` geometry includes the spindle joining the
+turntable to the tripod. Filtering that bone leaves the root base visibly
+disconnected after destruction.
+`r_vulkanEwebCull` isolates its face-orientation discrepancy: `0` draws
+two-sided, `1` culls back faces, and the default `2` culls front faces. Only
+this model's opaque stages use the selected pipeline. Two-sided destroyed
+rendering did not remove the displaced remnant, ruling out face culling as its
+cause. Destruction now explicitly freezes `model_root` at frame zero because
+resetting `s.frame` alone does not clear a Ghoul2 firing/recoil override.
+The cgame rider path also refuses to restart recoil on an E-Web whose health
+has already reached zero.
+`rd-vulkan-eweb-state` logs every surface's effective flags and complete bone
+animation state so this reset can be verified independently of appearance.
+
+Acceptance test: activate one `t1_fatal` bomb once, then withdraw and extend the
+off hand over it again. The first action runs the script with haptic feedback;
+the spent fixture no longer shows the use hint, the second attempt emits the
+failure cue, and neither attempt emits Force Push. Force Push must still work
+normally after moving the hand away from the fixture.
+
 ## VR movement contract
 
 The movement path is:
@@ -246,9 +420,29 @@ collision planes caused the stock triple-plane stop, and movement resumed when
 the actors moved. The movement audit remains available for another regression
 round but no further movement behavior change is currently justified.
 
+The August 27 sustained reproduction superseded the earlier samples. Values
+read directly after `xrGetActionStateVector2f` fell from a near-full diagonal to
+roughly 0.1-0.3 magnitude while the physical stick remained held. Filtering,
+`usercmd_t`, simulation, prediction, and the final rendered view all followed
+that attenuated value correctly. The crawl therefore originates at the OpenXR
+action-state boundary rather than collision or camera composition.
+
+The locomotion conditioner arms only after magnitude reaches 0.82. If that same
+direction then collapses below 0.58 without first crossing center, it preserves
+the outer magnitude until the raw signal recovers or the stick is centered for
+75 ms. Partial movement beginning from center remains fully proportional, menu
+and turning sticks bypass the conditioner, and
+`vr_openxr_stick_dropout_guard 0` provides an immediate A/B. Debug transitions
+use the `jkxr-stick-dropout` prefix.
+
 Acceptance test: sustained full forward, left/right strafe, and both forward
 diagonals for at least 30 seconds each, including turning with the right stick.
 Partial deflection must remain proportional.
+
+Smooth turning preserves the original 72 Hz angular response but integrates it
+using elapsed milliseconds. The turn rate must therefore remain responsive and
+consistent when renderer performance or headset refresh changes; rebuilding the
+engine must not restore the legacy per-input-frame increment.
 
 ## Tracked-saber damage contract
 
@@ -283,6 +477,134 @@ Acceptance test: direct slow and fast horizontal/vertical swings during the
 howl, ordinary howler movement, a scripted tree, and an ordinary NPC. Thrown
 saber behavior must remain unchanged.
 
+## E-Web wreck diagnostic
+
+The intact E-Web and its destroyed wreck share
+`models/map_objects/hoth/eweb_model.glm`. Destruction turns off the
+`eweb_damage` surface with `G2SURFACEFLAG_NODESCENDANTS`; the surviving
+`eweb_cannon` surface contains the tripod and several independently connected
+mesh components.
+
+The following hypotheses have been tested without changing the floating wreck
+part and are therefore rejected:
+
+- front-, back-, and two-sided culling selection;
+- failure to store the `eweb_damage` surface override in Ghoul2 state;
+- accidental use of a different GLM LOD: the E-Web asset contains exactly one.
+- deleting root-surface components according to their dominant base/swivel
+  bone; that experiment removed valid support geometry and was reverted.
+- freezing `model_root` at frame zero and suppressing dead-gun rider updates;
+  the hardware result was unchanged, so both changes were reverted.
+
+The captured transition confirms that `eweb_damage` and its `eweb_alpha` child
+are hidden after destruction while `eweb_cannon` survives. The remaining mesh
+is split between the base, swivel, and three tripod bones. Vulkan now skins
+normals with the same weighted bone transforms as the legacy Ghoul2 path; it
+previously transformed positions but left normals in bind-pose space.
+
+Temporary connected-component and surface-color instrumentation distinguished
+authored wreck geometry from an incorrect bone transform or a second model
+submission. It was removed after the renderer fault was identified, so normal
+builds carry no E-Web-specific vertex coloring, component graph, or transition
+logging.
+
+The August 27 synchronized capture disproved the debris hypothesis. Generic MD3
+chunks move, fade, and stop being submitted at their authored four-second
+lifetime, while the reported object remains. The component experiment also
+showed that the surviving root surface is the authored tripod wreck rather than
+a duplicate upper cannon: several connected leg/support pieces span multiple
+bone regions and cannot be removed by dominant-bone labels.
+
+The August 29 hardware run disproved the root-recoil hypothesis. It logged
+`model_root` frozen at `frames=0..1`, `speed=0`, and the reported assembly was
+visually unchanged. Inspection of the seven-bone GLA also showed that frames
+zero through two are identical and the later recoil frame only changes
+`cannon_Xrot`, while the suspicious root components are primarily weighted to
+`base` and `cannon_Yrot`.
+
+The surface-color capture identified the renderer fault. Intact
+`eweb_cannon`, `eweb_damage`, and `eweb_alpha` submissions appeared green,
+magenta, and cyan respectively, but the post-destruction floating assembly was
+normally textured. It therefore was not one of those submitted surfaces. On a
+pass where destruction hid every translucent Ghoul2 surface, Vulkan treated
+zero draws as an unhandled entity and fell through to the static `hModel` path.
+That path redrew default bind-pose geometry. A valid supported Ghoul2 hierarchy
+is now authoritative even when all of its surfaces are intentionally hidden in
+the current pass; only entities without a handled Ghoul2 model may use the
+static fallback.
+
+Acceptance test: inspect and destroy the E-Web in `t1_fatal`, then wait at least
+ten seconds. The intact model must remain unchanged; after destruction the
+tripod wreck and ordinary short-lived debris remain, but the detached upper
+cannon assembly must not persist.
+
+Most `hoth2` E-Webs are map-authored with the invulnerable spawn flag and are
+not destruction tests. Only `eweb2` at `(3154, -1220, 1042)` is vulnerable; it
+has 500 health rather than the default 250.
+
+## Movement pipeline diagnostic
+
+Movement evidence must distinguish three different cases:
+
+- raw OpenXR stick loss before filtering;
+- filtered movement failing to reach a newly built `usercmd_t`;
+- a correct command being clipped by game collision or movement state.
+
+`jkxr-stick-pipeline` reports the first mismatch, `jkxr-movement-pipeline`
+reports the second, and `jkxr-movement-debug` plus `jkxr-movement-trace` cover
+the third. The controller summary labels its command as `prevCmd` because input
+processing runs before the next command is built; comparing that old command
+to the current stick produced false one-frame mismatch diagnoses.
+
+The two low-speed traces at `(14831.87, -40.03, 440)` in the latest log belong
+to `t1_rail`, not `t1_fatal`: full commands reached movement but hit two
+perpendicular world planes. They are a collision-corner stop and not evidence
+of the original analog crawl lock. The reported `t1_fatal` events require the
+new synchronized pipeline diagnostics before their cause can be classified.
+
+The August 29 `t1_fatal` capture identified a separate sustained input failure.
+The left stick changed from `(0.077, 0.997)` to `(0.051, 0.402)`, then OpenXR
+reported exact zero while the user continued holding it. The old compensator
+discarded its latch after 75 ms at center, making the later zero command
+indistinguishable from a release. The conditioner now only enters compensation
+after an abrupt outer-to-attenuated transition and preserves the latched vector
+through zero samples while the controller's thumbstick-touch action remains
+active. A touch release, direction change, selector activation, or disabled
+movement clears the state. Debug summaries include both controllers' touch
+bitfields.
+
+The following hardware capture reported another crawl, but it did not reproduce
+that input failure. Full conditioned movement reached full-strength
+`usercmd_t`s and acceleration. Every low-speed interval was stopped by world
+collision, including pairs of perpendicular planes at exact brush boundaries
+such as `(-1296.125, 496.125)`. This is collision-corner trapping, not loss in
+the OpenXR, response-curve, or command stages. Future locomotion cleanup should
+separate OpenXR acquisition, dropout conditioning, response mapping, and
+`usercmd_t` projection into replayable stages. It must retain the original
+`pmove` behavior for stairs, slopes, water, wall moves, knockback, and vehicles;
+replacing that simulation cannot repair a correctly diagnosed input dropout.
+
+## Force gesture sampling contract
+
+The original Force Push/Pull gesture required one controller update above
+`vr_force_velocity_trigger` followed by another update below it. A fast gesture
+could begin and end between rendered input samples, so slowing the arm made it
+more reliable as frame rate fell.
+
+The primary velocity latch remains, but it is now Force-specific rather than
+sharing the saber/melee attack latch. A separate 32-sample timestamped radial
+history covers up to 320 ms and is evaluated while the hand is moving, instead
+of waiting for velocity to fall and looking back only five rendered samples.
+A successful dispatch has a 250 ms cooldown, during which stale motion is
+discarded, and an active world-use target owns the off-hand gesture. With
+`vr_controller_debug 1`, accepted and rejected candidates log their source,
+radial delta, sampled speed, palm direction, history size, and displacement age.
+
+Acceptance test: perform deliberately slow and deliberately fast Push and Pull
+gestures against enemies at both good and poor frame rates. Each physical gesture
+must trigger at most once; interacting with a fixture must not emit a Force
+gesture. Insufficient Force energy feedback remains deferred.
+
 ## Controlled recovery protocol
 
 1. Preserve the current dirty tree; do not destructively reset it.
@@ -301,9 +623,47 @@ The detached baseline is installed as `rdsp-vulkan-baseline_x86_64.so`; a
 command must set `cl_renderer` explicitly during A/B runs so archived config
 cannot silently choose the other renderer.
 
+## GLM LOD parity objective
+
+The Vulkan GLM loader currently consumes only the first `mdxmLOD_t` at
+`mdxmHeader_t::ofsLODs`. The legacy renderers walk all `numLODs` entries using
+each LOD block's `ofsEnd`, then select a level with `G2_ComputeLOD`. This is a
+general renderer limitation, even though it was not the cause of the destroyed
+E-Web defect.
+
+The Vulkan implementation must:
+
+- load and retain every GLM LOD while preserving surface hierarchy, surface
+  numbers, skin and surface overrides, bolts, animation, collision, and Ghoul2
+  API behavior;
+- reproduce legacy projected-radius selection, including `r_lodscale`,
+  `r_lodbias`, `CGhoul2Info::mLodBias`, `RF_G2MINLOD`, and model scale;
+- choose one LOD per entity per frame for both VR eyes, preventing stereo
+  disagreement and eye-dependent popping;
+- retain the highest-detail level in the same near-view and weapon cases as the
+  legacy renderer; and
+- expose a diagnostic override that can force a particular LOD, plus logging of
+  model, entity, distance or projected radius, available levels, selected level,
+  and per-frame LOD draw and triangle counts.
+
+Acceptance requires a repeatable multi-LOD model inventory and test scene. The
+asset audit must identify GLMs whose LODs have materially different geometry.
+Forced highest and lowest LOD captures must visibly prove that different blocks
+are rendered. Automatic mode must then be compared with the legacy or Quest
+renderer along a fixed near-to-far path, with no stereo mismatch, surface loss,
+skin error, animation error, bolt error, or unstable threshold. Finally, crowded
+ship and `t1_rail` captures must demonstrate reduced distant geometry and CPU
+skinning or draw cost without changing close-range rendering.
+
 ## Deferred work
 
 - Full physical ragdolls.
+- Full GLM LOD loading, legacy-equivalent selection, diagnostic overrides, and
+  the acceptance matrix defined above.
+- Tune tracked Force Push/Pull thresholds from captured gesture diagnostics as
+  needed. A recognized gesture that cannot run because energy is insufficient
+  should produce an
+  audible rejection cue and controller haptic instead of failing silently.
 - Legacy-style glow/blur target or bloom buffer for sabers and authored glow
   effects.
 - Evaluate AI-upscaled cinematics while preserving optional compatibility with
