@@ -78,6 +78,8 @@ void VK_Backend_ClearScene();
 void VK_Backend_AddRefEntity( const refEntity_t *entity );
 void VK_Backend_AddPoly( qhandle_t shader, int vertexCount, const polyVert_t *vertices );
 void VK_Backend_AddLight( const vec3_t origin, float intensity, float red, float green, float blue );
+void VK_Backend_GetLightStyle( int style, color4ub_t color );
+void VK_Backend_SetLightStyle( int style, int color );
 void VK_Backend_RenderScene( const refdef_t *refdef );
 void VK_Backend_InitWorldEffects();
 void VK_Backend_WorldEffectCommand( const char *command );

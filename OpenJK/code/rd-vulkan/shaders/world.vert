@@ -9,6 +9,8 @@ layout(location = 4) in vec3 inNormal;
 layout(location = 0) out vec4 vColor;
 layout(location = 1) out vec2 vUv;
 layout(location = 2) out float vViewDepth;
+layout(location = 3) out vec3 vPosition;
+layout(location = 4) out vec3 vNormal;
 
 layout(push_constant) uniform WorldPush
 {
@@ -30,7 +32,11 @@ void main()
 		sin(((inPosition.x + inPosition.z) / 1024.0 + pc.stageFlags.z) * 6.28318530718),
 		sin((inPosition.y / 1024.0 + pc.stageFlags.z) * 6.28318530718)) * pc.stageFlags.y;
 	vec2 generatedUv;
-	if (pc.useLightmap > 1.5)
+	if (pc.stageFlags.w >= 20.0)
+	{
+		generatedUv = inUv;
+	}
+	else if (pc.useLightmap > 1.5)
 	{
 		// The camera origin maps to (0, 0, projection[3][2], 0) in clip
 		// space. Its scale cancels after the homogeneous divide, allowing the
@@ -50,4 +56,6 @@ void main()
 	vUv = generatedUv * pc.uvScale + pc.uvOffset + turbulence;
 	gl_Position = pc.mvp * vec4(inPosition, 1.0);
 	vViewDepth = abs(gl_Position.w);
+	vPosition = inPosition;
+	vNormal = inNormal;
 }

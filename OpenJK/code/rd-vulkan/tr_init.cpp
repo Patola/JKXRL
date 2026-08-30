@@ -264,8 +264,8 @@ extern "C" Q_EXPORT refexport_t* QDECL GetRefAPI( int apiVersion, refimport_t *r
 	re.MarkFragments = []( int, const vec3_t *, const vec3_t, int, vec3_t, int, markFragment_t * ) -> int { return 0; };
 	re.LerpTag = VK_Backend_LerpTag;
 	re.ModelBounds = VK_Backend_ModelBounds;
-	re.GetLightStyle = []( int, color4ub_t ) {};
-	re.SetLightStyle = []( int, int ) {};
+	re.GetLightStyle = VK_Backend_GetLightStyle;
+	re.SetLightStyle = VK_Backend_SetLightStyle;
 	re.GetBModelVerts = []( int, vec3_t *, vec3_t ) {};
 	re.WorldEffectCommand = VK_Backend_WorldEffectCommand;
 	re.GetModelBounds = VK_Backend_GetModelBounds;

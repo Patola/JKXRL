@@ -5,6 +5,8 @@ layout(set = 0, binding = 0) uniform sampler2D baseTexture;
 layout(location = 0) in vec4 vColor;
 layout(location = 1) in vec2 vUv;
 layout(location = 2) in float vViewDepth;
+layout(location = 3) in vec3 vPosition;
+layout(location = 4) in vec3 vNormal;
 layout(location = 0) out vec4 outColor;
 
 layout(push_constant) uniform WorldPush
@@ -23,6 +25,37 @@ layout(push_constant) uniform WorldPush
 void main()
 {
 	vec4 texel = texture(baseTexture, vUv);
+	if (pc.stageFlags.w >= 20.0)
+	{
+		float alphaTest = pc.lightmapGamma;
+		if ((alphaTest > 0.5 && alphaTest < 1.5 && texel.a <= 0.0) ||
+			(alphaTest > 1.5 && alphaTest < 2.5 && texel.a >= 0.5) ||
+			(alphaTest > 2.5 && alphaTest < 3.5 && texel.a < 0.5) ||
+			(alphaTest > 3.5 && texel.a < 0.75))
+		{
+			discard;
+		}
+		vec3 lightOrigin = vec3(pc.uvOffset, pc.alpha);
+		vec3 toLight = lightOrigin - vPosition;
+		float distanceSquared = dot(toLight, toLight);
+		float radiusSquared = pc.useLightmap * pc.useLightmap;
+		if (distanceSquared >= radiusSquared || radiusSquared <= 0.0)
+		{
+			discard;
+		}
+		float normalLengthSquared = dot(vNormal, vNormal);
+		vec3 normal = normalLengthSquared > 1.0e-8
+			? vNormal * inversesqrt(normalLengthSquared)
+			: vec3(0.0, 0.0, 1.0);
+		float facing = max(dot(normal, toLight * inversesqrt(max(distanceSquared, 1.0e-8))), 0.0);
+		float radial = max(1.0 - distanceSquared / radiusSquared, 0.0);
+		float attenuation = radial * radial * smoothstep(0.0, 0.2, facing);
+		// The material sample is only an alpha-test mask here. Re-emitting its
+		// RGB turns a moving light into a bright duplicate of the wall texture;
+		// the light contribution itself must remain a smooth radial field.
+		outColor = vec4(pc.stageColor.rgb * attenuation, attenuation);
+		return;
+	}
 	if (pc.useLightmap > 0.5 && pc.useLightmap < 1.5 &&
 		abs(pc.lightmapGamma - 1.0) > 0.0001)
 	{
