@@ -50,7 +50,7 @@ extern void PM_BeginMovementAudit( qboolean enabled );
 extern void PM_DumpMovementAudit( void );
 extern void TryUse( gentity_t *ent );
 extern void TryAltUse( gentity_t *ent );
-extern qboolean TryUseNearbyEmplacedWeapon( gentity_t *ent, bool offHand );
+extern qboolean TryUseNearbyHandTarget( gentity_t *ent, bool offHand, bool active );
 extern void ChangeWeapon( gentity_t *ent, int newWeapon );
 extern void ScoreBoardReset(void);
 extern void WP_SaberReflectCheck( gentity_t *self, usercmd_t *ucmd  );
@@ -5651,19 +5651,19 @@ extern cvar_t	*g_skippingcin;
 	{
 		TryAltUse( ent );
 	}
-	if ( vr && !(ent->client->ps.eFlags & EF_LOCKED_TO_WEAPON) )
+	if ( vr )
 	{
-		if ( !pm.useEvent
-			&& (vr->useGestureState & USE_GESTURE_WEAPON_HAND)
-			&& (ucmd->buttons & BUTTON_USE) )
+		const bool weaponHandUse = (vr->useGestureState & USE_GESTURE_WEAPON_HAND)
+			&& (ucmd->buttons & BUTTON_USE);
+		const bool offHandUse = (vr->useGestureState & USE_GESTURE_OFF_HAND)
+			&& (ucmd->buttons & BUTTON_ALT_USE);
+		if ( !pm.useEvent || !weaponHandUse )
 		{
-			TryUseNearbyEmplacedWeapon( ent, false );
+			TryUseNearbyHandTarget( ent, false, weaponHandUse );
 		}
-		if ( !pm.altUseEvent
-			&& (vr->useGestureState & USE_GESTURE_OFF_HAND)
-			&& (ucmd->buttons & BUTTON_ALT_USE) )
+		if ( !pm.altUseEvent || !offHandUse )
 		{
-			TryUseNearbyEmplacedWeapon( ent, true );
+			TryUseNearbyHandTarget( ent, true, offHandUse );
 		}
 	}
 

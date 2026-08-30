@@ -4620,6 +4620,93 @@ CG_DrawActive
 Perform all drawing needed to completely fill the screen
 =====================
 */
+static void CG_LogVRViewMovement(
+	stereoFrame_t stereoView,
+	const vec3_t renderedViewOrigin )
+{
+	static qboolean havePrevious = qfalse;
+	static int previousTime = 0;
+	static vec3_t previousPredictedOrigin;
+	static vec3_t previousSnapshotOrigin;
+	static vec3_t previousViewOrigin;
+
+	if ( stereoView != STEREO_LEFT && stereoView != STEREO_CENTER )
+	{
+		return;
+	}
+	const bool debugEnabled = atoi( cgi_Cvar_Get( "vr_controller_debug" ) ) != 0;
+	const float movementSideways = atof( cgi_Cvar_Get( "vr_debug_movement_sideways" ) );
+	const float movementForward = atof( cgi_Cvar_Get( "vr_debug_movement_forward" ) );
+	const float inputMagnitude = sqrtf(
+		movementForward * movementForward + movementSideways * movementSideways );
+	if ( !debugEnabled || inputMagnitude < 0.75f || in_camera ||
+		 vr->emplaced_gun || cg.snap == NULL )
+	{
+		havePrevious = qfalse;
+		return;
+	}
+
+	if ( !havePrevious )
+	{
+		previousTime = cg.time;
+		VectorCopy( cg.predicted_player_state.origin, previousPredictedOrigin );
+		VectorCopy( cg.snap->ps.origin, previousSnapshotOrigin );
+		VectorCopy( renderedViewOrigin, previousViewOrigin );
+		havePrevious = qtrue;
+		return;
+	}
+
+	const int elapsed = cg.time - previousTime;
+	if ( elapsed < 200 )
+	{
+		return;
+	}
+	if ( elapsed <= 0 || elapsed > 1000 )
+	{
+		havePrevious = qfalse;
+		return;
+	}
+
+	vec3_t predictedDelta;
+	vec3_t snapshotDelta;
+	vec3_t viewDelta;
+	VectorSubtract(
+		cg.predicted_player_state.origin, previousPredictedOrigin, predictedDelta );
+	VectorSubtract( cg.snap->ps.origin, previousSnapshotOrigin, snapshotDelta );
+	VectorSubtract( renderedViewOrigin, previousViewOrigin, viewDelta );
+	const float scale = 1000.0f / elapsed;
+	const float predictedSpeed =
+		sqrtf( predictedDelta[0] * predictedDelta[0] + predictedDelta[1] * predictedDelta[1] ) * scale;
+	const float snapshotSpeed =
+		sqrtf( snapshotDelta[0] * snapshotDelta[0] + snapshotDelta[1] * snapshotDelta[1] ) * scale;
+	const float viewSpeed =
+		sqrtf( viewDelta[0] * viewDelta[0] + viewDelta[1] * viewDelta[1] ) * scale;
+	const float simulationSpeed = sqrtf(
+		cg.predicted_player_state.velocity[0] * cg.predicted_player_state.velocity[0] +
+		cg.predicted_player_state.velocity[1] * cg.predicted_player_state.velocity[1] );
+	const int anomaly = simulationSpeed >= 100.0f && viewSpeed < 40.0f;
+
+	CG_Printf(
+		"jkxr-view-movement: anomaly=%d time=%d dt=%d input=(%.3f %.3f) "
+		"speed=(simulation=%.2f predicted=%.2f snapshot=%.2f view=%.2f) "
+		"delta=(pred=%.2f %.2f snap=%.2f %.2f view=%.2f %.2f) "
+		"predictionError=(%.2f %.2f %.2f age=%d) pmFlags=0x%x ground=%d\n",
+		anomaly, cg.time, elapsed,
+		movementSideways, movementForward,
+		simulationSpeed, predictedSpeed, snapshotSpeed, viewSpeed,
+		predictedDelta[0], predictedDelta[1],
+		snapshotDelta[0], snapshotDelta[1], viewDelta[0], viewDelta[1],
+		cg.predictedError[0], cg.predictedError[1], cg.predictedError[2],
+		cg.predictedErrorTime > 0 ? cg.time - cg.predictedErrorTime : -1,
+		cg.predicted_player_state.pm_flags,
+		cg.predicted_player_state.groundEntityNum );
+
+	previousTime = cg.time;
+	VectorCopy( cg.predicted_player_state.origin, previousPredictedOrigin );
+	VectorCopy( cg.snap->ps.origin, previousSnapshotOrigin );
+	VectorCopy( renderedViewOrigin, previousViewOrigin );
+}
+
 void CG_DrawActive( stereoFrame_t stereoView ) {
 	float		separation;
 	vec3_t		baseOrg;
@@ -4693,6 +4780,8 @@ void CG_DrawActive( stereoFrame_t stereoView ) {
 		cg.refdef.vieworg[2] -= DEFAULT_PLAYER_HEIGHT;
 		cg.refdef.vieworg[2] += (vr->hmdposition[1] + cg_heightAdjust.value) * cg_worldScale.value;
 	}
+
+	CG_LogVRViewMovement( stereoView, cg.refdef.vieworg );
 
 	if ( (cg.snap->ps.forcePowersActive&(1<<FP_SEE)) )
 	{

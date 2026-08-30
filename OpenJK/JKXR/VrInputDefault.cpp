@@ -21,6 +21,8 @@ Authors		:	Simon Brown
 #include "game/wp_saber.h"
 #include "game/g_vehicles.h"
 
+#include <algorithm>
+
 void Sys_QueEvent(int time, sysEventType_t type, int value, int value2, int ptrLength, void* ptr);
 
 static float JKXR_VectorLength( const XrVector3f &vector )
@@ -41,6 +43,282 @@ static float JKXR_SaberSwingSpeed( const ovrTrackedController *controller,
     constexpr float saberCentreFromController = 0.55f;
     const float rotationalSpeed = angularSpeed * saberCentreFromController;
     return sqrtf(linearSpeed * linearSpeed + rotationalSpeed * rotationalSpeed);
+}
+
+static float JKXR_ForceRadialDistance( const vec3_t position )
+{
+    vec3_t chest;
+    vec3_t relative;
+    VectorCopy(vr.hmdposition, chest);
+    chest[1] -= 0.2f;
+    VectorSubtract(position, chest, relative);
+    return VectorLength(relative);
+}
+
+static bool JKXR_ForcePalmAway()
+{
+    vec3_t offhandRightXY = {};
+    vec3_t hmdForwardXY = {};
+    AngleVectors(vr.hmdorientation, hmdForwardXY, NULL, NULL);
+    AngleVectors(vr.offhandangles[ANGLES_DEFAULT], NULL, offhandRightXY, NULL);
+
+    hmdForwardXY[1] = 0.0f;
+    offhandRightXY[1] = 0.0f;
+    VectorNormalize(hmdForwardXY);
+    VectorNormalize(offhandRightXY);
+
+    bool palmAway = DotProduct(hmdForwardXY, offhandRightXY) > 0.0f;
+    if (!vr.right_handed)
+    {
+        palmAway = !palmAway;
+    }
+    return palmAway;
+}
+
+static bool JKXR_DispatchForceGesture(
+        float deltaLength,
+        const char *source,
+        int historyAgeMs = 0 )
+{
+    if (fabsf(deltaLength) <= vr_force_distance_trigger->value)
+    {
+        return false;
+    }
+
+    const bool palmAway = JKXR_ForcePalmAway();
+    int forcePower = -1;
+    const char *forceName = "rejected";
+    if (deltaLength < 0.0f && !palmAway)
+    {
+        forcePower = vr_force_motion_pull->integer;
+        forceName = "pull";
+    }
+    else if (deltaLength > 0.0f && palmAway)
+    {
+        forcePower = vr_force_motion_push->integer;
+        forceName = "push";
+    }
+
+    if (Cvar_VariableIntegerValue("vr_controller_debug"))
+    {
+        Com_Printf(
+                "jkxr-force-input: source=%s result=%s delta=%.4f speed=%.4f "
+                "palmAway=%d samples=%d ageMs=%d\n",
+                source,
+                forceName,
+                deltaLength,
+                vr.secondaryswingvelocity,
+                palmAway ? 1 : 0,
+                vr.forceGestureHistorySampleCount,
+                historyAgeMs);
+    }
+    if (forcePower < 0)
+    {
+        return false;
+    }
+
+    sendButtonActionSimple(va("useGivenForce %i", forcePower));
+    return true;
+}
+
+static void JKXR_RecordForceGestureSample( int timestamp )
+{
+    const float radialDistance = JKXR_ForceRadialDistance(vr.offhandposition[0]);
+    if (vr.forceGestureHistorySampleCount > 0 &&
+            vr.forceGestureHistoryTimestamp[0] == timestamp)
+    {
+        vr.forceGestureRadialHistory[0] = radialDistance;
+        return;
+    }
+
+    const int lastSample = std::min(
+            vr.forceGestureHistorySampleCount,
+            NUM_FORCE_GESTURE_SAMPLES - 1);
+    for (int sample = lastSample; sample > 0; --sample)
+    {
+        vr.forceGestureRadialHistory[sample] =
+                vr.forceGestureRadialHistory[sample - 1];
+        vr.forceGestureHistoryTimestamp[sample] =
+                vr.forceGestureHistoryTimestamp[sample - 1];
+    }
+    vr.forceGestureRadialHistory[0] = radialDistance;
+    vr.forceGestureHistoryTimestamp[0] = timestamp;
+    if (vr.forceGestureHistorySampleCount < NUM_FORCE_GESTURE_SAMPLES)
+    {
+        ++vr.forceGestureHistorySampleCount;
+    }
+}
+
+static void JKXR_ResetForceGestureHistory()
+{
+    if (vr.forceGestureHistorySampleCount > 0)
+    {
+        vr.forceGestureHistorySampleCount = 1;
+    }
+}
+
+static bool JKXR_ForceHistoryDelta(
+        int timestamp,
+        float *deltaLength,
+        int *historyAgeMs )
+{
+    if (deltaLength == nullptr || historyAgeMs == nullptr ||
+            vr.forceGestureHistorySampleCount < 2)
+    {
+        return false;
+    }
+
+    constexpr int minimumHistoryAgeMs = 20;
+    constexpr int maximumHistoryAgeMs = 320;
+    const float currentRadius = vr.forceGestureRadialHistory[0];
+    float strongestDelta = 0.0f;
+    int strongestAgeMs = 0;
+    for (int sample = 1; sample < vr.forceGestureHistorySampleCount; ++sample)
+    {
+        const int sampleAgeMs =
+                timestamp - vr.forceGestureHistoryTimestamp[sample];
+        if (sampleAgeMs < minimumHistoryAgeMs)
+        {
+            continue;
+        }
+        if (sampleAgeMs > maximumHistoryAgeMs)
+        {
+            break;
+        }
+
+        const float sampleDelta = currentRadius -
+                vr.forceGestureRadialHistory[sample];
+        if (fabsf(sampleDelta) > fabsf(strongestDelta))
+        {
+            strongestDelta = sampleDelta;
+            strongestAgeMs = sampleAgeMs;
+        }
+    }
+    *deltaLength = strongestDelta;
+    *historyAgeMs = strongestAgeMs;
+    return fabsf(strongestDelta) > vr_force_distance_trigger->value;
+}
+
+struct jkxr_stick_dropout_state_t
+{
+    bool outerArmed = false;
+    bool compensating = false;
+    float latchedMagnitude = 0.0f;
+    XrVector2f latchedDirection = {};
+    float previousMagnitude = 0.0f;
+};
+
+static XrVector2f JKXR_ConditionLocomotionStick(
+        const XrVector2f &raw,
+        bool movementEnabled,
+        bool stickTouched )
+{
+    static jkxr_stick_dropout_state_t state;
+    static cvar_t *dropoutGuard = Cvar_Get(
+            "vr_openxr_stick_dropout_guard", "1", CVAR_ARCHIVE);
+
+    const float magnitude = length(raw.x, raw.y);
+    if (!movementEnabled || dropoutGuard->integer == 0)
+    {
+        state = {};
+        return raw;
+    }
+
+    constexpr float outerThreshold = 0.82f;
+    constexpr float dropoutThreshold = 0.58f;
+    constexpr float minimumDirectionDot = 0.75f;
+
+    if (magnitude <= 0.06f)
+    {
+        if (state.compensating && stickTouched)
+        {
+            if (Cvar_VariableIntegerValue("vr_controller_debug") &&
+                    state.previousMagnitude > 0.06f)
+            {
+                Com_Printf(
+                        "jkxr-stick-dropout: holding through false center "
+                        "touch=1 latched=%.3f\n",
+                        state.latchedMagnitude);
+            }
+            state.previousMagnitude = magnitude;
+            return {
+                state.latchedDirection.x * state.latchedMagnitude,
+                state.latchedDirection.y * state.latchedMagnitude,
+            };
+        }
+        if (state.compensating &&
+                Cvar_VariableIntegerValue("vr_controller_debug"))
+        {
+            Com_Printf(
+                    "jkxr-stick-dropout: released at center touch=%d\n",
+                    stickTouched ? 1 : 0);
+        }
+        state = {};
+        return raw;
+    }
+
+    const XrVector2f direction = {
+        raw.x / magnitude,
+        raw.y / magnitude,
+    };
+    if (magnitude >= outerThreshold)
+    {
+        if (state.compensating &&
+                Cvar_VariableIntegerValue("vr_controller_debug"))
+        {
+            Com_Printf(
+                    "jkxr-stick-dropout: raw signal recovered "
+                    "raw=(%.3f %.3f) magnitude=%.3f\n",
+                    raw.x, raw.y, magnitude);
+        }
+        state.outerArmed = true;
+        state.compensating = false;
+        state.latchedMagnitude = magnitude;
+        state.latchedDirection = direction;
+        state.previousMagnitude = magnitude;
+        return raw;
+    }
+
+    if (!state.outerArmed)
+    {
+        return raw;
+    }
+
+    const float directionDot =
+            direction.x * state.latchedDirection.x +
+            direction.y * state.latchedDirection.y;
+    if (directionDot < minimumDirectionDot)
+    {
+        state = {};
+        return raw;
+    }
+
+    const bool abruptAttenuation =
+            state.previousMagnitude >= outerThreshold &&
+            magnitude <= dropoutThreshold;
+    if (!state.compensating && abruptAttenuation)
+    {
+        state.compensating = true;
+        if (Cvar_VariableIntegerValue("vr_controller_debug"))
+        {
+            Com_Printf(
+                    "jkxr-stick-dropout: compensating raw attenuation "
+                    "raw=(%.3f %.3f) magnitude=%.3f latched=%.3f dot=%.3f\n",
+                    raw.x, raw.y, magnitude, state.latchedMagnitude,
+                    directionDot);
+        }
+    }
+    state.previousMagnitude = magnitude;
+
+    if (!state.compensating)
+    {
+        return raw;
+    }
+
+    return {
+        direction.x * state.latchedMagnitude,
+        direction.y * state.latchedMagnitude,
+    };
 }
 
 
@@ -69,6 +347,7 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
     uint32_t primaryButtonsOld;
     uint32_t secondaryButtonsNew;
     uint32_t secondaryButtonsOld;
+    uint32_t secondaryTouchesNew;
     int primaryButton1;
     bool primaryButton2New;
     bool primaryButton2Old;
@@ -104,6 +383,7 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
         pPrimaryJoystick = &pOffTrackedRemoteNew->Joystick;
         secondaryButtonsNew = pDominantTrackedRemoteNew->Buttons;
         secondaryButtonsOld = pDominantTrackedRemoteOld->Buttons;
+        secondaryTouchesNew = pDominantTrackedRemoteNew->Touches;
         primaryButtonsNew = pOffTrackedRemoteNew->Buttons;
         primaryButtonsOld = pOffTrackedRemoteOld->Buttons;
         primaryButton1 = offButton1;
@@ -117,6 +397,7 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
         primaryButtonsOld = pDominantTrackedRemoteOld->Buttons;
         secondaryButtonsNew = pOffTrackedRemoteNew->Buttons;
         secondaryButtonsOld = pOffTrackedRemoteOld->Buttons;
+        secondaryTouchesNew = pOffTrackedRemoteNew->Touches;
         primaryButton1 = domButton1;
         secondaryButton1 = offButton1;
     }
@@ -843,6 +1124,11 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
                 vr.offhandposition[0][0] = pOff->Pose.position.x;
                 vr.offhandposition[0][1] = pOff->Pose.position.y;
                 vr.offhandposition[0][2] = pOff->Pose.position.z;
+                if (vr.offhandPositionSampleCount < 5)
+                {
+                    ++vr.offhandPositionSampleCount;
+                }
+				JKXR_RecordForceGestureSample(Sys_Milliseconds());
 
                 vr.offhandoffset[0] = pOff->Pose.position.x - vr.hmdposition[0];
                 vr.offhandoffset[1] = pOff->Pose.position.y - vr.hmdposition[1];
@@ -986,15 +1272,24 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
 
         {
             //Apply a filter and quadratic scaler so small movements are easier to make
+            const bool movementEnabled =
+                    vr.item_selector != (vr_switch_sticks->integer ? 1 : 2);
+            const bool movementStickTouched =
+                    (secondaryTouchesNew & secondaryThumb) != 0;
+            const XrVector2f movementJoystick =
+                    JKXR_ConditionLocomotionStick(
+                            *pSecondaryJoystick,
+                            movementEnabled,
+                            movementStickTouched);
             float dist = 0;
-            if (vr.item_selector != (vr_switch_sticks->integer ? 1 : 2))
+            if (movementEnabled)
             {
-                dist = length(pSecondaryJoystick->x, pSecondaryJoystick->y);
+                dist = length(movementJoystick.x, movementJoystick.y);
             }
 			const float nlf = nonLinearFilter(dist);
 			const float directionDivisor = dist > 0.0001f ? dist : 1.0f;
-			float x = nlf * (pSecondaryJoystick->x / directionDivisor);
-			float y = nlf * (pSecondaryJoystick->y / directionDivisor);
+			float x = nlf * (movementJoystick.x / directionDivisor);
+			float y = nlf * (movementJoystick.y / directionDivisor);
 
             vr.player_moving = (fabs(x) + fabs(y)) > 0.05f;
 
@@ -1034,6 +1329,23 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
 
             remote_movementSideways = move_speed_multiplier * v[0];
             remote_movementForward = move_speed_multiplier * v[1];
+
+			const float rawMoveMagnitude = length(
+				pSecondaryJoystick->x, pSecondaryJoystick->y);
+			const float filteredMoveMagnitude = length(
+				remote_movementSideways, remote_movementForward);
+			if (Cvar_VariableIntegerValue("vr_controller_debug") &&
+				rawMoveMagnitude >= 0.75f && filteredMoveMagnitude < 0.2f &&
+				vr.item_selector != (vr_switch_sticks->integer ? 1 : 2))
+			{
+				Com_Printf(
+					"jkxr-stick-pipeline: time=%d raw=(%.3f %.3f) dist=%.3f "
+					"filtered=(%.3f %.3f) nlf=%.3f divisor=%.3f thirdPerson=%d\n",
+					Sys_Milliseconds(), pSecondaryJoystick->x,
+					pSecondaryJoystick->y, dist, remote_movementSideways,
+					remote_movementForward, nlf, directionDivisor,
+					thirdPersonActive ? 1 : 0);
+			}
             
 
             //X button invokes menu now
@@ -1098,6 +1410,14 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
 
             float previousSnap = vr.snapTurn;
             static int increaseSnap = true;
+            static int lastSmoothTurnTime = 0;
+            const int smoothTurnTime = Sys_Milliseconds();
+            const int smoothTurnDelta = smoothTurnTime - lastSmoothTurnTime;
+            float smoothTurnSeconds = 1.0f / 72.0f;
+            if (lastSmoothTurnTime > 0 && smoothTurnDelta > 0 && smoothTurnDelta < 250) {
+                smoothTurnSeconds = smoothTurnDelta * 0.001f;
+            }
+            lastSmoothTurnTime = smoothTurnTime;
             if (!vr.item_selector) {
                 if (usingSnapTurn) {
                     if (primaryJoystickX > 0.7f) {
@@ -1131,11 +1451,13 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
 
                 if (!usingSnapTurn && fabs(primaryJoystickX) > 0.1f) //smooth turn
                 {
-                    vr.snapTurn -= ((vr_turn_angle->value / 25.0f) *
-                                    primaryJoystickX);
-                    if (vr.snapTurn > 180.0f) {
-                        vr.snapTurn -= 360.f;
-                    }
+                    // Preserve the original 72 Hz turn rate while making it
+                    // independent of rendering and controller update rate.
+                    constexpr float referenceRefresh = 72.0f;
+                    const float degreesPerSecond =
+                            (vr_turn_angle->value / 25.0f) * referenceRefresh;
+                    vr.snapTurn = AngleNormalize180(
+                            vr.snapTurn - degreesPerSecond * smoothTurnSeconds * primaryJoystickX);
                 }
             } else {
                 if (fabs(primaryJoystickX) > 0.5f) {
@@ -1159,60 +1481,76 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
                 // If dual sabers we can't really use motion control force as the off hand could be swinging for an attack
                 !vr.dualsabers)
         {
-            if (vr.secondaryswingvelocity > vr_force_velocity_trigger->value)
+            const int forceGestureTime = Sys_Milliseconds();
+            const bool useGestureOwnsOffhand =
+                    (vr.useGestureState & USE_GESTURE_TARGET) != 0;
+            const bool aboveVelocityThreshold =
+                    vr.secondaryswingvelocity > vr_force_velocity_trigger->value;
+
+            if (useGestureOwnsOffhand)
             {
-                if (!vr.secondaryVelocityTriggeredAttack)
+                if (vr.forceGestureArmed &&
+                        Cvar_VariableIntegerValue("vr_controller_debug"))
                 {
-                    VectorCopy(vr.offhandposition[0], vr.secondaryVelocityTriggerLocation);
-                    vr.secondaryVelocityTriggeredAttack = true;
+                    Com_Printf("jkxr-force-input: use target owns off-hand gesture\n");
+                }
+                vr.forceGestureArmed = false;
+                vr.forceGestureCooldownTime = forceGestureTime + 150;
+                JKXR_ResetForceGestureHistory();
+            }
+            else if (forceGestureTime >= vr.forceGestureCooldownTime)
+            {
+                bool dispatched = false;
+                float historyDelta = 0.0f;
+                int historyAgeMs = 0;
+                if (JKXR_ForceHistoryDelta(
+                        forceGestureTime,
+                        &historyDelta,
+                        &historyAgeMs))
+                {
+                    dispatched = JKXR_DispatchForceGesture(
+                            historyDelta, "history", historyAgeMs);
+                }
+
+                if (aboveVelocityThreshold)
+                {
+                    if (!dispatched && !vr.forceGestureArmed)
+                    {
+                        VectorCopy(
+                                vr.offhandposition[0],
+                                vr.forceGestureStartLocation);
+                        vr.forceGestureArmed = true;
+                    }
+                }
+                else
+                {
+                    if (!dispatched && vr.forceGestureArmed)
+                    {
+                        const float armedDelta =
+                                JKXR_ForceRadialDistance(vr.offhandposition[0]) -
+                                JKXR_ForceRadialDistance(vr.forceGestureStartLocation);
+                        dispatched = JKXR_DispatchForceGesture(
+                                armedDelta, "velocity");
+                    }
+                    vr.forceGestureArmed = false;
+                }
+
+                if (dispatched)
+                {
+                    vr.forceGestureArmed = false;
+                    vr.forceGestureCooldownTime = forceGestureTime + 250;
+                    JKXR_ResetForceGestureHistory();
                 }
             }
             else
             {
-                if (vr.secondaryVelocityTriggeredAttack)
-                {
-                    vec3_t start, end, chest;
-
-                    vec3_t offhandRightXY = {};
-                    vec3_t hmdForwardXY = {};
-                    float hmdToOffhandDotProduct = 0;
-                    AngleVectors(vr.hmdorientation, hmdForwardXY, NULL, NULL);
-                    AngleVectors(vr.offhandangles[ANGLES_DEFAULT], NULL, offhandRightXY, NULL);
-
-                    hmdForwardXY[1] = 0;
-                    VectorNormalize(hmdForwardXY);
-
-                    offhandRightXY[1] = 0;
-                    VectorNormalize(offhandRightXY);
-
-                    hmdToOffhandDotProduct = DotProduct(hmdForwardXY, offhandRightXY);
-                    bool palmAway = hmdToOffhandDotProduct > 0;
-                    if (!vr.right_handed)
-                    {
-                        //Opposite direction for the other controller
-                        palmAway = !palmAway;
-                    }
-
-                    //Estimate that middle of chest is about 20cm below HMD
-                    VectorCopy(vr.hmdposition, chest);
-                    chest[1] -= 0.2f;
-                    VectorSubtract(vr.secondaryVelocityTriggerLocation, chest, start);
-                    VectorSubtract(vr.offhandposition[0], chest, end);
-                    float deltaLength = VectorLength(end) - VectorLength(start);
-                    if (fabs(deltaLength) > vr_force_distance_trigger->value) {
-                        if (deltaLength < 0 && !palmAway)
-                        {
-                            sendButtonActionSimple(va("useGivenForce %i", vr_force_motion_pull->integer));
-                        }
-                        else if (deltaLength > 0 && palmAway)
-                        {
-                            sendButtonActionSimple(va("useGivenForce %i", vr_force_motion_push->integer));
-                        }
-
-                        vr.secondaryVelocityTriggeredAttack = false;
-                    }
-                }
+                JKXR_ResetForceGestureHistory();
             }
+        }
+        else
+        {
+            vr.forceGestureArmed = false;
+            vr.forceGestureHistorySampleCount = 0;
         }
 
         // Process "use" gesture

@@ -2,6 +2,7 @@
 #define vr_client_info_h
 
 #define NUM_WEAPON_SAMPLES      10
+#define NUM_FORCE_GESTURE_SAMPLES 32
 
 #define ANGLES_DEFAULT          0
 #define ANGLES_ADJUSTED         1
@@ -10,6 +11,7 @@
 
 #define USE_GESTURE_OFF_HAND      1
 #define USE_GESTURE_WEAPON_HAND   2
+#define USE_GESTURE_TARGET        4
 #define USE_HAPTIC_FEEDBACK_DELAY 500
 
 typedef struct {
@@ -107,6 +109,12 @@ typedef struct {
     float secondaryswingvelocity;
     bool secondaryVelocityTriggeredAttack;
     vec3_t secondaryVelocityTriggerLocation;
+	bool forceGestureArmed;
+	vec3_t forceGestureStartLocation;
+	int forceGestureCooldownTime;
+	float forceGestureRadialHistory[NUM_FORCE_GESTURE_SAMPLES];
+	int forceGestureHistoryTimestamp[NUM_FORCE_GESTURE_SAMPLES];
+	int forceGestureHistorySampleCount;
 
     vec3_t offhandangles[ANGLES_COUNT];
     vec3_t offhandangles_last[ANGLES_COUNT]; // Don't use this, it is just for calculating delta!
@@ -114,6 +122,7 @@ typedef struct {
     vec3_t offhandangles_saber[ANGLES_COUNT];
 
     vec3_t offhandposition[5]; // store last 5
+	int offhandPositionSampleCount;
     vec3_t offhandoffset;
 
     float   maxHeight;

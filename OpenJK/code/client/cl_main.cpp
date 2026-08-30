@@ -148,6 +148,8 @@ static void CL_TBXR_UpdateControllers(
 	const int now = Sys_Milliseconds();
 	if ( controllerDebug->integer && now - lastDebugTime >= 250 )
 	{
+		Cvar_SetValue( "vr_debug_movement_sideways", remote_movementSideways );
+		Cvar_SetValue( "vr_debug_movement_forward", remote_movementForward );
 		const float linearSpeed = std::sqrt(
 			right->linearVelocity[0] * right->linearVelocity[0] +
 			right->linearVelocity[1] * right->linearVelocity[1] +
@@ -166,10 +168,11 @@ static void CL_TBXR_UpdateControllers(
 		Com_Printf(
 			"jkxr-controller-debug: rightActive=%d velocityFlags=0x%llx speed=%.3f "
 			"sticks=L%d(%.3f %.3f) R%d(%.3f %.3f) grips=(%.3f %.3f) "
+			"touches=(0x%x 0x%x) "
 			"selector=%d moveSpeed=%d movement=(%.3f %.3f) positional=(%.3f %.3f) "
 			"buttons=(0x%x 0x%x) state=(health=%d pm=%d pmFlags=0x%x weapon=%d "
 			"weaponState=%d weaponTime=%d) scope=(mode=%d stabilised=%d offset=%.3f) "
-			"cmd=(f=%d r=%d u=%d buttons=0x%x) playerSpeed=%.2f "
+			"prevCmd=(f=%d r=%d u=%d buttons=0x%x) playerSpeed=%.2f "
 			"latches=(attack=%d alt=%d)\n",
 			right->active,
 			static_cast<unsigned long long>( right->velocityFlags ),
@@ -177,6 +180,7 @@ static void CL_TBXR_UpdateControllers(
 			left->joystickActive, left->joystick[0], left->joystick[1],
 			right->joystickActive, right->joystick[0], right->joystick[1],
 			left->gripTrigger, right->gripTrigger,
+			left->touches, right->touches,
 			vr.item_selector, vr.move_speed,
 			remote_movementSideways, remote_movementForward,
 			positional_movementSideways, positional_movementForward,

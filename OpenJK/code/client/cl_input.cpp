@@ -735,6 +735,23 @@ usercmd_t CL_CreateCmd( void ) {
 	// get basic movement from joystick
 	CL_JoystickMove( &cmd );
 
+	static cvar_t *controllerDebug = Cvar_Get( "vr_controller_debug", "0", 0 );
+	const float vrMoveMagnitude = std::sqrt(
+		new_move.forward * new_move.forward + new_move.side * new_move.side );
+	const float commandMagnitude = std::sqrt(
+		static_cast<float>( cmd.forwardmove * cmd.forwardmove +
+			cmd.rightmove * cmd.rightmove ) );
+	if ( controllerDebug->integer && vrMoveMagnitude >= 0.75f && commandMagnitude < 32.0f )
+	{
+		Com_Printf(
+			"jkxr-movement-pipeline: time=%d filtered=(%.3f %.3f) positional=(%.3f %.3f) "
+			"cmd=(%d %d) keyCatcher=0x%x thirdPerson=%d turret=%d emplaced=%d zoom=%d\n",
+			Sys_Milliseconds(), new_move.side, new_move.forward,
+			new_move.pos_side, new_move.pos_forward,
+			cmd.rightmove, cmd.forwardmove, Key_GetCatcher(), vr.third_person,
+			vr.remote_turret, vr.emplaced_gun, vr.cgzoommode );
+	}
+
 	// check to make sure the angles haven't wrapped
 	if ( cl.viewangles[PITCH] - oldAngles[PITCH] > 90 ) {
 		cl.viewangles[PITCH] = oldAngles[PITCH] + 90;
