@@ -1649,10 +1649,11 @@ static void CIN_AddTextCrawl()
 	}
 	for ( int i = 0; i < 4; i++ )
 	{
-		// Linear-light equivalent of the logo's #F1DC71 gold for the sRGB swapchain.
-		verts[i].modulate[0] = 224*fadeDown;
-		verts[i].modulate[1] = 183*fadeDown;
-		verts[i].modulate[2] = 42*fadeDown;
+		// The Vulkan legacy color path preserves authored byte-space values.
+		// Use the logo's gold directly instead of applying a second sRGB decode.
+		verts[i].modulate[0] = 241*fadeDown;
+		verts[i].modulate[1] = 220*fadeDown;
+		verts[i].modulate[2] = 113*fadeDown;
 		verts[i].modulate[3] = 255*fadeDown;
 	}
 

@@ -179,11 +179,16 @@ extern "C" Q_EXPORT refexport_t* QDECL GetRefAPI( int apiVersion, refimport_t *r
 		return nullptr;
 	}
 
-	re.Shutdown = []( qboolean, qboolean ) {
+	re.Shutdown = []( qboolean destroyWindow, qboolean ) {
 		if ( trFontsInitialized )
 		{
 			R_ShutdownFonts();
 			trFontsInitialized = false;
+		}
+		if ( !destroyWindow )
+		{
+			VK_Backend_SoftShutdown();
+			return;
 		}
 		VK_Backend_Shutdown();
 		if ( trWindowInitialized )

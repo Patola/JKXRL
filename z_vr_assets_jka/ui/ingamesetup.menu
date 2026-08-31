@@ -1333,7 +1333,7 @@
 			name				applybutton_glow
 			group				none
 			style				WINDOW_STYLE_SHADER
-			rect				260 384 340 14
+			rect				260 392 340 14
 			background			"gfx/menus/menu_blendbox2"			// Frame around button
 			forecolor			1 0.5 0.5 1
 			visible				0
@@ -1347,7 +1347,7 @@
 			text				@MENUS_APPLY_CHANGES
 			type				ITEM_TYPE_BUTTON
 			style				WINDOW_STYLE_EMPTY
-			rect				260 384 340 14
+			rect				260 392 340 14
 			textaligny			0
 			font 				4					
 			textscale 			1
@@ -1803,6 +1803,39 @@
 			{
 				play			"sound/interface/button1.wav"
 			} 
+		}
+
+		itemDef
+		{
+			name				force_speed_motion_blur
+			group				video2
+			type				ITEM_TYPE_MULTI
+			text				@MENUS_VR_FORCE_SPEED_MOTION_BLUR_ITEM
+			cvar				"cg_forceSpeedMotionBlur"
+			cvarFloatList		{ @MENUS_OFF 0 @MENUS_ON 1 }
+			rect				260 373 340 14
+			textalign			ITEM_ALIGN_RIGHT
+			textalignx			174
+			textaligny			0
+			font				4
+			textscale			1
+			forecolor			.615 .615 .956 1
+			visible				0
+			descText			@MENUS_VR_FORCE_SPEED_MOTION_BLUR_DESC
+
+			mouseenter
+			{
+				show			button_glow
+				setitemrect		button_glow 260 373 340 18
+			}
+			mouseexit
+			{
+				hide			button_glow
+			}
+			action
+			{
+				play			"sound/interface/button1.wav"
+			}
 		}
 
 //----------------------------------------------------------------------------------------------
@@ -3156,4 +3189,3 @@
 		}	
 	}
 }
-

@@ -691,6 +691,7 @@ extern	vmCvar_t		cg_missionInfoFlashTime;
 extern	vmCvar_t		cg_hudFiles;
 
 extern	vmCvar_t		cg_forceSpeedFOVAdjust;
+extern	vmCvar_t		cg_forceSpeedMotionBlur;
 
 extern	vmCvar_t		cg_turnAnims;
 extern	vmCvar_t		cg_motionBoneComp;

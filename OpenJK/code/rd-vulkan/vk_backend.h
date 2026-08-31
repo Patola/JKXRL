@@ -13,6 +13,7 @@ published by the Free Software Foundation.
 #pragma once
 
 bool VK_Backend_Init();
+void VK_Backend_SoftShutdown();
 void VK_Backend_Shutdown();
 bool VK_Backend_IsInitialized();
 int VK_Backend_GetRecommendedWidth();

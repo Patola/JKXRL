@@ -280,6 +280,7 @@ void UI_Init( int apiVersion, uiimport_t *uiimport, qboolean inGameLoad )
 	ui.Cvar_Create( "cg_autoUseBacta", "0", CVAR_ARCHIVE );
 	ui.Cvar_Create( "d_slowmodeath", "4", CVAR_ARCHIVE );
 	ui.Cvar_Create( "cg_forceSpeedFOVAdjust", "1", CVAR_ARCHIVE );
+	ui.Cvar_Create( "cg_forceSpeedMotionBlur", "1", CVAR_ARCHIVE );
 	ui.Cvar_Create( "g_saberAnimSpeed", "1.2", CVAR_ARCHIVE );
 	ui.Cvar_Create( "cg_heightAdjust", "0.0", CVAR_ARCHIVE );
 	ui.Cvar_Create( "cg_hudScale", "2.5", CVAR_ARCHIVE );

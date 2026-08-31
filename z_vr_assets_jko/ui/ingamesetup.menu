@@ -1950,11 +1950,11 @@
 
 		itemDef 
 		{			
-			name				light_flares
-			group				video2_obsolete
+			name				force_speed_motion_blur
+			group				video2
       		type				ITEM_TYPE_MULTI
-			text				@MENUS0_LIGHT_FLARES
-			cvar				"r_flares"	
+			text				@MENUS_VR_FORCE_SPEED_MOTION_BLUR_ITEM
+			cvar				"cg_forceSpeedMotionBlur"
 			cvarFloatList		{  @MENUS0_OFF 0 @MENUS0_ON 1 }
 			rect				305 351 300 20
 	   		textalign			ITEM_ALIGN_RIGHT
@@ -1965,7 +1965,7 @@
 			forecolor			1 1 1 1
 			visible			0
 			// appearance_slot		1
-			descText			@MENUS1_TOGGLE_TO_SHOW_HALOS
+			descText			@MENUS_VR_FORCE_SPEED_MOTION_BLUR_DESC
 
 			mouseenter 
 			{ 
@@ -3159,4 +3159,3 @@
 		}
 	}
 }
-

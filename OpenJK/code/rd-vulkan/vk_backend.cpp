@@ -139,6 +139,14 @@ static const uint32_t texturedRectFragSpv[] =
 #include "textured_rect.frag.inc"
 ;
 
+static const uint32_t forceSpeedMotionBlurVertSpv[] =
+#include "force_speed_motion_blur.vert.inc"
+;
+
+static const uint32_t forceSpeedMotionBlurFragSpv[] =
+#include "force_speed_motion_blur.frag.inc"
+;
+
 static const uint32_t diagnostic3dVertSpv[] =
 #include "diagnostic3d.vert.inc"
 ;
@@ -153,6 +161,10 @@ static const uint32_t worldVertSpv[] =
 
 static const uint32_t worldFragSpv[] =
 #include "world.frag.inc"
+;
+
+static const uint32_t glmSkinCompSpv[] =
+#include "glm_skin.comp.inc"
 ;
 
 struct vk_rect_t
@@ -192,6 +204,9 @@ struct vk_texture_name_t
 struct vk_material_stage_t
 {
 	qhandle_t texture;
+	std::vector<qhandle_t> animationTextures;
+	float animationSpeed;
+	bool oneShotAnimation;
 	int videoHandle;
 	bool videoMap;
 	vk_blend_mode_t blendMode;
@@ -204,6 +219,8 @@ struct vk_material_stage_t
 	float stretch[4];
 	float turbulence[3];
 	float color[4];
+	vk_waveform_t rgbWaveType;
+	float rgbWave[4];
 	bool lightmap;
 	bool vertexColor;
 	bool entityColor;
@@ -230,6 +247,9 @@ struct vk_material_t
 struct vk_shader_stage_definition_t
 {
 	std::string imageName;
+	std::vector<std::string> animationNames;
+	float animationSpeed;
+	bool oneShotAnimation;
 	std::string videoName;
 	vk_blend_mode_t blendMode;
 	vk_alpha_test_t alphaTest;
@@ -241,6 +261,8 @@ struct vk_shader_stage_definition_t
 	float stretch[4];
 	float turbulence[3];
 	float color[4];
+	vk_waveform_t rgbWaveType;
+	float rgbWave[4];
 	bool vertexColor;
 	bool entityColor;
 	bool lightingDiffuse;
@@ -440,12 +462,26 @@ struct vk_glm_skin_vertex_t
 	int weightCount;
 };
 
+struct vk_glm_gpu_skin_vertex_t
+{
+	uint32_t boneIndices[iMAX_G2_BONEWEIGHTS_PER_VERT];
+	float weights[iMAX_G2_BONEWEIGHTS_PER_VERT];
+};
+
+static_assert( sizeof( vk_glm_gpu_skin_vertex_t ) == 32,
+	"GLM compute skin input must match the std430 shader layout" );
+static_assert( sizeof( mdxaBone_t ) == sizeof( float ) * 12,
+	"GLM compute bones require packed 3x4 matrices" );
+
 struct vk_model_surface_t
 {
 	VkBuffer vertexBuffer;
 	VkDeviceMemory vertexMemory;
 	VkBuffer indexBuffer;
 	VkDeviceMemory indexMemory;
+	VkBuffer skinBuffer;
+	VkDeviceMemory skinMemory;
+	VkDescriptorSet skinDescriptorSet;
 	uint32_t vertexCount;
 	uint32_t indexCount;
 	qhandle_t shader;
@@ -456,6 +492,7 @@ struct vk_model_surface_t
 	std::vector<mdxmVertex_t> glmVertices;
 	std::vector<vk_glm_skin_vertex_t> glmSkinVertices;
 	std::vector<int> glmBoneReferences;
+	int maxSkinBoneIndex;
 	std::vector<vk_world_vertex_t> glmBaseVertices;
 	std::vector<uint32_t> glmIndices;
 };
@@ -525,6 +562,7 @@ struct vk_model_t
 	vk_model_type_t type;
 	int inlineModelIndex;
 	int boneCount;
+	int numLods;
 	qhandle_t animationHandle;
 	int frameCount;
 	int tagCount;
@@ -533,7 +571,20 @@ struct vk_model_t
 	bool hasBounds;
 	std::vector<vk_model_tag_t> tags;
 	std::vector<vk_model_surface_t> surfaces;
+	// LOD 0 remains in surfaces because hierarchy, bolt, and API metadata are
+	// defined by the highest-detail level. Entries 1..numLods-1 own the
+	// corresponding render geometry; entry 0 is intentionally empty.
+	std::vector<std::vector<vk_model_surface_t>> lodSurfaces;
 	std::shared_ptr<vk_gla_t> animation;
+};
+
+struct vk_glm_lod_selection_t
+{
+	int lod;
+	int effectiveBias;
+	float distance;
+	float projectedRadius;
+	bool forced;
 };
 
 struct vk_skin_surface_t
@@ -702,6 +753,12 @@ struct vk_backend_state_t
 	VkImage depthImages[VK_BACKEND_EYE_COUNT];
 	VkDeviceMemory depthMemories[VK_BACKEND_EYE_COUNT];
 	VkImageView depthImageViews[VK_BACKEND_EYE_COUNT];
+	vk_texture_t forceSpeedTargets[VK_BACKEND_EYE_COUNT];
+	vk_texture_t forceSpeedHistoryTargets[VK_BACKEND_EYE_COUNT];
+	VkFramebuffer forceSpeedFramebuffers[VK_BACKEND_EYE_COUNT];
+	bool forceSpeedHistoryInitialized[VK_BACKEND_EYE_COUNT];
+	bool forceSpeedHistoryValid[VK_BACKEND_EYE_COUNT];
+	XrPosef forceSpeedLastViewPose[VK_BACKEND_EYE_COUNT];
 	bool swapchainsCreated;
 	bool renderResourcesCreated;
 
@@ -715,6 +772,7 @@ struct vk_backend_state_t
 	bool samplerAnisotropy;
 	float maxSamplerAnisotropy;
 	bool multiDrawIndirect;
+	bool computeQueue;
 	uint32_t maxDrawIndirectCount;
 	VkDevice device;
 	VkQueue queue;
@@ -729,6 +787,12 @@ struct vk_backend_state_t
 	byte *skinnedVertexMapped;
 	VkDeviceSize skinnedVertexCapacity;
 	VkDeviceSize skinnedVertexOffset;
+	VkBuffer glmBoneBuffer;
+	VkDeviceMemory glmBoneMemory;
+	byte *glmBoneMapped;
+	VkDeviceSize glmBoneCapacity;
+	VkDeviceSize glmBoneOffset;
+	std::unordered_map<const std::vector<mdxaBone_t> *, uint32_t> glmBoneFrameCache;
 	uint64_t ghoul2CacheFrameIndex;
 	std::deque<vk_ghoul2_bone_cache_t> ghoul2BoneCache;
 	std::unordered_map<vk_ghoul2_surface_cache_key_t, VkDeviceSize,
@@ -740,9 +804,14 @@ struct vk_backend_state_t
 	std::vector<const CGhoul2Info *> loggedGhoul2SkinnedAudits;
 	VkRenderPass renderPass;
 	VkPipelineLayout pipelineLayout;
+	VkDescriptorSetLayout glmSkinSetLayout;
+	VkDescriptorPool glmSkinDescriptorPool;
+	VkPipelineLayout glmSkinPipelineLayout;
+	VkPipeline glmSkinPipeline;
 	VkPipeline pipeline;
 	VkPipeline rectPipeline;
 	VkPipeline texturedRectPipeline;
+	VkPipeline forceSpeedMotionBlurPipeline;
 	VkPipeline texturedRectOpaquePipeline;
 	VkPipeline texturedRectAdditivePipeline;
 	VkPipeline texturedRectSourceAlphaAdditivePipeline;
@@ -837,6 +906,9 @@ struct vk_backend_state_t
 	bool screenLayerContentValid;
 	bool screenLayerTransitionHeld;
 	XrPosef screenLayerPose;
+	bool projectionLayerContentValid;
+	XrView retainedProjectionViews[VK_BACKEND_EYE_COUNT];
+	uint32_t retainedFrameSubmissions;
 	uint32_t missingTextureCount;
 	uint32_t modelRegistrationCount;
 	uint32_t skinRegistrationCount;
@@ -907,6 +979,16 @@ struct vk_backend_state_t
 	cvar_t *fxModelAuditCvar;
 	int fxModelAuditLastTime;
 	cvar_t *modelCullCvar;
+	cvar_t *lodScaleCvar;
+	cvar_t *lodBiasCvar;
+	cvar_t *glmLodCvar;
+	cvar_t *glmLodAuditCvar;
+	cvar_t *computeSkinningCvar;
+	cvar_t *forceSpeedBlurStrengthCvar;
+	std::vector<std::string> loggedGlmLodInventories;
+	std::unordered_map<uint64_t, vk_glm_lod_selection_t> glmLodFrameCache;
+	std::unordered_map<uint64_t, int> glmLodAuditLastSelection;
+	uint32_t loggedGlmLodSelections;
 	cvar_t *timingCvar;
 	bool timingWasEnabled;
 	bool loggedTimingNoGpu;
@@ -923,6 +1005,13 @@ struct vk_backend_state_t
 	uint64_t timingModelCandidateTotal;
 	uint64_t timingModelCulledTotal;
 	uint64_t timingModelDrawTotal;
+	std::array<uint64_t, 8> timingGlmLodSelectionTotal;
+	uint64_t timingGlmLodVertexTotal;
+	uint64_t timingGlmLodTriangleTotal;
+	uint64_t timingComputeSkinDispatchTotal;
+	uint64_t timingComputeSkinVertexTotal;
+	uint64_t timingCpuSkinFallbackTotal;
+	double timingComputeSkinRecordTotalMs;
 	double timingSkyTotalMs;
 	double timingBspTotalMs;
 	double timingWorldLightTotalMs;
@@ -935,6 +1024,9 @@ struct vk_backend_state_t
 	double timingEffectTotalMs;
 	uint64_t timingBspDrawTotal;
 	std::unordered_map<const vk_model_t *, vk_skin_model_timing_t> timingSkinModels;
+	bool loggedComputeSkinning;
+	bool loggedComputeSkinningFallback;
+	bool loggedForceSpeedMotionBlur;
 };
 
 static vk_backend_state_t vk = {};
@@ -999,6 +1091,12 @@ static void VK_Backend_Clear()
 		vk.depthImages[eye] = VK_NULL_HANDLE;
 		vk.depthMemories[eye] = VK_NULL_HANDLE;
 		vk.depthImageViews[eye] = VK_NULL_HANDLE;
+		vk.forceSpeedTargets[eye] = {};
+		vk.forceSpeedHistoryTargets[eye] = {};
+		vk.forceSpeedFramebuffers[eye] = VK_NULL_HANDLE;
+		vk.forceSpeedHistoryInitialized[eye] = false;
+		vk.forceSpeedHistoryValid[eye] = false;
+		vk.forceSpeedLastViewPose[eye] = {};
 		vk.viewConfiguration[eye].type = XR_TYPE_VIEW_CONFIGURATION_VIEW;
 		vk.views[eye].type = XR_TYPE_VIEW;
 	}
@@ -1017,6 +1115,7 @@ static void VK_Backend_Clear()
 	vk.samplerAnisotropy = false;
 	vk.maxSamplerAnisotropy = 1.0f;
 	vk.multiDrawIndirect = false;
+	vk.computeQueue = false;
 	vk.maxDrawIndirectCount = 1;
 	vk.device = VK_NULL_HANDLE;
 	vk.queue = VK_NULL_HANDLE;
@@ -1034,10 +1133,20 @@ static void VK_Backend_Clear()
 	vk.skinnedVertexMapped = nullptr;
 	vk.skinnedVertexCapacity = 0;
 	vk.skinnedVertexOffset = 0;
+	vk.glmBoneBuffer = VK_NULL_HANDLE;
+	vk.glmBoneMemory = VK_NULL_HANDLE;
+	vk.glmBoneMapped = nullptr;
+	vk.glmBoneCapacity = 0;
+	vk.glmBoneOffset = 0;
+	vk.glmBoneFrameCache.clear();
 	vk.ghoul2CacheFrameIndex = ~uint64_t{ 0 };
 	vk.ghoul2BoneCache.clear();
 	vk.ghoul2SurfaceCache.clear();
 	vk.ghoul2SurfaceCache.reserve( 4096 );
+	vk.glmLodFrameCache.clear();
+	vk.glmLodAuditLastSelection.clear();
+	vk.loggedGlmLodInventories.clear();
+	vk.loggedGlmLodSelections = 0;
 	vk.surfaceSpriteStreamCache.clear();
 	vk.ghoul2SkinnedAudits.clear();
 	vk.loggedCinematicGhouls.clear();
@@ -1045,9 +1154,14 @@ static void VK_Backend_Clear()
 	vk.loggedGhoul2SkinnedAudits.clear();
 	vk.renderPass = VK_NULL_HANDLE;
 	vk.pipelineLayout = VK_NULL_HANDLE;
+	vk.glmSkinSetLayout = VK_NULL_HANDLE;
+	vk.glmSkinDescriptorPool = VK_NULL_HANDLE;
+	vk.glmSkinPipelineLayout = VK_NULL_HANDLE;
+	vk.glmSkinPipeline = VK_NULL_HANDLE;
 	vk.pipeline = VK_NULL_HANDLE;
 	vk.rectPipeline = VK_NULL_HANDLE;
 	vk.texturedRectPipeline = VK_NULL_HANDLE;
+	vk.forceSpeedMotionBlurPipeline = VK_NULL_HANDLE;
 	vk.texturedRectOpaquePipeline = VK_NULL_HANDLE;
 	vk.texturedRectAdditivePipeline = VK_NULL_HANDLE;
 	vk.texturedRectSourceAlphaAdditivePipeline = VK_NULL_HANDLE;
@@ -1143,6 +1257,13 @@ static void VK_Backend_Clear()
 	vk.screenLayerContentValid = false;
 	vk.screenLayerTransitionHeld = false;
 	vk.screenLayerPose.orientation.w = 1.0f;
+	vk.projectionLayerContentValid = false;
+	vk.retainedFrameSubmissions = 0;
+	for ( XrView &view : vk.retainedProjectionViews )
+	{
+		view = {};
+		view.type = XR_TYPE_VIEW;
+	}
 	vk.missingTextureCount = 0;
 	vk.modelRegistrationCount = 0;
 	vk.skinRegistrationCount = 0;
@@ -1216,6 +1337,12 @@ static void VK_Backend_Clear()
 	vk.fxModelAuditCvar = nullptr;
 	vk.fxModelAuditLastTime = std::numeric_limits<int>::min();
 	vk.modelCullCvar = nullptr;
+	vk.lodScaleCvar = nullptr;
+	vk.lodBiasCvar = nullptr;
+	vk.glmLodCvar = nullptr;
+	vk.glmLodAuditCvar = nullptr;
+	vk.computeSkinningCvar = nullptr;
+	vk.forceSpeedBlurStrengthCvar = nullptr;
 	vk.timingCvar = nullptr;
 	vk.timingWasEnabled = false;
 	vk.loggedTimingNoGpu = false;
@@ -1232,6 +1359,13 @@ static void VK_Backend_Clear()
 	vk.timingModelCandidateTotal = 0;
 	vk.timingModelCulledTotal = 0;
 	vk.timingModelDrawTotal = 0;
+	vk.timingGlmLodSelectionTotal.fill( 0 );
+	vk.timingGlmLodVertexTotal = 0;
+	vk.timingGlmLodTriangleTotal = 0;
+	vk.timingComputeSkinDispatchTotal = 0;
+	vk.timingComputeSkinVertexTotal = 0;
+	vk.timingCpuSkinFallbackTotal = 0;
+	vk.timingComputeSkinRecordTotalMs = 0.0;
 	vk.timingSkyTotalMs = 0.0;
 	vk.timingBspTotalMs = 0.0;
 	vk.timingWorldLightTotalMs = 0.0;
@@ -1244,6 +1378,9 @@ static void VK_Backend_Clear()
 	vk.timingEffectTotalMs = 0.0;
 	vk.timingBspDrawTotal = 0;
 	vk.timingSkinModels.clear();
+	vk.loggedComputeSkinning = false;
+	vk.loggedComputeSkinningFallback = false;
+	vk.loggedForceSpeedMotionBlur = false;
 }
 
 static bool VK_Backend_AppendScreenRect(
@@ -1547,11 +1684,28 @@ static bool VK_SelectQueueFamily()
 
 	for ( uint32_t i = 0; i < familyCount; ++i )
 	{
+		if ( families[i].queueCount > 0 &&
+			 ( families[i].queueFlags & ( VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT ) ) ==
+				( VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT ) )
+		{
+			vk.queueFamilyIndex = i;
+			vk.queueIndex = 0;
+			vk.queueTimestampValidBits = families[i].timestampValidBits;
+			vk.computeQueue = true;
+			return true;
+		}
+	}
+
+	for ( uint32_t i = 0; i < familyCount; ++i )
+	{
 		if ( families[i].queueCount > 0 && ( families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT ) )
 		{
 			vk.queueFamilyIndex = i;
 			vk.queueIndex = 0;
 			vk.queueTimestampValidBits = families[i].timestampValidBits;
+			vk.computeQueue = false;
+			ri.Printf( PRINT_WARNING,
+				"rd-vulkan: graphics queue lacks compute support; GLM skinning will use CPU fallback\n" );
 			return true;
 		}
 	}
@@ -1753,6 +1907,60 @@ static bool VK_CreateTextureDescriptors()
 		"vkCreateSampler(world)" );
 }
 
+static bool VK_CreateGLMSkinDescriptors()
+{
+	if ( !vk.computeQueue )
+	{
+		return true;
+	}
+
+	VkDescriptorSetLayoutBinding bindings[4] = {};
+	for ( uint32_t bindingIndex = 0; bindingIndex < ARRAY_LEN( bindings ); ++bindingIndex )
+	{
+		bindings[bindingIndex].binding = bindingIndex;
+		bindings[bindingIndex].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		bindings[bindingIndex].descriptorCount = 1;
+		bindings[bindingIndex].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+	}
+
+	VkDescriptorSetLayoutCreateInfo layoutInfo = {};
+	layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	layoutInfo.bindingCount = ARRAY_LEN( bindings );
+	layoutInfo.pBindings = bindings;
+	if ( !VK_CheckVk(
+			vkCreateDescriptorSetLayout(
+				vk.device, &layoutInfo, nullptr, &vk.glmSkinSetLayout ),
+			"vkCreateDescriptorSetLayout(GLM compute skinning)" ) )
+	{
+		vk.computeQueue = false;
+		ri.Printf( PRINT_WARNING,
+			"rd-vulkan-ghoul2: compute descriptors unavailable; using CPU skinning\n" );
+		return true;
+	}
+
+	constexpr uint32_t maxSurfaceSets = 32768;
+	VkDescriptorPoolSize poolSize = {};
+	poolSize.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	poolSize.descriptorCount = maxSurfaceSets * ARRAY_LEN( bindings );
+	VkDescriptorPoolCreateInfo poolInfo = {};
+	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	poolInfo.maxSets = maxSurfaceSets;
+	poolInfo.poolSizeCount = 1;
+	poolInfo.pPoolSizes = &poolSize;
+	if ( !VK_CheckVk(
+			vkCreateDescriptorPool(
+				vk.device, &poolInfo, nullptr, &vk.glmSkinDescriptorPool ),
+			"vkCreateDescriptorPool(GLM compute skinning)" ) )
+	{
+		vkDestroyDescriptorSetLayout( vk.device, vk.glmSkinSetLayout, nullptr );
+		vk.glmSkinSetLayout = VK_NULL_HANDLE;
+		vk.computeQueue = false;
+		ri.Printf( PRINT_WARNING,
+			"rd-vulkan-ghoul2: compute descriptor pool unavailable; using CPU skinning\n" );
+	}
+	return true;
+}
+
 static void VK_DestroyTexture( vk_texture_t &texture )
 {
 	if ( texture.view != VK_NULL_HANDLE )
@@ -1791,6 +1999,7 @@ static void VK_DestroyModelSurface( vk_model_surface_t &surface )
 {
 	VK_DestroyBuffer( &surface.vertexBuffer, &surface.vertexMemory );
 	VK_DestroyBuffer( &surface.indexBuffer, &surface.indexMemory );
+	VK_DestroyBuffer( &surface.skinBuffer, &surface.skinMemory );
 	surface = {};
 }
 
@@ -1803,8 +2012,21 @@ static void VK_DestroyModelRegistry()
 			VK_DestroyModelSurface( surface );
 		}
 		model.surfaces.clear();
+		for ( std::vector<vk_model_surface_t> &lod : model.lodSurfaces )
+		{
+			for ( vk_model_surface_t &surface : lod )
+			{
+				VK_DestroyModelSurface( surface );
+			}
+			lod.clear();
+		}
+		model.lodSurfaces.clear();
 	}
 	vk.models.clear();
+	vk.loggedGlmLodInventories.clear();
+	vk.glmLodFrameCache.clear();
+	vk.glmLodAuditLastSelection.clear();
+	vk.loggedGlmLodSelections = 0;
 }
 
 static void VK_DestroyWorldGeometry()
@@ -1996,15 +2218,18 @@ static bool VK_UploadBuffer(
 
 static bool VK_CreateSkinnedVertexStream()
 {
-	if ( vk.skinnedVertexBuffer != VK_NULL_HANDLE )
+	if ( vk.skinnedVertexBuffer != VK_NULL_HANDLE &&
+		 ( !vk.computeQueue || vk.glmBoneBuffer != VK_NULL_HANDLE ) )
 	{
 		return true;
 	}
 
-	constexpr VkDeviceSize capacity = 64ull * 1024ull * 1024ull;
-	if ( !VK_CreateBuffer(
-			capacity,
-			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+	constexpr VkDeviceSize vertexCapacity = 64ull * 1024ull * 1024ull;
+	constexpr VkDeviceSize boneCapacity = 16ull * 1024ull * 1024ull;
+	if ( vk.skinnedVertexBuffer == VK_NULL_HANDLE &&
+		 !VK_CreateBuffer(
+			vertexCapacity,
+			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			&vk.skinnedVertexBuffer,
 			&vk.skinnedVertexMemory,
@@ -2013,18 +2238,130 @@ static bool VK_CreateSkinnedVertexStream()
 		return false;
 	}
 
-	void *mapped = nullptr;
-	if ( !VK_CheckVk(
-			vkMapMemory( vk.device, vk.skinnedVertexMemory, 0, capacity, 0, &mapped ),
-			"vkMapMemory(Ghoul2 skinned vertex stream)" ) )
+	if ( vk.skinnedVertexMapped == nullptr )
 	{
-		VK_DestroyBuffer( &vk.skinnedVertexBuffer, &vk.skinnedVertexMemory );
+		void *mapped = nullptr;
+		if ( !VK_CheckVk(
+				vkMapMemory(
+					vk.device, vk.skinnedVertexMemory, 0, vertexCapacity, 0, &mapped ),
+				"vkMapMemory(Ghoul2 skinned vertex stream)" ) )
+		{
+			VK_DestroyBuffer( &vk.skinnedVertexBuffer, &vk.skinnedVertexMemory );
+			return false;
+		}
+		vk.skinnedVertexMapped = static_cast<byte *>( mapped );
+	}
+	vk.skinnedVertexCapacity = vertexCapacity;
+	vk.skinnedVertexOffset = 0;
+
+	if ( !vk.computeQueue )
+	{
+		return true;
+	}
+
+	if ( !VK_CreateBuffer(
+			boneCapacity,
+			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+			&vk.glmBoneBuffer,
+			&vk.glmBoneMemory,
+			"Ghoul2 compute bone stream" ) )
+	{
+		vk.computeQueue = false;
+		ri.Printf( PRINT_WARNING,
+			"rd-vulkan-ghoul2: compute bone stream unavailable; using CPU skinning\n" );
+		return true;
+	}
+	void *boneMapped = nullptr;
+	if ( !VK_CheckVk(
+			vkMapMemory(
+				vk.device, vk.glmBoneMemory, 0, boneCapacity, 0, &boneMapped ),
+			"vkMapMemory(Ghoul2 compute bone stream)" ) )
+	{
+		VK_DestroyBuffer( &vk.glmBoneBuffer, &vk.glmBoneMemory );
+		vk.computeQueue = false;
+		ri.Printf( PRINT_WARNING,
+			"rd-vulkan-ghoul2: compute bone mapping unavailable; using CPU skinning\n" );
+		return true;
+	}
+
+	vk.glmBoneMapped = static_cast<byte *>( boneMapped );
+	vk.glmBoneCapacity = boneCapacity;
+	vk.glmBoneOffset = 0;
+	return true;
+}
+
+static bool VK_CreateGLMSkinSurfaceResources( vk_model_surface_t *surface )
+{
+	if ( surface == nullptr || !vk.computeQueue || vk.glmSkinPipeline == VK_NULL_HANDLE ||
+		 vk.glmSkinDescriptorPool == VK_NULL_HANDLE ||
+		 vk.glmSkinSetLayout == VK_NULL_HANDLE ||
+		 surface->vertexBuffer == VK_NULL_HANDLE || surface->glmSkinVertices.empty() ||
+		 surface->glmSkinVertices.size() != surface->glmBaseVertices.size() )
+	{
 		return false;
 	}
 
-	vk.skinnedVertexMapped = static_cast<byte *>( mapped );
-	vk.skinnedVertexCapacity = capacity;
-	vk.skinnedVertexOffset = 0;
+	std::vector<vk_glm_gpu_skin_vertex_t> gpuVertices(
+		surface->glmSkinVertices.size() );
+	for ( size_t vertexIndex = 0; vertexIndex < surface->glmSkinVertices.size(); ++vertexIndex )
+	{
+		const vk_glm_skin_vertex_t &source = surface->glmSkinVertices[vertexIndex];
+		vk_glm_gpu_skin_vertex_t &destination = gpuVertices[vertexIndex];
+		for ( int weightIndex = 0;
+			  weightIndex < iMAX_G2_BONEWEIGHTS_PER_VERT; ++weightIndex )
+		{
+			destination.boneIndices[weightIndex] =
+				static_cast<uint32_t>( std::max( 0, source.boneIndices[weightIndex] ) );
+			destination.weights[weightIndex] =
+				weightIndex < source.weightCount ? source.weights[weightIndex] : 0.0f;
+		}
+	}
+
+	const VkDeviceSize skinBytes = static_cast<VkDeviceSize>(
+		gpuVertices.size() * sizeof( gpuVertices[0] ) );
+	if ( !VK_UploadBuffer(
+			gpuVertices.data(), skinBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+			&surface->skinBuffer, &surface->skinMemory, "GLM compute skin input" ) )
+	{
+		return false;
+	}
+
+	VkDescriptorSetAllocateInfo allocateInfo = {};
+	allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	allocateInfo.descriptorPool = vk.glmSkinDescriptorPool;
+	allocateInfo.descriptorSetCount = 1;
+	allocateInfo.pSetLayouts = &vk.glmSkinSetLayout;
+	if ( !VK_CheckVk(
+			vkAllocateDescriptorSets(
+				vk.device, &allocateInfo, &surface->skinDescriptorSet ),
+			"vkAllocateDescriptorSets(GLM compute skinning)" ) )
+	{
+		VK_DestroyBuffer( &surface->skinBuffer, &surface->skinMemory );
+		return false;
+	}
+
+	VkDescriptorBufferInfo bufferInfos[4] = {};
+	bufferInfos[0].buffer = surface->vertexBuffer;
+	bufferInfos[0].range = static_cast<VkDeviceSize>(
+		surface->glmBaseVertices.size() * sizeof( vk_world_vertex_t ) );
+	bufferInfos[1].buffer = surface->skinBuffer;
+	bufferInfos[1].range = skinBytes;
+	bufferInfos[2].buffer = vk.glmBoneBuffer;
+	bufferInfos[2].range = vk.glmBoneCapacity;
+	bufferInfos[3].buffer = vk.skinnedVertexBuffer;
+	bufferInfos[3].range = vk.skinnedVertexCapacity;
+	VkWriteDescriptorSet writes[4] = {};
+	for ( uint32_t bindingIndex = 0; bindingIndex < ARRAY_LEN( writes ); ++bindingIndex )
+	{
+		writes[bindingIndex].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		writes[bindingIndex].dstSet = surface->skinDescriptorSet;
+		writes[bindingIndex].dstBinding = bindingIndex;
+		writes[bindingIndex].descriptorCount = 1;
+		writes[bindingIndex].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		writes[bindingIndex].pBufferInfo = &bufferInfos[bindingIndex];
+	}
+	vkUpdateDescriptorSets( vk.device, ARRAY_LEN( writes ), writes, 0, nullptr );
 	return true;
 }
 
@@ -2516,6 +2853,28 @@ static void VK_ParseShaderFile( const char *filename )
 				stage.clampMap = Q_stricmp( token, "clampmap" ) == 0;
 				stage.imageName = COM_ParseExt( &text, qtrue );
 			}
+			else if ( Q_stricmp( token, "animMap" ) == 0 ||
+					 Q_stricmp( token, "clampanimMap" ) == 0 ||
+					 Q_stricmp( token, "oneshotanimMap" ) == 0 )
+			{
+				stage.clampMap = Q_stricmp( token, "clampanimMap" ) == 0;
+				stage.oneShotAnimation = Q_stricmp( token, "oneshotanimMap" ) == 0;
+				stage.animationSpeed = static_cast<float>(
+					std::atof( COM_ParseExt( &text, qfalse ) ) );
+				for ( size_t frame = 0; frame < 32; ++frame )
+				{
+					const char *image = COM_ParseExt( &text, qfalse );
+					if ( image[0] == '\0' )
+					{
+						break;
+					}
+					stage.animationNames.emplace_back( image );
+				}
+				if ( !stage.animationNames.empty() )
+				{
+					stage.imageName = stage.animationNames.front();
+				}
+			}
 			else if ( Q_stricmp( token, "videoMap" ) == 0 )
 			{
 				stage.videoName = COM_ParseExt( &text, qtrue );
@@ -2777,6 +3136,14 @@ static void VK_ParseShaderFile( const char *filename )
 					stage.color[0] = static_cast<float>( std::atof( red ) );
 					stage.color[1] = static_cast<float>( std::atof( COM_ParseExt( &text, qtrue ) ) );
 					stage.color[2] = static_cast<float>( std::atof( COM_ParseExt( &text, qtrue ) ) );
+				}
+				else if ( Q_stricmp( generator, "wave" ) == 0 )
+				{
+					stage.rgbWaveType = VK_ParseWaveform( COM_ParseExt( &text, qtrue ) );
+					for ( float &parameter : stage.rgbWave )
+					{
+						parameter = static_cast<float>( std::atof( COM_ParseExt( &text, qtrue ) ) );
+					}
 				}
 			}
 			else if ( Q_stricmp( token, "tcMod" ) == 0 )
@@ -3832,9 +4199,80 @@ static bool VK_CreatePipeline(
 	return created;
 }
 
+static bool VK_CreateGLMSkinPipeline()
+{
+	if ( !vk.computeQueue )
+	{
+		return true;
+	}
+
+	VkShaderModule computeShader = VK_NULL_HANDLE;
+	if ( !VK_CreateShaderModule(
+			glmSkinCompSpv, ARRAY_LEN( glmSkinCompSpv ), &computeShader ) )
+	{
+		vk.computeQueue = false;
+		ri.Printf( PRINT_WARNING,
+			"rd-vulkan-ghoul2: compute shader unavailable; using CPU skinning\n" );
+		return true;
+	}
+
+	VkPushConstantRange pushConstant = {};
+	pushConstant.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+	pushConstant.offset = 0;
+	pushConstant.size = sizeof( uint32_t ) * 4;
+	VkPipelineLayoutCreateInfo layoutInfo = {};
+	layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+	layoutInfo.setLayoutCount = 1;
+	layoutInfo.pSetLayouts = &vk.glmSkinSetLayout;
+	layoutInfo.pushConstantRangeCount = 1;
+	layoutInfo.pPushConstantRanges = &pushConstant;
+	bool created = VK_CheckVk(
+		vkCreatePipelineLayout(
+			vk.device, &layoutInfo, nullptr, &vk.glmSkinPipelineLayout ),
+		"vkCreatePipelineLayout(GLM compute skinning)" );
+
+	VkPipelineShaderStageCreateInfo stage = {};
+	stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+	stage.module = computeShader;
+	stage.pName = "main";
+	VkComputePipelineCreateInfo pipelineInfo = {};
+	pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+	pipelineInfo.stage = stage;
+	pipelineInfo.layout = vk.glmSkinPipelineLayout;
+	if ( created )
+	{
+		created = VK_CheckVk(
+			vkCreateComputePipelines(
+				vk.device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr,
+				&vk.glmSkinPipeline ),
+			"vkCreateComputePipelines(GLM skinning)" );
+	}
+
+	vkDestroyShaderModule( vk.device, computeShader, nullptr );
+	if ( !created )
+	{
+		if ( vk.glmSkinPipeline != VK_NULL_HANDLE )
+		{
+			vkDestroyPipeline( vk.device, vk.glmSkinPipeline, nullptr );
+			vk.glmSkinPipeline = VK_NULL_HANDLE;
+		}
+		if ( vk.glmSkinPipelineLayout != VK_NULL_HANDLE )
+		{
+			vkDestroyPipelineLayout( vk.device, vk.glmSkinPipelineLayout, nullptr );
+			vk.glmSkinPipelineLayout = VK_NULL_HANDLE;
+		}
+		vk.computeQueue = false;
+		ri.Printf( PRINT_WARNING,
+			"rd-vulkan-ghoul2: compute pipeline unavailable; using CPU skinning\n" );
+	}
+	return true;
+}
+
 static bool VK_CreatePipelines()
 {
 	return
+		VK_CreateGLMSkinPipeline() &&
 		VK_CreatePipeline( testPatternVertSpv, ARRAY_LEN( testPatternVertSpv ),
 			testPatternFragSpv, ARRAY_LEN( testPatternFragSpv ),
 			&vk.pipeline, "vkCreateGraphicsPipelines(test-pattern)" ) &&
@@ -3844,6 +4282,11 @@ static bool VK_CreatePipelines()
 		VK_CreatePipeline( texturedRectVertSpv, ARRAY_LEN( texturedRectVertSpv ),
 			texturedRectFragSpv, ARRAY_LEN( texturedRectFragSpv ),
 			&vk.texturedRectPipeline, "vkCreateGraphicsPipelines(textured-rect)" ) &&
+		VK_CreatePipeline(
+			forceSpeedMotionBlurVertSpv, ARRAY_LEN( forceSpeedMotionBlurVertSpv ),
+			forceSpeedMotionBlurFragSpv, ARRAY_LEN( forceSpeedMotionBlurFragSpv ),
+			&vk.forceSpeedMotionBlurPipeline,
+			"vkCreateGraphicsPipelines(force-speed-motion-blur)", VK_BLEND_ALPHA ) &&
 		VK_CreatePipeline( texturedRectVertSpv, ARRAY_LEN( texturedRectVertSpv ),
 			texturedRectFragSpv, ARRAY_LEN( texturedRectFragSpv ),
 			&vk.texturedRectOpaquePipeline, "vkCreateGraphicsPipelines(textured-rect-opaque)", VK_BLEND_OPAQUE ) &&
@@ -4050,6 +4493,159 @@ static bool VK_CreateEyeDepthResources( int eye )
 	return true;
 }
 
+static void VK_DestroyForceSpeedTarget( int eye )
+{
+	if ( vk.forceSpeedFramebuffers[eye] != VK_NULL_HANDLE )
+	{
+		vkDestroyFramebuffer( vk.device, vk.forceSpeedFramebuffers[eye], nullptr );
+		vk.forceSpeedFramebuffers[eye] = VK_NULL_HANDLE;
+	}
+	VK_DestroyTexture( vk.forceSpeedTargets[eye] );
+	VK_DestroyTexture( vk.forceSpeedHistoryTargets[eye] );
+	vk.forceSpeedHistoryInitialized[eye] = false;
+	vk.forceSpeedHistoryValid[eye] = false;
+}
+
+static bool VK_CreateForceSpeedTexture(
+	vk_texture_t &texture,
+	uint32_t width,
+	uint32_t height,
+	VkImageUsageFlags usage,
+	const char *label )
+{
+	VkImageCreateInfo imageInfo = {};
+	imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	imageInfo.imageType = VK_IMAGE_TYPE_2D;
+	imageInfo.format = vk.colorRenderFormat;
+	imageInfo.extent = { width, height, 1 };
+	imageInfo.mipLevels = 1;
+	imageInfo.arrayLayers = 1;
+	imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+	imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+	imageInfo.usage = usage;
+	imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	if ( !VK_CheckVk(
+		vkCreateImage( vk.device, &imageInfo, nullptr, &texture.image ), label ) )
+	{
+		return false;
+	}
+
+	VkMemoryRequirements requirements = {};
+	vkGetImageMemoryRequirements( vk.device, texture.image, &requirements );
+	uint32_t memoryType = 0;
+	if ( !VK_FindMemoryType(
+		requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &memoryType ) )
+	{
+		VK_DestroyTexture( texture );
+		return false;
+	}
+
+	VkMemoryAllocateInfo allocateInfo = {};
+	allocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	allocateInfo.allocationSize = requirements.size;
+	allocateInfo.memoryTypeIndex = memoryType;
+	if ( !VK_CheckVk(
+		vkAllocateMemory( vk.device, &allocateInfo, nullptr, &texture.memory ), label ) ||
+		 !VK_CheckVk(
+		vkBindImageMemory( vk.device, texture.image, texture.memory, 0 ), label ) )
+	{
+		VK_DestroyTexture( texture );
+		return false;
+	}
+
+	VkImageViewCreateInfo viewInfo = {};
+	viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	viewInfo.image = texture.image;
+	viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	viewInfo.format = vk.colorRenderFormat;
+	viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	viewInfo.subresourceRange.levelCount = 1;
+	viewInfo.subresourceRange.layerCount = 1;
+	if ( !VK_CheckVk(
+		vkCreateImageView( vk.device, &viewInfo, nullptr, &texture.view ), label ) )
+	{
+		VK_DestroyTexture( texture );
+		return false;
+	}
+
+	VkDescriptorSetAllocateInfo descriptorInfo = {};
+	descriptorInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	descriptorInfo.descriptorPool = vk.descriptorPool;
+	descriptorInfo.descriptorSetCount = 1;
+	descriptorInfo.pSetLayouts = &vk.textureSetLayout;
+	if ( !VK_CheckVk(
+		vkAllocateDescriptorSets( vk.device, &descriptorInfo, &texture.descriptorSet ), label ) )
+	{
+		VK_DestroyTexture( texture );
+		return false;
+	}
+	texture.repeatDescriptorSet = texture.descriptorSet;
+	texture.width = width;
+	texture.height = height;
+	texture.mipLevels = 1;
+
+	VkDescriptorImageInfo imageDescriptor = {};
+	imageDescriptor.sampler = vk.textureSampler;
+	imageDescriptor.imageView = texture.view;
+	imageDescriptor.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	VkWriteDescriptorSet descriptorWrite = {};
+	descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	descriptorWrite.dstSet = texture.descriptorSet;
+	descriptorWrite.dstBinding = 0;
+	descriptorWrite.descriptorCount = 1;
+	descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	descriptorWrite.pImageInfo = &imageDescriptor;
+	vkUpdateDescriptorSets( vk.device, 1, &descriptorWrite, 0, nullptr );
+	return true;
+}
+
+static bool VK_CreateForceSpeedTarget( int eye )
+{
+	VK_DestroyForceSpeedTarget( eye );
+	vk_texture_t &target = vk.forceSpeedTargets[eye];
+	vk_texture_t &history = vk.forceSpeedHistoryTargets[eye];
+	const uint32_t width = vk.viewConfiguration[eye].recommendedImageRectWidth;
+	const uint32_t height = vk.viewConfiguration[eye].recommendedImageRectHeight;
+	if ( !VK_CreateForceSpeedTexture(
+			target,
+			width,
+			height,
+			VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+				VK_IMAGE_USAGE_SAMPLED_BIT |
+				VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+			"force-speed scene texture" ) ||
+		 !VK_CreateForceSpeedTexture(
+			history,
+			width,
+			height,
+			VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+			"force-speed history texture" ) )
+	{
+		VK_DestroyForceSpeedTarget( eye );
+		return false;
+	}
+
+	VkImageView attachments[] = { target.view, vk.depthImageViews[eye] };
+	VkFramebufferCreateInfo framebufferInfo = {};
+	framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+	framebufferInfo.renderPass = vk.renderPass;
+	framebufferInfo.attachmentCount = ARRAY_LEN( attachments );
+	framebufferInfo.pAttachments = attachments;
+	framebufferInfo.width = width;
+	framebufferInfo.height = height;
+	framebufferInfo.layers = 1;
+	if ( !VK_CheckVk(
+		vkCreateFramebuffer(
+			vk.device, &framebufferInfo, nullptr, &vk.forceSpeedFramebuffers[eye] ),
+		"vkCreateFramebuffer(force-speed target)" ) )
+	{
+		VK_DestroyForceSpeedTarget( eye );
+		return false;
+	}
+	return true;
+}
+
 static bool VK_CreateEyeFramebuffers( int eye )
 {
 	if ( !VK_CreateEyeDepthResources( eye ) )
@@ -4128,7 +4724,7 @@ static bool VK_CreateRenderResources()
 
 	for ( int eye = 0; eye < VK_BACKEND_EYE_COUNT; ++eye )
 	{
-		if ( !VK_CreateEyeFramebuffers( eye ) )
+		if ( !VK_CreateEyeFramebuffers( eye ) || !VK_CreateForceSpeedTarget( eye ) )
 		{
 			return false;
 		}
@@ -4322,12 +4918,13 @@ static void VK_BuildProjectionMatrix(
 	float zNear,
 	float zFar,
 	float matrix[16],
-	float tangentScale = 1.0f )
+	float tangentScaleX = 1.0f,
+	float tangentScaleY = 1.0f )
 {
-	const float tanLeft = std::tan( fov.angleLeft ) * tangentScale;
-	const float tanRight = std::tan( fov.angleRight ) * tangentScale;
-	const float tanDown = std::tan( fov.angleDown ) * tangentScale;
-	const float tanUp = std::tan( fov.angleUp ) * tangentScale;
+	const float tanLeft = std::tan( fov.angleLeft ) * tangentScaleX;
+	const float tanRight = std::tan( fov.angleRight ) * tangentScaleX;
+	const float tanDown = std::tan( fov.angleDown ) * tangentScaleY;
+	const float tanUp = std::tan( fov.angleUp ) * tangentScaleY;
 	const float tanWidth = tanRight - tanLeft;
 	const float tanHeight = tanUp - tanDown;
 	const float depth = zNear - zFar;
@@ -4961,6 +5558,19 @@ static void VK_PushWorldStage(
 				( templeTransparency - stage->alpha ) * templeRegion;
 		}
 		std::memcpy( push.color, stage->color, sizeof( push.color ) );
+		if ( stage->rgbWaveType != VK_WAVE_NONE )
+		{
+			const float wave = std::max(
+				0.0f,
+				stage->rgbWave[0] + stage->rgbWave[1] *
+					VK_EvaluateWaveform(
+						stage->rgbWaveType,
+						stage->rgbWave[2] + seconds * stage->rgbWave[3] ) );
+			for ( int component = 0; component < 3; ++component )
+			{
+				push.color[component] *= wave;
+			}
+		}
 		if ( stage->glow )
 		{
 			const float glowIntensity = vk.glowIntensityCvar != nullptr
@@ -5163,7 +5773,8 @@ static uint32_t VK_RecordBoundIndexedShader(
 	VkPipeline opaquePipelineOverride = VK_NULL_HANDLE,
 	VkBuffer indirectBuffer = VK_NULL_HANDLE,
 	VkDeviceSize indirectOffset = 0,
-	uint32_t indirectDrawCount = 0 )
+	uint32_t indirectDrawCount = 0,
+	int shaderAnimationIndex = -1 )
 {
 	const auto recordDraw = [&]()
 	{
@@ -5209,7 +5820,8 @@ static uint32_t VK_RecordBoundIndexedShader(
 			overlayStage.color[1] = diagnostic ? 0.0f : 0.86f;
 			overlayStage.color[2] = diagnostic ? 1.0f : 0.90f;
 			overlayStage.color[3] = 1.0f;
-			VK_BindWorldPipeline( overlayStage.blendMode, boundPipeline );
+			VK_BindWorldPipeline(
+				overlayStage.blendMode, boundPipeline, false );
 			if ( !VK_BindWorldTexture( 1, boundTexture, false ) )
 			{
 				return false;
@@ -5323,9 +5935,34 @@ static uint32_t VK_RecordBoundIndexedShader(
 				const qhandle_t styleLightmap = worldBatch != nullptr
 					? worldBatch->lightmaps[styleSlot]
 					: lightmap;
-				const qhandle_t texture = effectiveStage.lightmap
-					? styleLightmap
-					: effectiveStage.texture;
+				qhandle_t texture = effectiveStage.texture;
+				if ( !effectiveStage.animationTextures.empty() )
+				{
+					int frame = shaderAnimationIndex;
+					if ( frame < 0 )
+					{
+						const float seconds =
+							static_cast<float>( vk.worldRefdef.time ) * 0.001f;
+						frame = static_cast<int>( std::floor(
+							seconds * std::max( 0.0f, effectiveStage.animationSpeed ) ) );
+					}
+					if ( effectiveStage.oneShotAnimation )
+					{
+						frame = VK_ClampValue(
+							frame, 0,
+							static_cast<int>( effectiveStage.animationTextures.size() ) - 1 );
+					}
+					else
+					{
+						frame = std::max( 0, frame ) %
+							static_cast<int>( effectiveStage.animationTextures.size() );
+					}
+					texture = effectiveStage.animationTextures[frame];
+				}
+				if ( effectiveStage.lightmap )
+				{
+					texture = styleLightmap;
+				}
 				if ( texture == 2 || !VK_WorldTextureUsable( texture ) )
 				{
 					continue;
@@ -5374,7 +6011,8 @@ static uint32_t VK_RecordBoundIndexedShader(
 	{
 		return 0;
 	}
-	VK_BindWorldPipeline( VK_BLEND_OPAQUE, boundPipeline );
+	VK_BindWorldPipeline(
+		VK_BLEND_OPAQUE, boundPipeline, false );
 	if ( !VK_BindWorldTexture( texture, boundTexture ) )
 	{
 		return 0;
@@ -5388,7 +6026,8 @@ static uint32_t VK_RecordBoundIndexedShader(
 		{
 			return 0;
 		}
-		VK_BindWorldPipeline( VK_BLEND_OPAQUE, boundPipeline );
+		VK_BindWorldPipeline(
+			VK_BLEND_OPAQUE, boundPipeline, false );
 		if ( !VK_BindWorldTexture( lightmap, boundTexture, false ) )
 		{
 			return 0;
@@ -5426,7 +6065,8 @@ static uint32_t VK_RecordBoundIndexedShader(
 			continue;
 		}
 		VK_BindWorldPipeline(
-			styleSlot > 0 ? VK_BLEND_ADDITIVE : VK_BLEND_OPAQUE, boundPipeline );
+			styleSlot > 0 ? VK_BLEND_ADDITIVE : VK_BLEND_OPAQUE,
+			boundPipeline, false );
 		if ( !VK_BindWorldTexture( texture, boundTexture ) )
 		{
 			continue;
@@ -5468,7 +6108,8 @@ static uint32_t VK_RecordBoundIndexedShader(
 			continue;
 		}
 		VK_BindWorldPipeline(
-			styleSlot == 0 ? VK_BLEND_MODULATE : VK_BLEND_ADDITIVE, boundPipeline );
+			styleSlot == 0 ? VK_BLEND_MODULATE : VK_BLEND_ADDITIVE,
+			boundPipeline, false );
 		if ( !VK_BindWorldTexture( styleLightmap, boundTexture, false ) )
 		{
 			continue;
@@ -6029,6 +6670,185 @@ static const vk_model_surface_t *VK_GLMSurfaceForIndex(
 		}
 	}
 	return nullptr;
+}
+
+static const std::vector<vk_model_surface_t> &VK_GLMSurfacesForLod(
+	const vk_model_t &model,
+	int lod )
+{
+	if ( lod > 0 && static_cast<size_t>( lod ) < model.lodSurfaces.size() &&
+		 !model.lodSurfaces[lod].empty() )
+	{
+		return model.lodSurfaces[lod];
+	}
+	return model.surfaces;
+}
+
+static void VK_LogGLMLodInventory( const vk_model_t &model )
+{
+	if ( vk.glmLodAuditCvar == nullptr || vk.glmLodAuditCvar->integer == 0 ||
+		 std::find(
+			vk.loggedGlmLodInventories.begin(),
+			vk.loggedGlmLodInventories.end(),
+			model.name ) != vk.loggedGlmLodInventories.end() )
+	{
+		return;
+	}
+
+	std::string levels;
+	for ( int lod = 0; lod < model.numLods; ++lod )
+	{
+		const std::vector<vk_model_surface_t> &surfaces =
+			VK_GLMSurfacesForLod( model, lod );
+		size_t vertices = 0;
+		size_t triangles = 0;
+		for ( const vk_model_surface_t &surface : surfaces )
+		{
+			vertices += surface.vertexCount;
+			triangles += surface.indexCount / 3;
+		}
+		levels += va(
+			"%sL%d=%zu/%zu",
+			lod == 0 ? "" : ",",
+			lod,
+			vertices,
+			triangles );
+	}
+	ri.Printf(
+		PRINT_ALL,
+		"rd-vulkan-glm-lod-inventory: model=%s lods=%d vertices/triangles=[%s]\n",
+		model.name.c_str(),
+		model.numLods,
+		levels.c_str() );
+	vk.loggedGlmLodInventories.push_back( model.name );
+}
+
+static uint64_t VK_GLMLodInstanceKey(
+	const refEntity_t &entity,
+	const vk_model_t &model,
+	const CGhoul2Info *ghoul )
+{
+	const uintptr_t instance = reinterpret_cast<uintptr_t>(
+		ghoul != nullptr ? static_cast<const void *>( ghoul )
+						 : static_cast<const void *>( &entity ) );
+	const uint64_t modelHash = static_cast<uint64_t>(
+		std::hash<std::string>{}( model.name ) );
+	return static_cast<uint64_t>( instance >> 3 ) ^
+		( modelHash * 0x9e3779b97f4a7c15ULL );
+}
+
+static vk_glm_lod_selection_t VK_SelectGLMLod(
+	const refEntity_t &entity,
+	const vk_model_t &model,
+	const CGhoul2Info *ghoul,
+	const refdef_t &refdef )
+{
+	VK_LogGLMLodInventory( model );
+	const uint64_t instanceKey = VK_GLMLodInstanceKey( entity, model, ghoul );
+	const auto cached = vk.glmLodFrameCache.find( instanceKey );
+	if ( cached != vk.glmLodFrameCache.end() )
+	{
+		return cached->second;
+	}
+
+	vk_glm_lod_selection_t selection = {};
+	selection.lod = 0;
+	selection.distance = DotProduct( refdef.viewaxis[0], entity.origin ) -
+		DotProduct( refdef.viewaxis[0], refdef.vieworg );
+	selection.effectiveBias = ghoul != nullptr ? ghoul->mLodBias : 0;
+	if ( ( entity.renderfx & RF_G2MINLOD ) != 0 )
+	{
+		selection.effectiveBias = 10;
+	}
+	if ( vk.lodBiasCvar != nullptr )
+	{
+		selection.effectiveBias = std::max(
+			selection.effectiveBias, vk.lodBiasCvar->integer );
+	}
+
+	const int forcedLod = vk.glmLodCvar != nullptr ? vk.glmLodCvar->integer : -1;
+	if ( forcedLod >= 0 )
+	{
+		selection.lod = VK_ClampValue( forcedLod, 0, std::max( 0, model.numLods - 1 ) );
+		selection.forced = true;
+	}
+	else if ( model.numLods >= 2 )
+	{
+		float largestScale = std::max(
+			entity.modelScale[0],
+			std::max( entity.modelScale[1], entity.modelScale[2] ) );
+		if ( !std::isfinite( largestScale ) || largestScale == 0.0f )
+		{
+			largestScale = 1.0f;
+		}
+		const float radius = 0.75f * std::fabs( largestScale ) * entity.radius;
+		if ( selection.distance > 0.0f && std::isfinite( radius ) )
+		{
+			const float halfFovY = DEG2RAD( refdef.fov_y ) * 0.5f;
+			const float tangent = std::tan( halfFovY );
+			if ( tangent > 0.0f && std::isfinite( tangent ) )
+			{
+				selection.projectedRadius = std::min(
+					1.0f, std::fabs( radius ) / ( selection.distance * tangent ) );
+			}
+		}
+
+		float lodScale = vk.lodScaleCvar != nullptr ? vk.lodScaleCvar->value : 10.0f;
+		lodScale = std::min( lodScale, 20.0f );
+		float continuousLod = selection.projectedRadius > 0.0f
+			? 1.0f - selection.projectedRadius * lodScale
+			: 0.0f;
+		continuousLod *= model.numLods;
+		selection.lod = VK_ClampValue(
+			static_cast<int>( continuousLod ), 0, model.numLods - 1 );
+		selection.lod = VK_ClampValue(
+			selection.lod + selection.effectiveBias, 0, model.numLods - 1 );
+	}
+
+	vk.glmLodFrameCache.emplace( instanceKey, selection );
+	if ( vk.glmLodAuditCvar != nullptr && vk.glmLodAuditCvar->integer >= 2 &&
+		 vk.loggedGlmLodSelections < 512 )
+	{
+		const auto previous = vk.glmLodAuditLastSelection.find( instanceKey );
+		if ( previous == vk.glmLodAuditLastSelection.end() ||
+			 previous->second != selection.lod )
+		{
+			ri.Printf(
+				PRINT_ALL,
+				"rd-vulkan-glm-lod-select: instance=%p model=%s origin=(%.1f %.1f %.1f) "
+				"distance=%.1f projected=%.4f bias=%d available=%d selected=%d forced=%d\n",
+				ghoul != nullptr ? static_cast<const void *>( ghoul )
+								 : static_cast<const void *>( &entity ),
+				model.name.c_str(),
+				entity.origin[0], entity.origin[1], entity.origin[2],
+				selection.distance,
+				selection.projectedRadius,
+				selection.effectiveBias,
+				model.numLods,
+				selection.lod,
+				selection.forced ? 1 : 0 );
+			vk.glmLodAuditLastSelection[instanceKey] = selection.lod;
+			++vk.loggedGlmLodSelections;
+		}
+	}
+	return selection;
+}
+
+static void VK_RecordGLMLodTiming( const vk_model_t &model, int lod )
+{
+	if ( !VK_TimingEnabled() )
+	{
+		return;
+	}
+	const size_t bucket = std::min<size_t>(
+		static_cast<size_t>( std::max( 0, lod ) ),
+		vk.timingGlmLodSelectionTotal.size() - 1 );
+	++vk.timingGlmLodSelectionTotal[bucket];
+	for ( const vk_model_surface_t &surface : VK_GLMSurfacesForLod( model, lod ) )
+	{
+		vk.timingGlmLodVertexTotal += surface.vertexCount;
+		vk.timingGlmLodTriangleTotal += surface.indexCount / 3;
+	}
 }
 
 static unsigned int VK_GLMEffectiveFlags(
@@ -6990,6 +7810,10 @@ static bool VK_StreamSkinnedGLMSurface(
 		VK_RecordSkinModelTiming( model, true, 0, timingBegin );
 		return true;
 	}
+	if ( VK_TimingEnabled() )
+	{
+		++vk.timingCpuSkinFallbackTotal;
+	}
 
 	if ( surface.glmVertices.size() != surface.glmBaseVertices.size() ||
 		 surface.glmSkinVertices.size() != surface.glmBaseVertices.size() ||
@@ -7518,6 +8342,7 @@ static bool VK_StreamLitModelSurface(
 
 static uint32_t VK_RecordMD3ModelSurfaces(
 	const vk_model_t &model,
+	int glmLod,
 	vk_world_pass_t pass,
 	VkPipeline *boundPipeline,
 	VkDescriptorSet *boundTexture,
@@ -7539,7 +8364,10 @@ static uint32_t VK_RecordMD3ModelSurfaces(
 	float entityDiffuseColor[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 	bool entityLightingCalculated = false;
 	uint32_t drawCount = 0;
-	for ( const vk_model_surface_t &surface : model.surfaces )
+	const std::vector<vk_model_surface_t> &modelSurfaces = model.type == VK_MODEL_GLM
+		? VK_GLMSurfacesForLod( model, glmLod )
+		: model.surfaces;
+	for ( const vk_model_surface_t &surface : modelSurfaces )
 	{
 		if ( surface.vertexBuffer == VK_NULL_HANDLE ||
 			 surface.indexBuffer == VK_NULL_HANDLE ||
@@ -7671,7 +8499,10 @@ static uint32_t VK_RecordMD3ModelSurfaces(
 			drawCount += VK_RecordBoundIndexedShader(
 				shader, 2, true, indexCount, 0, pass, boundPipeline, boundTexture,
 				entityColor, disintegrating, -1, true, nullptr, diffuseColor,
-				opaquePipelineOverride );
+				opaquePipelineOverride, VK_NULL_HANDLE, 0, 0,
+				entity != nullptr && ( entity->renderfx & RF_SETANIMINDEX ) != 0
+					? entity->skinNum
+					: -1 );
 		}
 		if ( timingEnabled )
 		{
@@ -7822,6 +8653,279 @@ static const std::vector<mdxaBone_t> *VK_ResolveGhoul2HierarchyBones(
 	( *resolvedBones )[modelIndex] = bones;
 	( *states )[modelIndex] = 2;
 	return bones;
+}
+
+static bool VK_ComputeSkinningEnabled()
+{
+	return vk.computeQueue && vk.glmSkinPipeline != VK_NULL_HANDLE &&
+		 vk.computeSkinningCvar != nullptr && vk.computeSkinningCvar->integer != 0;
+}
+
+static bool VK_UploadGLMComputeBones(
+	const std::vector<mdxaBone_t> &bones,
+	uint32_t *boneOffset )
+{
+	const auto cached = vk.glmBoneFrameCache.find( &bones );
+	if ( cached != vk.glmBoneFrameCache.end() )
+	{
+		*boneOffset = cached->second;
+		return true;
+	}
+	if ( bones.empty() || vk.glmBoneMapped == nullptr )
+	{
+		return false;
+	}
+
+	const VkDeviceSize alignment = 16;
+	const VkDeviceSize offset =
+		( vk.glmBoneOffset + alignment - 1 ) & ~( alignment - 1 );
+	const VkDeviceSize byteCount = static_cast<VkDeviceSize>(
+		bones.size() * sizeof( bones[0] ) );
+	if ( offset > vk.glmBoneCapacity || byteCount > vk.glmBoneCapacity - offset ||
+		 offset / sizeof( mdxaBone_t ) > std::numeric_limits<uint32_t>::max() )
+	{
+		return false;
+	}
+
+	std::memcpy(
+		vk.glmBoneMapped + offset, bones.data(), static_cast<size_t>( byteCount ) );
+	*boneOffset = static_cast<uint32_t>( offset / sizeof( mdxaBone_t ) );
+	vk.glmBoneOffset = offset + byteCount;
+	vk.glmBoneFrameCache.emplace( &bones, *boneOffset );
+	return true;
+}
+
+static bool VK_DispatchGLMSkinSurface(
+	const vk_model_t &model,
+	const vk_model_surface_t &surface,
+	const CGhoul2Info &ghoul,
+	int sceneTime,
+	const std::vector<mdxaBone_t> &bones,
+	const refEntity_t &entity )
+{
+	if ( !VK_ComputeSkinningEnabled() || surface.skinDescriptorSet == VK_NULL_HANDLE ||
+		 surface.glmBaseVertices.empty() || VK_DisintegrationMode( &entity ) != 0 ||
+		 surface.maxSkinBoneIndex < 0 ||
+		 static_cast<size_t>( surface.maxSkinBoneIndex ) >= bones.size() ||
+		 bones.size() > std::numeric_limits<uint32_t>::max() )
+	{
+		return false;
+	}
+
+	sceneTime = VK_G2API_GetTime( sceneTime );
+	const vk_ghoul2_surface_cache_key_t cacheKey = {
+		&ghoul,
+		&surface,
+		sceneTime,
+		0,
+	};
+	if ( vk.ghoul2SurfaceCache.find( cacheKey ) != vk.ghoul2SurfaceCache.end() )
+	{
+		return true;
+	}
+
+	uint32_t boneOffset = 0;
+	if ( !VK_UploadGLMComputeBones( bones, &boneOffset ) )
+	{
+		return false;
+	}
+	const VkDeviceSize alignment = 16;
+	const VkDeviceSize vertexOffset =
+		( vk.skinnedVertexOffset + alignment - 1 ) & ~( alignment - 1 );
+	const VkDeviceSize byteCount = static_cast<VkDeviceSize>(
+		surface.glmBaseVertices.size() * sizeof( vk_world_vertex_t ) );
+	if ( vertexOffset > vk.skinnedVertexCapacity ||
+		 byteCount > vk.skinnedVertexCapacity - vertexOffset ||
+		 vertexOffset / sizeof( float ) > std::numeric_limits<uint32_t>::max() )
+	{
+		return false;
+	}
+
+	const uint32_t push[4] = {
+		static_cast<uint32_t>( surface.glmBaseVertices.size() ),
+		static_cast<uint32_t>( vertexOffset / sizeof( float ) ),
+		boneOffset,
+		static_cast<uint32_t>( bones.size() ),
+	};
+	vkCmdBindPipeline(
+		vk.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, vk.glmSkinPipeline );
+	vkCmdBindDescriptorSets(
+		vk.commandBuffer,
+		VK_PIPELINE_BIND_POINT_COMPUTE,
+		vk.glmSkinPipelineLayout,
+		0,
+		1,
+		&surface.skinDescriptorSet,
+		0,
+		nullptr );
+	vkCmdPushConstants(
+		vk.commandBuffer,
+		vk.glmSkinPipelineLayout,
+		VK_SHADER_STAGE_COMPUTE_BIT,
+		0,
+		sizeof( push ),
+		push );
+	vkCmdDispatch(
+		vk.commandBuffer,
+		( push[0] + 63u ) / 64u,
+		1,
+		1 );
+
+	vk.skinnedVertexOffset = vertexOffset + byteCount;
+	vk.ghoul2SurfaceCache.emplace( cacheKey, vertexOffset );
+	if ( VK_TimingEnabled() )
+	{
+		++vk.timingComputeSkinDispatchTotal;
+		vk.timingComputeSkinVertexTotal += surface.glmBaseVertices.size();
+	}
+	if ( !vk.loggedComputeSkinning )
+	{
+		ri.Printf( PRINT_ALL,
+			"rd-vulkan-ghoul2: compute skinning active; one deformation is reused "
+			"by both eyes and all material passes\n" );
+		vk.loggedComputeSkinning = true;
+	}
+	return true;
+}
+
+static uint32_t VK_RecordGLMComputeSkinningForEntities(
+	const std::vector<refEntity_t> &entities,
+	bool suppressThirdPerson,
+	int sceneTime,
+	const refdef_t &refdef )
+{
+	uint32_t dispatchCount = 0;
+	float view[16] = {};
+	float projection[16] = {};
+	VK_BuildViewMatrix( refdef, 0, view, false );
+	VK_BuildRefdefProjectionMatrix( refdef, 1.0f, 65536.0f, projection );
+	for ( const refEntity_t &entity : entities )
+	{
+		if ( entity.reType != RT_MODEL || entity.ghoul2 == nullptr ||
+			 !entity.ghoul2->IsValid() ||
+			 ( suppressThirdPerson && ( entity.renderfx & RF_THIRD_PERSON ) != 0 ) )
+		{
+			continue;
+		}
+		const vk_model_t *entityModel = VK_ModelForHandle( entity.hModel );
+		if ( ( vk.modelCullCvar == nullptr || vk.modelCullCvar->integer != 0 ) &&
+			 !VK_ModelEntityIntersectsView( entity, entityModel, view, projection ) )
+		{
+			continue;
+		}
+
+		std::vector<byte> hierarchyStates(
+			static_cast<size_t>( entity.ghoul2->size() ), 0 );
+		std::vector<const std::vector<mdxaBone_t> *> hierarchyBones(
+			static_cast<size_t>( entity.ghoul2->size() ), nullptr );
+		for ( int modelIndex = 0; modelIndex < entity.ghoul2->size(); ++modelIndex )
+		{
+			const CGhoul2Info &ghoul = ( *entity.ghoul2 )[modelIndex];
+			if ( ghoul.mModelindex < 0 ||
+				 ( ghoul.mFlags & ( GHOUL2_NOMODEL | GHOUL2_NORENDER ) ) != 0 )
+			{
+				continue;
+			}
+			const vk_model_t *model = VK_ModelForHandle( ghoul.mModel );
+			if ( model == nullptr || model->type != VK_MODEL_GLM )
+			{
+				continue;
+			}
+			const std::vector<mdxaBone_t> *bones = VK_ResolveGhoul2HierarchyBones(
+				*entity.ghoul2,
+				modelIndex,
+				sceneTime,
+				&hierarchyStates,
+				&hierarchyBones );
+			if ( bones == nullptr )
+			{
+				continue;
+			}
+			const int lod = VK_SelectGLMLod( entity, *model, &ghoul, refdef ).lod;
+			qhandle_t skinHandle = entity.customSkin;
+			if ( skinHandle <= 0 )
+			{
+				skinHandle = ghoul.mSkin;
+			}
+			if ( skinHandle <= 0 )
+			{
+				skinHandle = ghoul.mCustomSkin;
+			}
+			for ( const vk_model_surface_t &surface : VK_GLMSurfacesForLod( *model, lod ) )
+			{
+				if ( !VK_GLMShouldDrawSurface( *model, surface, &ghoul ) )
+				{
+					continue;
+				}
+				const vk_skin_surface_t *skinSurface =
+					VK_FindSkinSurface( skinHandle, surface.name );
+				if ( skinSurface != nullptr && skinSurface->off )
+				{
+					continue;
+				}
+				const size_t cacheSize = vk.ghoul2SurfaceCache.size();
+				if ( VK_DispatchGLMSkinSurface(
+						*model, surface, ghoul, sceneTime, *bones, entity ) &&
+					 vk.ghoul2SurfaceCache.size() != cacheSize )
+				{
+					++dispatchCount;
+				}
+			}
+		}
+	}
+	return dispatchCount;
+}
+
+static void VK_RecordGLMComputeSkinningPrepass()
+{
+	if ( !VK_ComputeSkinningEnabled() )
+	{
+		return;
+	}
+	const std::chrono::steady_clock::time_point begin = VK_TimingEnabled()
+		? std::chrono::steady_clock::now()
+		: std::chrono::steady_clock::time_point{};
+	uint32_t dispatchCount = 0;
+	if ( vk.havePortalRefdef )
+	{
+		dispatchCount += VK_RecordGLMComputeSkinningForEntities(
+			vk.portalEntities, true, vk.portalRefdef.time, vk.portalRefdef );
+	}
+	if ( vk.haveWorldRefdef )
+	{
+		dispatchCount += VK_RecordGLMComputeSkinningForEntities(
+			vk.worldEntities, true, vk.worldRefdef.time, vk.worldRefdef );
+	}
+	for ( const vk_scene_submission_t &scene : vk.screenScenes )
+	{
+		dispatchCount += VK_RecordGLMComputeSkinningForEntities(
+			scene.entities, false, scene.refdef.time, scene.refdef );
+	}
+
+	if ( dispatchCount > 0 )
+	{
+		VkMemoryBarrier barrier = {};
+		barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+		barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+		barrier.dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
+		vkCmdPipelineBarrier(
+			vk.commandBuffer,
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
+			0,
+			1,
+			&barrier,
+			0,
+			nullptr,
+			0,
+			nullptr );
+	}
+	if ( VK_TimingEnabled() )
+	{
+		vk.timingComputeSkinRecordTotalMs +=
+			std::chrono::duration<double, std::milli>(
+				std::chrono::steady_clock::now() - begin ).count();
+	}
 }
 
 static bool VK_Ghoul2SegmentTriangle(
@@ -8462,6 +9566,13 @@ static void VK_RecordSceneModels(
 				{
 					VK_LogGhoul2RenderAudit( *ghoulModel, ghoul, skinHandle );
 				}
+				const int glmLod = ghoulModel->type == VK_MODEL_GLM
+					? VK_SelectGLMLod( entity, *ghoulModel, &ghoul, refdef ).lod
+					: 0;
+				if ( pass == VK_WORLD_PASS_OPAQUE && ghoulModel->type == VK_MODEL_GLM )
+				{
+					VK_RecordGLMLodTiming( *ghoulModel, glmLod );
+				}
 				const std::vector<mdxaBone_t> *bonePointer = nullptr;
 				if ( ghoulModel->type == VK_MODEL_GLM )
 				{
@@ -8492,6 +9603,7 @@ static void VK_RecordSceneModels(
 				}
 				const uint32_t draws = VK_RecordMD3ModelSurfaces(
 					*ghoulModel,
+					glmLod,
 					pass,
 					&boundPipeline,
 					&boundTexture,
@@ -8574,6 +9686,7 @@ static void VK_RecordSceneModels(
 			VK_PushModelMvp( view, projection, entity );
 			const uint32_t draws = VK_RecordMD3ModelSurfaces(
 				*model,
+				0,
 				pass,
 				&boundPipeline,
 				&boundTexture,
@@ -8595,8 +9708,15 @@ static void VK_RecordSceneModels(
 		else if ( model->type == VK_MODEL_GLM )
 		{
 			VK_PushModelMvp( view, projection, entity );
+			const int glmLod = VK_SelectGLMLod(
+				entity, *model, nullptr, refdef ).lod;
+			if ( pass == VK_WORLD_PASS_OPAQUE )
+			{
+				VK_RecordGLMLodTiming( *model, glmLod );
+			}
 			const uint32_t draws = VK_RecordMD3ModelSurfaces(
 				*model,
+				glmLod,
 				pass,
 				&boundPipeline,
 				&boundTexture,
@@ -9466,7 +10586,8 @@ static void VK_RecordWorldSurfaceSprites(
 			continue;
 		}
 		VK_BindWorldPipeline(
-			batch.stage.blendMode, &boundPipeline, batch.stage.depthWrite );
+			batch.stage.blendMode, &boundPipeline,
+			batch.stage.depthWrite );
 		if ( !VK_BindWorldTexture(
 				batch.stage.texture, &boundTexture, !batch.stage.clampMap ) )
 		{
@@ -9791,6 +10912,52 @@ static float VK_DisruptorZoomTangentScale()
 	return headsetTangent > 0.0f
 		? VK_ClampValue( zoomTangent / headsetTangent, 0.01f, 1.0f )
 		: 1.0f;
+}
+
+static void VK_WorldProjectionTangentScales( float *scaleX, float *scaleY )
+{
+	const float scopeScale = VK_DisruptorZoomTangentScale();
+	*scaleX = scopeScale;
+	*scaleY = scopeScale;
+	if ( VK_DisruptorScopeActive() || !vk.worldRefdef.override_fov )
+	{
+		return;
+	}
+
+	float angleLeft = vk.views[0].fov.angleLeft;
+	float angleRight = vk.views[0].fov.angleRight;
+	float angleDown = vk.views[0].fov.angleDown;
+	float angleUp = vk.views[0].fov.angleUp;
+	for ( int eye = 1; eye < VK_BACKEND_EYE_COUNT; ++eye )
+	{
+		angleLeft = std::min( angleLeft, vk.views[eye].fov.angleLeft );
+		angleRight = std::max( angleRight, vk.views[eye].fov.angleRight );
+		angleDown = std::min( angleDown, vk.views[eye].fov.angleDown );
+		angleUp = std::max( angleUp, vk.views[eye].fov.angleUp );
+	}
+	const float headsetFovX = RAD2DEG( angleRight - angleLeft );
+	const float headsetFovY = RAD2DEG( angleUp - angleDown );
+	if ( headsetFovX > 1.0f && vk.worldRefdef.fov_x > 1.0f )
+	{
+		*scaleX = VK_ClampValue( vk.worldRefdef.fov_x / headsetFovX, 0.25f, 4.0f );
+	}
+	if ( headsetFovY > 1.0f && vk.worldRefdef.fov_y > 1.0f )
+	{
+		*scaleY = VK_ClampValue( vk.worldRefdef.fov_y / headsetFovY, 0.25f, 4.0f );
+	}
+
+	static bool overrideLogged = false;
+	if ( !overrideLogged &&
+		 ( std::fabs( *scaleX - 1.0f ) > 0.001f ||
+		   std::fabs( *scaleY - 1.0f ) > 0.001f ) )
+	{
+		ri.Printf( PRINT_ALL,
+			"rd-vulkan-fov: stereo override refdef=%.2fx%.2f headset=%.2fx%.2f "
+			"tangentScale=%.4fx%.4f\n",
+			vk.worldRefdef.fov_x, vk.worldRefdef.fov_y,
+			headsetFovX, headsetFovY, *scaleX, *scaleY );
+		overrideLogged = true;
+	}
 }
 
 static float VK_DisruptorScopeAspectScale()
@@ -10164,9 +11331,12 @@ static void VK_RecordWorld( int eye, bool drawSky, bool drawWeather )
 	const bool applyStereoSeparation =
 		( vk.worldRefdef.rdflags & RDF_SKYBOXPORTAL ) == 0;
 	VK_BuildViewMatrix( vk.worldRefdef, eye, view, applyStereoSeparation );
+	float tangentScaleX = 1.0f;
+	float tangentScaleY = 1.0f;
+	VK_WorldProjectionTangentScales( &tangentScaleX, &tangentScaleY );
 	VK_BuildProjectionMatrix(
 		vk.views[eye].fov, 1.0f, 65536.0f, projection,
-		VK_DisruptorZoomTangentScale() );
+		tangentScaleX, tangentScaleY );
 	VK_MatrixMultiply( projection, view, mvp );
 	if ( drawSky )
 	{
@@ -11382,10 +12552,10 @@ static void VK_RecordScreenRects( int eye, size_t firstRect, size_t endRect )
 		if ( rect.forceSenseRays )
 		{
 			const cvar_t *scaleCvar =
-				ri.Cvar_Get( "r_vulkanForceSenseRayScale", "1.22", CVAR_ARCHIVE );
+				ri.Cvar_Get( "r_vulkanForceSenseRayScale", "1.0", CVAR_ARCHIVE );
 			forceSenseRayScale = scaleCvar != nullptr
 				? std::max( 1.0f, std::min( 1.6f, scaleCvar->value ) )
-				: 1.22f;
+				: 1.0f;
 		}
 		float pushConstants[28] = {
 			rect.rect[0], rect.rect[1], rect.rect[2], rect.rect[3],
@@ -11439,6 +12609,13 @@ static void VK_ResetTimingSamples()
 	vk.timingModelCandidateTotal = 0;
 	vk.timingModelCulledTotal = 0;
 	vk.timingModelDrawTotal = 0;
+	vk.timingGlmLodSelectionTotal.fill( 0 );
+	vk.timingGlmLodVertexTotal = 0;
+	vk.timingGlmLodTriangleTotal = 0;
+	vk.timingComputeSkinDispatchTotal = 0;
+	vk.timingComputeSkinVertexTotal = 0;
+	vk.timingCpuSkinFallbackTotal = 0;
+	vk.timingComputeSkinRecordTotalMs = 0.0;
 	vk.timingSkyTotalMs = 0.0;
 	vk.timingBspTotalMs = 0.0;
 	vk.timingWorldLightTotalMs = 0.0;
@@ -11558,6 +12735,28 @@ static void VK_RecordTimingSample(
 		vk.timingModelSkinTotalMs * sampleScale,
 		vk.timingModelSubmitTotalMs * sampleScale,
 		std::max( 0.0, vk.timingModelTotalMs - classifiedModelMs ) * sampleScale );
+	ri.Printf( PRINT_ALL,
+		"rd-vulkan-glm-lod: selections-stereo="
+		"%.1f/%.1f/%.1f/%.1f/%.1f/%.1f/%.1f/%.1f (L0..L7+) "
+		"vertices=%.1f triangles=%.1f\n",
+		static_cast<double>( vk.timingGlmLodSelectionTotal[0] ) * sampleScale,
+		static_cast<double>( vk.timingGlmLodSelectionTotal[1] ) * sampleScale,
+		static_cast<double>( vk.timingGlmLodSelectionTotal[2] ) * sampleScale,
+		static_cast<double>( vk.timingGlmLodSelectionTotal[3] ) * sampleScale,
+		static_cast<double>( vk.timingGlmLodSelectionTotal[4] ) * sampleScale,
+		static_cast<double>( vk.timingGlmLodSelectionTotal[5] ) * sampleScale,
+		static_cast<double>( vk.timingGlmLodSelectionTotal[6] ) * sampleScale,
+		static_cast<double>( vk.timingGlmLodSelectionTotal[7] ) * sampleScale,
+		static_cast<double>( vk.timingGlmLodVertexTotal ) * sampleScale,
+		static_cast<double>( vk.timingGlmLodTriangleTotal ) * sampleScale );
+	ri.Printf( PRINT_ALL,
+		"rd-vulkan-compute-skin: enabled=%d dispatches=%.1f vertices=%.1f "
+		"record=%.3fms cpu-fallback-surfaces=%.1f\n",
+		VK_ComputeSkinningEnabled() ? 1 : 0,
+		static_cast<double>( vk.timingComputeSkinDispatchTotal ) * sampleScale,
+		static_cast<double>( vk.timingComputeSkinVertexTotal ) * sampleScale,
+		vk.timingComputeSkinRecordTotalMs * sampleScale,
+		static_cast<double>( vk.timingCpuSkinFallbackTotal ) * sampleScale );
 	std::vector<const vk_skin_model_timing_t *> skinModels;
 	skinModels.reserve( vk.timingSkinModels.size() );
 	for ( const auto &entry : vk.timingSkinModels )
@@ -11589,6 +12788,171 @@ static void VK_RecordTimingSample(
 	VK_ResetTimingSamples();
 }
 
+static float VK_ForceSpeedHeadStability( int eye )
+{
+	if ( !vk.viewsValid || !vk.forceSpeedHistoryValid[eye] )
+	{
+		return 0.0f;
+	}
+
+	const XrPosef &current = vk.views[eye].pose;
+	const XrPosef &previous = vk.forceSpeedLastViewPose[eye];
+	float quaternionDot =
+		current.orientation.x * previous.orientation.x +
+		current.orientation.y * previous.orientation.y +
+		current.orientation.z * previous.orientation.z +
+		current.orientation.w * previous.orientation.w;
+	quaternionDot = VK_ClampValue( std::fabs( quaternionDot ), 0.0f, 1.0f );
+	const float angularDelta = 2.0f * std::acos( quaternionDot );
+	const float dx = current.position.x - previous.position.x;
+	const float dy = current.position.y - previous.position.y;
+	const float dz = current.position.z - previous.position.z;
+	const float translationDelta = std::sqrt( dx * dx + dy * dy + dz * dz );
+
+	auto descendingSmoothStep = []( float full, float zero, float value )
+	{
+		const float t = VK_ClampValue( ( value - full ) / ( zero - full ), 0.0f, 1.0f );
+		return 1.0f - t * t * ( 3.0f - 2.0f * t );
+	};
+	const float angularStability = descendingSmoothStep(
+		DEG2RAD( 0.35f ), DEG2RAD( 2.5f ), angularDelta );
+	const float translationStability = descendingSmoothStep(
+		0.003f, 0.025f, translationDelta );
+	return std::min( angularStability, translationStability );
+}
+
+static void VK_RecordForceSpeedImage( const vk_texture_t &texture, float alpha )
+{
+	const float parameters[4] = { alpha, 0.0f, 0.0f, 0.0f };
+	vkCmdBindDescriptorSets(
+		vk.commandBuffer,
+		VK_PIPELINE_BIND_POINT_GRAPHICS,
+		vk.pipelineLayout,
+		0,
+		1,
+		&texture.descriptorSet,
+		0,
+		nullptr );
+	vkCmdPushConstants(
+		vk.commandBuffer,
+		vk.pipelineLayout,
+		VK_SHADER_STAGE_FRAGMENT_BIT,
+		0,
+		sizeof( parameters ),
+		parameters );
+	vkCmdDraw( vk.commandBuffer, 3, 1, 0, 0 );
+}
+
+static void VK_RecordForceSpeedMotionBlur( int eye )
+{
+	const vk_texture_t &target = vk.forceSpeedTargets[eye];
+	const vk_texture_t &history = vk.forceSpeedHistoryTargets[eye];
+	const float tuning = vk.forceSpeedBlurStrengthCvar != nullptr
+		? vk.forceSpeedBlurStrengthCvar->value : 1.0f;
+	const float effect = VK_ClampValue(
+		vk.worldRefdef.forceSpeedBlur * tuning, 0.0f, 1.5f );
+	const float headStability = VK_ForceSpeedHeadStability( eye );
+	const float historyWeight = vk.forceSpeedHistoryValid[eye]
+		? VK_ClampValue( effect * 0.58f, 0.0f, 0.72f ) * headStability
+		: 0.0f;
+	vkCmdBindPipeline(
+		vk.commandBuffer,
+		VK_PIPELINE_BIND_POINT_GRAPHICS,
+		vk.forceSpeedMotionBlurPipeline );
+	VK_RecordForceSpeedImage( target, 1.0f );
+	if ( historyWeight > 0.001f )
+	{
+		VK_RecordForceSpeedImage( history, historyWeight );
+	}
+
+	if ( !vk.loggedForceSpeedMotionBlur && vk.forceSpeedHistoryValid[eye] )
+	{
+		ri.Printf( PRINT_ALL,
+			"rd-vulkan: Force Speed temporal motion blur active "
+			"(effect %.2f history %.2f head-stability %.2f)\n",
+			effect, historyWeight, headStability );
+		vk.loggedForceSpeedMotionBlur = true;
+	}
+	if ( vk.viewsValid )
+	{
+		vk.forceSpeedLastViewPose[eye] = vk.views[eye].pose;
+	}
+}
+
+static void VK_RecordForceSpeedHistoryCopy( int eye )
+{
+	vk_texture_t &target = vk.forceSpeedTargets[eye];
+	vk_texture_t &history = vk.forceSpeedHistoryTargets[eye];
+	VkImageMemoryBarrier barriers[2] = {};
+	barriers[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	barriers[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	barriers[0].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+	barriers[0].oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	barriers[0].newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	barriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barriers[0].image = target.image;
+	barriers[0].subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	barriers[0].subresourceRange.levelCount = 1;
+	barriers[0].subresourceRange.layerCount = 1;
+	barriers[1].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	barriers[1].srcAccessMask = vk.forceSpeedHistoryInitialized[eye]
+		? VK_ACCESS_SHADER_READ_BIT : 0;
+	barriers[1].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	barriers[1].oldLayout = vk.forceSpeedHistoryInitialized[eye]
+		? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED;
+	barriers[1].newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	barriers[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barriers[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barriers[1].image = history.image;
+	barriers[1].subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	barriers[1].subresourceRange.levelCount = 1;
+	barriers[1].subresourceRange.layerCount = 1;
+	vkCmdPipelineBarrier(
+		vk.commandBuffer,
+		VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+		VK_PIPELINE_STAGE_TRANSFER_BIT,
+		0,
+		0, nullptr,
+		0, nullptr,
+		ARRAY_LEN( barriers ), barriers );
+
+	VkImageCopy copy = {};
+	copy.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	copy.srcSubresource.layerCount = 1;
+	copy.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	copy.dstSubresource.layerCount = 1;
+	copy.extent = { target.width, target.height, 1 };
+	vkCmdCopyImage(
+		vk.commandBuffer,
+		target.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+		history.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		1, &copy );
+
+	VkImageMemoryBarrier historyReady = {};
+	historyReady.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	historyReady.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	historyReady.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	historyReady.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	historyReady.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	historyReady.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	historyReady.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	historyReady.image = history.image;
+	historyReady.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	historyReady.subresourceRange.levelCount = 1;
+	historyReady.subresourceRange.layerCount = 1;
+	vkCmdPipelineBarrier(
+		vk.commandBuffer,
+		VK_PIPELINE_STAGE_TRANSFER_BIT,
+		VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+		0,
+		0, nullptr,
+		0, nullptr,
+		1, &historyReady );
+	vk.forceSpeedHistoryInitialized[eye] = true;
+	vk.forceSpeedHistoryValid[eye] = true;
+}
+
 static bool VK_RecordTestPattern(
 	int eye,
 	uint32_t imageIndex,
@@ -11599,8 +12963,11 @@ static bool VK_RecordTestPattern(
 	if ( vk.ghoul2CacheFrameIndex != vk.frameIndex )
 	{
 		vk.skinnedVertexOffset = 0;
+		vk.glmBoneOffset = 0;
+		vk.glmBoneFrameCache.clear();
 		vk.ghoul2BoneCache.clear();
 		vk.ghoul2SurfaceCache.clear();
+		vk.glmLodFrameCache.clear();
 		vk.surfaceSpriteStreamCache.clear();
 		vk.ghoul2CacheFrameIndex = vk.frameIndex;
 	}
@@ -11623,6 +12990,10 @@ static bool VK_RecordTestPattern(
 			vk.timingQueryPool,
 			eye * 2 );
 	}
+	if ( eye == 0 && !clearOnly )
+	{
+		VK_RecordGLMComputeSkinningPrepass();
+	}
 	vk.depthBiasStateKnown = false;
 	vk.depthBiasEnabled = false;
 
@@ -11643,7 +13014,20 @@ static bool VK_RecordTestPattern(
 	VkRenderPassBeginInfo renderPassInfo = {};
 	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
 	renderPassInfo.renderPass = vk.renderPass;
-	renderPassInfo.framebuffer = vk.framebuffers[eye][imageIndex];
+	const bool forceSpeedMotionBlur =
+		!clearOnly && vk.sceneWorldRenderedThisFrame &&
+		vk.worldRefdef.forceSpeedBlur > 0.001f &&
+		vk.forceSpeedMotionBlurPipeline != VK_NULL_HANDLE &&
+		vk.forceSpeedFramebuffers[eye] != VK_NULL_HANDLE &&
+		vk.forceSpeedTargets[eye].descriptorSet != VK_NULL_HANDLE &&
+		vk.forceSpeedHistoryTargets[eye].descriptorSet != VK_NULL_HANDLE;
+	if ( !forceSpeedMotionBlur )
+	{
+		vk.forceSpeedHistoryValid[eye] = false;
+	}
+	renderPassInfo.framebuffer = forceSpeedMotionBlur
+		? vk.forceSpeedFramebuffers[eye]
+		: vk.framebuffers[eye][imageIndex];
 	renderPassInfo.renderArea.offset.x = 0;
 	renderPassInfo.renderArea.offset.y = 0;
 	renderPassInfo.renderArea.extent.width = vk.viewConfiguration[eye].recommendedImageRectWidth;
@@ -11691,7 +13075,8 @@ static bool VK_RecordTestPattern(
 		VK_RecordDiagnosticWorld( eye );
 	}
 
-	if ( !clearOnly && !vk.sceneWorldRenderedThisFrame && !vk.screenScenes.empty() )
+	if ( !forceSpeedMotionBlur && !clearOnly &&
+		 !vk.sceneWorldRenderedThisFrame && !vk.screenScenes.empty() )
 	{
 		size_t firstRect = 0;
 		for ( size_t sceneIndex = 0; sceneIndex < vk.screenScenes.size(); ++sceneIndex )
@@ -11705,12 +13090,45 @@ static bool VK_RecordTestPattern(
 		}
 		VK_RecordScreenRects( eye, firstRect, vk.rects.size() );
 	}
-	else if ( !clearOnly )
+	else if ( !forceSpeedMotionBlur && !clearOnly )
 	{
 		VK_RecordScreenRects( eye, 0, vk.rects.size() );
 	}
 
 	vkCmdEndRenderPass( vk.commandBuffer );
+	if ( forceSpeedMotionBlur )
+	{
+		VkImageMemoryBarrier toShaderRead = {};
+		toShaderRead.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		toShaderRead.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		toShaderRead.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+		toShaderRead.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		toShaderRead.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		toShaderRead.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		toShaderRead.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		toShaderRead.image = vk.forceSpeedTargets[eye].image;
+		toShaderRead.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		toShaderRead.subresourceRange.levelCount = 1;
+		toShaderRead.subresourceRange.layerCount = 1;
+		vkCmdPipelineBarrier(
+			vk.commandBuffer,
+			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+			VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+			0,
+			0, nullptr,
+			0, nullptr,
+			1, &toShaderRead );
+
+		renderPassInfo.framebuffer = vk.framebuffers[eye][imageIndex];
+		vkCmdBeginRenderPass(
+			vk.commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE );
+		vkCmdSetViewport( vk.commandBuffer, 0, 1, &viewport );
+		vkCmdSetScissor( vk.commandBuffer, 0, 1, &scissor );
+		VK_RecordForceSpeedMotionBlur( eye );
+		VK_RecordScreenRects( eye, 0, vk.rects.size() );
+		vkCmdEndRenderPass( vk.commandBuffer );
+		VK_RecordForceSpeedHistoryCopy( eye );
+	}
 	if ( gpuTiming )
 	{
 		vkCmdWriteTimestamp(
@@ -11937,6 +13355,14 @@ bool VK_Backend_Init()
 	vk.ewebCullCvar = ri.Cvar_Get( "r_vulkanEwebCull", "2", 0 );
 	vk.fxModelAuditCvar = ri.Cvar_Get( "r_vulkanFxModelAudit", "0", 0 );
 	vk.modelCullCvar = ri.Cvar_Get( "r_vulkanModelCull", "1", 0 );
+	vk.lodScaleCvar = ri.Cvar_Get( "r_lodscale", "10", CVAR_ARCHIVE );
+	vk.lodBiasCvar = ri.Cvar_Get( "r_lodbias", "-2", CVAR_ARCHIVE );
+	vk.glmLodCvar = ri.Cvar_Get( "r_vulkanGLMLod", "-1", 0 );
+	vk.glmLodAuditCvar = ri.Cvar_Get( "r_vulkanGLMLodAudit", "0", 0 );
+	vk.computeSkinningCvar =
+		ri.Cvar_Get( "r_vulkanComputeSkinning", "1", CVAR_ARCHIVE );
+	vk.forceSpeedBlurStrengthCvar =
+		ri.Cvar_Get( "r_vulkanForceSpeedBlurStrength", "1.0", CVAR_ARCHIVE );
 	vk.timingCvar = ri.Cvar_Get( "r_vulkanTiming", "0", 0 );
 
 	if ( !VK_CreateXrInstance() ||
@@ -11948,6 +13374,7 @@ bool VK_Backend_Init()
 		 !VK_CreateVulkanDevice() ||
 		 !VK_CreateCommandResources() ||
 		 !VK_CreateTextureDescriptors() ||
+		 !VK_CreateGLMSkinDescriptors() ||
 		 !VK_CreateXrSession() ||
 		 !VK_CreateReferenceSpace( XR_REFERENCE_SPACE_TYPE_VIEW, &vk.viewSpace, "xrCreateReferenceSpace(VIEW)" ) ||
 		 !VK_CreateReferenceSpace( XR_REFERENCE_SPACE_TYPE_LOCAL, &vk.localSpace, "xrCreateReferenceSpace(LOCAL)" ) ||
@@ -11980,6 +13407,86 @@ bool VK_Backend_Init()
 	return true;
 }
 
+void VK_Backend_SoftShutdown()
+{
+	if ( !vk.initialized )
+	{
+		return;
+	}
+	if ( vk.frameBegun )
+	{
+		XrFrameEndInfo endInfo = {};
+		endInfo.type = XR_TYPE_FRAME_END_INFO;
+		endInfo.displayTime = vk.frameState.predictedDisplayTime;
+		endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+		VK_CheckXr( xrEndFrame( vk.xrSession, &endInfo ), "xrEndFrame(soft shutdown)" );
+		vk.frameBegun = false;
+		ri.Printf( PRINT_WARNING,
+			"rd-vulkan-frame: soft shutdown encountered an open frame; closed it without layers\n" );
+	}
+	if ( vk.device != VK_NULL_HANDLE )
+	{
+		vkDeviceWaitIdle( vk.device );
+	}
+
+	// Registration handles are a per-map epoch. In particular, Ghoul2 relies on
+	// the normal and cinematic GLAs receiving consecutive model handles.
+	VK_DestroyModelRegistry();
+	vk.modelNames.clear();
+	vk.animations.clear();
+	vk.modelRegistrationCount = 0;
+	vk.skinNames.clear();
+	vk.skins.clear();
+	vk.skinRegistrationCount = 0;
+	if ( vk.glmSkinDescriptorPool != VK_NULL_HANDLE )
+	{
+		VK_CheckVk(
+			vkResetDescriptorPool( vk.device, vk.glmSkinDescriptorPool, 0 ),
+			"vkResetDescriptorPool(soft shutdown GLM skinning)" );
+	}
+
+	// CGame and UI storage is about to be cleared. Retain durable image resources
+	// and the last released swapchain images, but discard every borrowed pointer.
+	vk.rects.clear();
+	vk.sceneEntities.clear();
+	vk.scenePolys.clear();
+	vk.sceneLights.clear();
+	vk.worldEntities.clear();
+	vk.worldPolys.clear();
+	vk.worldLights.clear();
+	vk.portalEntities.clear();
+	vk.portalPolys.clear();
+	vk.portalLights.clear();
+	vk.screenScenes.clear();
+	vk.screenSceneClips.clear();
+	vk.haveWorldRefdef = false;
+	vk.havePortalRefdef = false;
+	vk.sceneRenderedThisFrame = false;
+	vk.sceneWorldRenderedThisFrame = false;
+	vk.sceneEntityCount = 0;
+	vk.scenePolyCount = 0;
+	vk.scenePolyVertexCount = 0;
+	vk.sceneLightCount = 0;
+	std::memset( vk.sceneEntityTypes, 0, sizeof( vk.sceneEntityTypes ) );
+	vk.glmBoneFrameCache.clear();
+	vk.ghoul2BoneCache.clear();
+	vk.ghoul2SurfaceCache.clear();
+	vk.glmLodFrameCache.clear();
+	vk.surfaceSpriteStreamCache.clear();
+	vk.ghoul2SkinnedAudits.clear();
+	vk.loggedCinematicGhouls.clear();
+	vk.loggedGhoul2RenderAudits.clear();
+	vk.loggedGhoul2SkinnedAudits.clear();
+	vk.ghoul2CacheFrameIndex = ~uint64_t{ 0 };
+
+	ri.Printf( PRINT_ALL,
+		"rd-vulkan-frame: soft renderer shutdown reset model epoch and preserved OpenXR "
+		"session and last frame "
+		"(screen=%d projection=%d)\n",
+		vk.screenLayerContentValid ? 1 : 0,
+		vk.projectionLayerContentValid ? 1 : 0 );
+}
+
 void VK_Backend_Shutdown()
 {
 	if ( vk.device != VK_NULL_HANDLE )
@@ -11995,6 +13502,12 @@ void VK_Backend_Shutdown()
 		vk.skinnedVertexMapped = nullptr;
 	}
 	VK_DestroyBuffer( &vk.skinnedVertexBuffer, &vk.skinnedVertexMemory );
+	if ( vk.glmBoneMapped != nullptr && vk.device != VK_NULL_HANDLE )
+	{
+		vkUnmapMemory( vk.device, vk.glmBoneMemory );
+		vk.glmBoneMapped = nullptr;
+	}
+	VK_DestroyBuffer( &vk.glmBoneBuffer, &vk.glmBoneMemory );
 
 	for ( vk_texture_t &texture : vk.textures )
 	{
@@ -12006,6 +13519,7 @@ void VK_Backend_Shutdown()
 
 	for ( int eye = 0; eye < VK_BACKEND_EYE_COUNT; ++eye )
 	{
+		VK_DestroyForceSpeedTarget( eye );
 		for ( uint32_t i = 0; i < vk.colorImageCount[eye]; ++i )
 		{
 			if ( vk.framebuffers[eye] != nullptr && vk.framebuffers[eye][i] != VK_NULL_HANDLE )
@@ -12043,6 +13557,10 @@ void VK_Backend_Shutdown()
 	if ( vk.texturedRectPipeline != VK_NULL_HANDLE )
 	{
 		vkDestroyPipeline( vk.device, vk.texturedRectPipeline, nullptr );
+	}
+	if ( vk.forceSpeedMotionBlurPipeline != VK_NULL_HANDLE )
+	{
+		vkDestroyPipeline( vk.device, vk.forceSpeedMotionBlurPipeline, nullptr );
 	}
 	if ( vk.texturedRectOpaquePipeline != VK_NULL_HANDLE )
 	{
@@ -12148,6 +13666,14 @@ void VK_Backend_Shutdown()
 	{
 		vkDestroyPipeline( vk.device, vk.worldScreenPipeline, nullptr );
 	}
+	if ( vk.glmSkinPipeline != VK_NULL_HANDLE )
+	{
+		vkDestroyPipeline( vk.device, vk.glmSkinPipeline, nullptr );
+	}
+	if ( vk.glmSkinPipelineLayout != VK_NULL_HANDLE )
+	{
+		vkDestroyPipelineLayout( vk.device, vk.glmSkinPipelineLayout, nullptr );
+	}
 	if ( vk.pipelineLayout != VK_NULL_HANDLE )
 	{
 		vkDestroyPipelineLayout( vk.device, vk.pipelineLayout, nullptr );
@@ -12168,9 +13694,17 @@ void VK_Backend_Shutdown()
 	{
 		vkDestroyDescriptorPool( vk.device, vk.descriptorPool, nullptr );
 	}
+	if ( vk.glmSkinDescriptorPool != VK_NULL_HANDLE )
+	{
+		vkDestroyDescriptorPool( vk.device, vk.glmSkinDescriptorPool, nullptr );
+	}
 	if ( vk.textureSetLayout != VK_NULL_HANDLE )
 	{
 		vkDestroyDescriptorSetLayout( vk.device, vk.textureSetLayout, nullptr );
+	}
+	if ( vk.glmSkinSetLayout != VK_NULL_HANDLE )
+	{
+		vkDestroyDescriptorSetLayout( vk.device, vk.glmSkinSetLayout, nullptr );
 	}
 	for ( int hand = 0; hand < VK_BACKEND_EYE_COUNT; ++hand )
 	{
@@ -12657,6 +14191,7 @@ static bool VK_LoadMD3Model( const char *name, qhandle_t handle )
 	model.type = VK_MODEL_MD3;
 	model.inlineModelIndex = -1;
 	model.boneCount = 0;
+	model.numLods = 1;
 	model.animationHandle = 0;
 	model.frameCount = numFrames;
 	model.tagCount = numTags;
@@ -12928,6 +14463,7 @@ static bool VK_LoadGLMSurface(
 	int surfaceIndex,
 	vk_model_surface_t *loadedSurface )
 {
+	loadedSurface->maxSkinBoneIndex = -1;
 	const int numVerts = LittleLong( surface->numVerts );
 	const int numTriangles = LittleLong( surface->numTriangles );
 	const int numBoneReferences = LittleLong( surface->numBoneReferences );
@@ -13017,8 +14553,14 @@ static bool VK_LoadGLMSurface(
 			{
 				return false;
 			}
-			skin.boneIndices[weightIndex] =
-				loadedSurface->glmBoneReferences[localBoneIndex];
+			const int boneIndex = loadedSurface->glmBoneReferences[localBoneIndex];
+			if ( boneIndex < 0 )
+			{
+				return false;
+			}
+			skin.boneIndices[weightIndex] = boneIndex;
+			loadedSurface->maxSkinBoneIndex =
+				std::max( loadedSurface->maxSkinBoneIndex, boneIndex );
 			skin.weights[weightIndex] = G2_GetVertBoneWeight(
 				&sourceVertex, weightIndex, totalWeight, skin.weightCount );
 		}
@@ -13053,7 +14595,9 @@ static bool VK_LoadGLMSurface(
 		static_cast<VkDeviceSize>( vertices.size() * sizeof( vertices[0] ) );
 	const VkDeviceSize uploadIndexBytes =
 		static_cast<VkDeviceSize>( indices.size() * sizeof( indices[0] ) );
-	if ( !VK_UploadBuffer( vertices.data(), uploadVertexBytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+	if ( !VK_UploadBuffer(
+			vertices.data(), uploadVertexBytes,
+			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 			&loadedSurface->vertexBuffer, &loadedSurface->vertexMemory, "GLM vertex" ) ||
 		 !VK_UploadBuffer( indices.data(), uploadIndexBytes, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
 			&loadedSurface->indexBuffer, &loadedSurface->indexMemory, "GLM index" ) )
@@ -13070,6 +14614,15 @@ static bool VK_LoadGLMSurface(
 	loadedSurface->modelSurfaceIndex = surfaceIndex;
 	loadedSurface->parentSurfaceIndex = hierarchy.parentIndex;
 	loadedSurface->defaultFlags = hierarchy.flags;
+	if ( vk.computeQueue && !VK_CreateGLMSkinSurfaceResources( loadedSurface ) &&
+		 !vk.loggedComputeSkinningFallback )
+	{
+		ri.Printf( PRINT_WARNING,
+			"rd-vulkan-ghoul2: compute resources unavailable for %s/%s; "
+			"affected surfaces will retain CPU skinning\n",
+			loadedSurface->name.c_str(), hierarchy.name.c_str() );
+		vk.loggedComputeSkinningFallback = true;
+	}
 	return true;
 }
 
@@ -13077,6 +14630,7 @@ static void VK_AuditGLMModel( const vk_model_t &model, int declaredSurfaceCount 
 {
 	size_t vertexCount = 0;
 	size_t triangleCount = 0;
+	size_t loadedSurfaceCount = 0;
 	size_t invalidBoneReferences = 0;
 	size_t invalidVertexBoneIndices = 0;
 	size_t invalidWeights = 0;
@@ -13084,81 +14638,93 @@ static void VK_AuditGLMModel( const vk_model_t &model, int declaredSurfaceCount 
 	size_t degenerateTriangles = 0;
 	size_t fallbackShaders = 0;
 
-	for ( const vk_model_surface_t &surface : model.surfaces )
+	bool surfaceCountMismatch = false;
+	for ( int lod = 0; lod < model.numLods; ++lod )
 	{
-		vertexCount += surface.glmVertices.size();
-		triangleCount += surface.glmIndices.size() / 3;
-		fallbackShaders += surface.shader <= 1 ? 1 : 0;
-		for ( int boneReference : surface.glmBoneReferences )
+		const std::vector<vk_model_surface_t> &surfaces =
+			VK_GLMSurfacesForLod( model, lod );
+		loadedSurfaceCount += surfaces.size();
+		surfaceCountMismatch = surfaceCountMismatch ||
+			static_cast<int>( surfaces.size() ) != declaredSurfaceCount;
+		for ( const vk_model_surface_t &surface : surfaces )
 		{
-			invalidBoneReferences +=
-				boneReference < 0 || boneReference >= model.boneCount ? 1 : 0;
-		}
-		for ( const mdxmVertex_t &vertex : surface.glmVertices )
-		{
-			for ( int component = 0; component < 3; ++component )
+			vertexCount += surface.glmVertices.size();
+			triangleCount += surface.glmIndices.size() / 3;
+			fallbackShaders += surface.shader <= 1 ? 1 : 0;
+			for ( int boneReference : surface.glmBoneReferences )
 			{
-				nonFiniteValues +=
-					!std::isfinite( vertex.vertCoords[component] ) ||
-					!std::isfinite( vertex.normal[component] ) ? 1 : 0;
+				invalidBoneReferences +=
+					boneReference < 0 || boneReference >= model.boneCount ? 1 : 0;
+			}
+			for ( const mdxmVertex_t &vertex : surface.glmVertices )
+			{
+				for ( int component = 0; component < 3; ++component )
+				{
+					nonFiniteValues +=
+						!std::isfinite( vertex.vertCoords[component] ) ||
+						!std::isfinite( vertex.normal[component] ) ? 1 : 0;
+				}
+
+				const int weightCount = G2_GetVertWeights( &vertex );
+				float totalWeight = 0.0f;
+				for ( int weightIndex = 0; weightIndex < weightCount; ++weightIndex )
+				{
+					const int localBoneIndex =
+						G2_GetVertBoneIndex( &vertex, weightIndex );
+					if ( localBoneIndex < 0 ||
+						 static_cast<size_t>( localBoneIndex ) >=
+							surface.glmBoneReferences.size() )
+					{
+						++invalidVertexBoneIndices;
+					}
+					const float weight = G2_GetVertBoneWeight(
+						&vertex, weightIndex, totalWeight, weightCount );
+					if ( !std::isfinite( weight ) ||
+						 weight < -0.001f || weight > 1.001f )
+					{
+						++invalidWeights;
+					}
+				}
 			}
 
-			const int weightCount = G2_GetVertWeights( &vertex );
-			float totalWeight = 0.0f;
-			for ( int weightIndex = 0; weightIndex < weightCount; ++weightIndex )
+			if ( ( surface.defaultFlags & G2SURFACEFLAG_ISBOLT ) == 0 )
 			{
-				const int localBoneIndex = G2_GetVertBoneIndex( &vertex, weightIndex );
-				if ( localBoneIndex < 0 ||
-					 static_cast<size_t>( localBoneIndex ) >= surface.glmBoneReferences.size() )
+				for ( size_t i = 0; i + 2 < surface.glmIndices.size(); i += 3 )
 				{
-					++invalidVertexBoneIndices;
-				}
-				const float weight =
-					G2_GetVertBoneWeight( &vertex, weightIndex, totalWeight, weightCount );
-				if ( !std::isfinite( weight ) || weight < -0.001f || weight > 1.001f )
-				{
-					++invalidWeights;
-				}
-			}
-		}
-
-		if ( ( surface.defaultFlags & G2SURFACEFLAG_ISBOLT ) == 0 )
-		{
-			for ( size_t i = 0; i + 2 < surface.glmIndices.size(); i += 3 )
-			{
-				const uint32_t i0 = surface.glmIndices[i + 0];
-				const uint32_t i1 = surface.glmIndices[i + 1];
-				const uint32_t i2 = surface.glmIndices[i + 2];
-				if ( i0 >= surface.glmVertices.size() ||
-					 i1 >= surface.glmVertices.size() ||
-					 i2 >= surface.glmVertices.size() )
-				{
-					++degenerateTriangles;
-					continue;
-				}
-				vec3_t edge0;
-				vec3_t edge1;
-				vec3_t cross;
-				VectorSubtract(
-					surface.glmVertices[i1].vertCoords,
-					surface.glmVertices[i0].vertCoords,
-					edge0 );
-				VectorSubtract(
-					surface.glmVertices[i2].vertCoords,
-					surface.glmVertices[i0].vertCoords,
-					edge1 );
-				CrossProduct( edge0, edge1, cross );
-				if ( !std::isfinite( VectorLengthSquared( cross ) ) ||
-					 VectorLengthSquared( cross ) < 1.0e-10f )
-				{
-					++degenerateTriangles;
+					const uint32_t i0 = surface.glmIndices[i + 0];
+					const uint32_t i1 = surface.glmIndices[i + 1];
+					const uint32_t i2 = surface.glmIndices[i + 2];
+					if ( i0 >= surface.glmVertices.size() ||
+						 i1 >= surface.glmVertices.size() ||
+						 i2 >= surface.glmVertices.size() )
+					{
+						++degenerateTriangles;
+						continue;
+					}
+					vec3_t edge0;
+					vec3_t edge1;
+					vec3_t cross;
+					VectorSubtract(
+						surface.glmVertices[i1].vertCoords,
+						surface.glmVertices[i0].vertCoords,
+						edge0 );
+					VectorSubtract(
+						surface.glmVertices[i2].vertCoords,
+						surface.glmVertices[i0].vertCoords,
+						edge1 );
+					CrossProduct( edge0, edge1, cross );
+					if ( !std::isfinite( VectorLengthSquared( cross ) ) ||
+						 VectorLengthSquared( cross ) < 1.0e-10f )
+					{
+						++degenerateTriangles;
+					}
 				}
 			}
 		}
 	}
 
 	const bool malformed =
-		static_cast<int>( model.surfaces.size() ) != declaredSurfaceCount ||
+		surfaceCountMismatch ||
 		invalidBoneReferences != 0 ||
 		invalidVertexBoneIndices != 0 ||
 		invalidWeights != 0 ||
@@ -13168,12 +14734,13 @@ static void VK_AuditGLMModel( const vk_model_t &model, int declaredSurfaceCount 
 	{
 		ri.Printf(
 			malformed ? PRINT_WARNING : PRINT_ALL,
-			"rd-vulkan-ghoul2-audit: model=%s surfaces=%zu/%d vertices=%zu triangles=%zu "
+			"rd-vulkan-ghoul2-audit: model=%s lods=%d surfaces=%zu/%d vertices=%zu triangles=%zu "
 			"badBoneRefs=%zu badVertexBones=%zu badWeights=%zu nonFinite=%zu "
 			"degenerate=%zu fallbackShaders=%zu status=%s\n",
 			model.name.c_str(),
-			model.surfaces.size(),
-			declaredSurfaceCount,
+			model.numLods,
+			loadedSurfaceCount,
+			declaredSurfaceCount * model.numLods,
 			vertexCount,
 			triangleCount,
 			invalidBoneReferences,
@@ -13240,11 +14807,6 @@ static bool VK_LoadGLMModel( const char *name, qhandle_t handle )
 		return false;
 	}
 
-	const mdxmLOD_t *lod = reinterpret_cast<const mdxmLOD_t *>( fileBase + ofsLODs );
-	const byte *lodOffsetsBase = reinterpret_cast<const byte *>( lod ) + sizeof( mdxmLOD_t );
-	const mdxmLODSurfOffset_t *surfaceOffsets =
-		reinterpret_cast<const mdxmLODSurfOffset_t *>( lodOffsetsBase );
-
 	VK_EnsureModelSlot( handle );
 	vk_model_t model = {};
 	char animationName[MAX_QPATH];
@@ -13256,6 +14818,8 @@ static bool VK_LoadGLMModel( const char *name, qhandle_t handle )
 	model.type = VK_MODEL_GLM;
 	model.inlineModelIndex = -1;
 	model.boneCount = numBones;
+	model.numLods = numLODs;
+	model.lodSurfaces.resize( static_cast<size_t>( numLODs ) );
 	model.animationHandle = VK_FindRegisteredModelHandle( animationName );
 	model.animation = VK_LoadGLA( animationName );
 	if ( model.animation != nullptr &&
@@ -13271,47 +14835,108 @@ static bool VK_LoadGLMModel( const char *name, qhandle_t handle )
 		model.animation.reset();
 	}
 
-	for ( int i = 0; i < numSurfaces; ++i )
+	bool lodLoadFailed = false;
+	size_t lodFileOffset = static_cast<size_t>( ofsLODs );
+	const size_t lodOffsetTableBytes =
+		static_cast<size_t>( numSurfaces ) * sizeof( mdxmLODSurfOffset_t );
+	for ( int lodIndex = 0; lodIndex < numLODs && !lodLoadFailed; ++lodIndex )
 	{
-		const int surfaceOffset = LittleLong( surfaceOffsets->offsets[i] );
-		const size_t lodOffsetsFileOffset =
-			static_cast<size_t>( lodOffsetsBase - fileBase );
-		if ( surfaceOffset < 0 ||
-			 !VK_ModelBufferRangeValid(
-				 lodOffsetsFileOffset + static_cast<size_t>( surfaceOffset ),
-				 sizeof( mdxmSurface_t ),
-				 static_cast<size_t>( ofsEnd ) ) )
+		if ( !VK_ModelBufferRangeValid(
+				lodFileOffset,
+				sizeof( mdxmLOD_t ) + lodOffsetTableBytes,
+				static_cast<size_t>( ofsEnd ) ) )
 		{
-			continue;
+			lodLoadFailed = true;
+			break;
 		}
-		const byte *surfaceBase = lodOffsetsBase + surfaceOffset;
-		const mdxmSurface_t *surface = reinterpret_cast<const mdxmSurface_t *>( surfaceBase );
-		const int surfaceEnd = LittleLong( surface->ofsEnd );
-		if ( surfaceEnd <= 0 ||
+		const mdxmLOD_t *lod =
+			reinterpret_cast<const mdxmLOD_t *>( fileBase + lodFileOffset );
+		const int lodEnd = LittleLong( lod->ofsEnd );
+		const size_t minimumLodBytes = sizeof( mdxmLOD_t ) + lodOffsetTableBytes;
+		if ( lodEnd < static_cast<int>( minimumLodBytes ) ||
 			 !VK_ModelBufferRangeValid(
-				 static_cast<size_t>( surfaceBase - fileBase ),
-				 static_cast<size_t>( surfaceEnd ),
-				 static_cast<size_t>( ofsEnd ) ) )
+				lodFileOffset,
+				static_cast<size_t>( lodEnd ),
+				static_cast<size_t>( ofsEnd ) ) )
 		{
-			continue;
+			lodLoadFailed = true;
+			break;
 		}
+		const size_t lodLimit = lodFileOffset + static_cast<size_t>( lodEnd );
+		const byte *lodOffsetsBase =
+			fileBase + lodFileOffset + sizeof( mdxmLOD_t );
+		const mdxmLODSurfOffset_t *surfaceOffsets =
+			reinterpret_cast<const mdxmLODSurfOffset_t *>( lodOffsetsBase );
+		std::vector<vk_model_surface_t> &destination = lodIndex == 0
+			? model.surfaces
+			: model.lodSurfaces[lodIndex];
+		destination.reserve( static_cast<size_t>( numSurfaces ) );
 
-		vk_model_surface_t loadedSurface = {};
-		if ( VK_LoadGLMSurface(
-				surfaceBase,
-				static_cast<size_t>( surfaceEnd ),
-				surface,
-				hierarchy[i],
-				i,
-				&loadedSurface ) )
+		for ( int surfaceIndex = 0; surfaceIndex < numSurfaces; ++surfaceIndex )
 		{
-			model.surfaces.push_back( loadedSurface );
+			const int surfaceOffset = LittleLong( surfaceOffsets->offsets[surfaceIndex] );
+			const size_t lodOffsetsFileOffset =
+				static_cast<size_t>( lodOffsetsBase - fileBase );
+			if ( surfaceOffset < static_cast<int>( lodOffsetTableBytes ) ||
+				 !VK_ModelBufferRangeValid(
+					lodOffsetsFileOffset + static_cast<size_t>( surfaceOffset ),
+					sizeof( mdxmSurface_t ),
+					lodLimit ) )
+			{
+				lodLoadFailed = true;
+				break;
+			}
+			const byte *surfaceBase = lodOffsetsBase + surfaceOffset;
+			const mdxmSurface_t *surface =
+				reinterpret_cast<const mdxmSurface_t *>( surfaceBase );
+			const int surfaceEnd = LittleLong( surface->ofsEnd );
+			const int declaredSurfaceIndex = LittleLong( surface->thisSurfaceIndex );
+			if ( surfaceEnd <= 0 || declaredSurfaceIndex != surfaceIndex ||
+				 !VK_ModelBufferRangeValid(
+					static_cast<size_t>( surfaceBase - fileBase ),
+					static_cast<size_t>( surfaceEnd ),
+					lodLimit ) )
+			{
+				lodLoadFailed = true;
+				break;
+			}
+
+			vk_model_surface_t loadedSurface = {};
+			if ( !VK_LoadGLMSurface(
+					surfaceBase,
+					static_cast<size_t>( surfaceEnd ),
+					surface,
+					hierarchy[surfaceIndex],
+					surfaceIndex,
+					&loadedSurface ) )
+			{
+				lodLoadFailed = true;
+				break;
+			}
+			destination.push_back( std::move( loadedSurface ) );
 		}
+		lodFileOffset += static_cast<size_t>( lodEnd );
 	}
 
 	ri.FS_FreeFile( buffer );
-	if ( model.surfaces.empty() )
+	if ( lodLoadFailed || static_cast<int>( model.surfaces.size() ) != numSurfaces )
 	{
+		for ( vk_model_surface_t &surface : model.surfaces )
+		{
+			VK_DestroyModelSurface( surface );
+		}
+		for ( std::vector<vk_model_surface_t> &lodSurfaces : model.lodSurfaces )
+		{
+			for ( vk_model_surface_t &surface : lodSurfaces )
+			{
+				VK_DestroyModelSurface( surface );
+			}
+		}
+		ri.Printf(
+			PRINT_WARNING,
+			"rd-vulkan-ghoul2: failed to load all %d LODs for %s\n",
+			numLODs,
+			resolvedName.c_str() );
 		return false;
 	}
 
@@ -13398,6 +15023,7 @@ static void VK_LoadPendingGLMMetadata( const char *name, vk_model_t *model )
 			animationName[sizeof( animationName ) - 1] = '\0';
 			model->animationName = animationName;
 			model->boneCount = LittleLong( header->numBones );
+			model->numLods = LittleLong( header->numLODs );
 			model->animationHandle = VK_FindRegisteredModelHandle( animationName );
 			model->animation = VK_LoadGLA( animationName );
 
@@ -15892,8 +17518,17 @@ qhandle_t VK_Backend_RegisterTexture( const char *name )
 			}
 			else
 			{
-				stage.texture = stage.lightmap ? 2 : VK_FindOrLoadImage( stageDefinition.imageName.c_str() );
+				for ( const std::string &animationName : stageDefinition.animationNames )
+				{
+					stage.animationTextures.push_back(
+						VK_FindOrLoadImage( animationName.c_str() ) );
+				}
+				stage.texture = !stage.animationTextures.empty()
+					? stage.animationTextures.front()
+					: ( stage.lightmap ? 2 : VK_FindOrLoadImage( stageDefinition.imageName.c_str() ) );
 			}
+			stage.animationSpeed = stageDefinition.animationSpeed;
+			stage.oneShotAnimation = stageDefinition.oneShotAnimation;
 			stage.blendMode = stageDefinition.blendMode;
 			stage.alphaTest = stageDefinition.alphaTest;
 			stage.depthWrite = stageDefinition.depthWrite;
@@ -15921,6 +17556,8 @@ qhandle_t VK_Backend_RegisterTexture( const char *name )
 			std::memcpy( stage.stretch, stageDefinition.stretch, sizeof( stage.stretch ) );
 			std::memcpy( stage.turbulence, stageDefinition.turbulence, sizeof( stage.turbulence ) );
 			std::memcpy( stage.color, stageDefinition.color, sizeof( stage.color ) );
+			stage.rgbWaveType = stageDefinition.rgbWaveType;
+			std::memcpy( stage.rgbWave, stageDefinition.rgbWave, sizeof( stage.rgbWave ) );
 			stage.vertexColor = stageDefinition.vertexColor || stageDefinition.lightingDiffuse;
 			stage.entityColor = stageDefinition.entityColor;
 			stage.lightingDiffuse = stageDefinition.lightingDiffuse;
@@ -16306,6 +17943,36 @@ static XrVector3f VK_RotateVector( const XrQuaternionf &q, const XrVector3f &v )
 	};
 }
 
+static XrQuaternionf VK_RemoveHeadRoll( const XrQuaternionf &orientation )
+{
+	XrVector3f forward = VK_RotateVector( orientation, { 0.0f, 0.0f, -1.0f } );
+	const float length = std::sqrt(
+		forward.x * forward.x + forward.y * forward.y + forward.z * forward.z );
+	if ( length > 0.0001f )
+	{
+		forward.x /= length;
+		forward.y /= length;
+		forward.z /= length;
+	}
+	else
+	{
+		forward = { 0.0f, 0.0f, -1.0f };
+	}
+
+	const float pitch = std::asin( std::clamp( forward.y, -1.0f, 1.0f ) );
+	const float yaw = std::atan2( -forward.x, -forward.z );
+	const float sinPitch = std::sin( pitch * 0.5f );
+	const float cosPitch = std::cos( pitch * 0.5f );
+	const float sinYaw = std::sin( yaw * 0.5f );
+	const float cosYaw = std::cos( yaw * 0.5f );
+	return {
+		cosYaw * sinPitch,
+		sinYaw * cosPitch,
+		-sinYaw * sinPitch,
+		cosYaw * cosPitch,
+	};
+}
+
 static bool VK_CaptureScreenLayerPose( XrTime displayTime )
 {
 	XrSpaceLocation headLocation = {};
@@ -16324,7 +17991,9 @@ static bool VK_CaptureScreenLayerPose( XrTime displayTime )
 	}
 
 	vk.screenLayerPose = headLocation.pose;
-	const XrVector3f forward = VK_RotateVector( headLocation.pose.orientation, { 0.0f, 0.0f, -2.5f } );
+	vk.screenLayerPose.orientation = VK_RemoveHeadRoll( headLocation.pose.orientation );
+	const XrVector3f forward = VK_RotateVector(
+		vk.screenLayerPose.orientation, { 0.0f, 0.0f, -2.5f } );
 	vk.screenLayerPose.position.x += forward.x;
 	vk.screenLayerPose.position.y += forward.y;
 	vk.screenLayerPose.position.z += forward.z;
@@ -16347,20 +18016,11 @@ void VK_Backend_SubmitClearFrame()
 	++vk.frameIndex;
 	if ( gameRectCount == 0 )
 	{
-		if ( vk.sceneWorldRenderedThisFrame )
+		if ( !vk.sceneRenderedThisFrame && !vk.loggedNoRects )
 		{
-			// World frames can legitimately have no 2D overlay; keep debug markers out of gameplay.
-		}
-		else
-		{
-			if ( !vk.loggedNoRects )
-			{
-				ri.Printf( PRINT_ALL, "rd-vulkan: no 2D rectangles queued by the engine; drawing diagnostic marker\n" );
-				vk.loggedNoRects = true;
-			}
-
-			const float markerColor[4] = { 1.0f, 0.0f, 0.85f, 1.0f };
-			VK_Backend_AppendScreenRect( 48.0f, 48.0f, 160.0f, 96.0f, markerColor );
+			ri.Printf( PRINT_ALL,
+				"rd-vulkan-frame: empty engine frame will use the black fallback\n" );
+			vk.loggedNoRects = true;
 		}
 	}
 	else if ( gameRectCount > vk.maxRectCount || !vk.loggedFirstRects )
@@ -16390,6 +18050,8 @@ void VK_Backend_SubmitClearFrame()
 		return;
 	}
 	const XrFrameState frameState = vk.frameState;
+	const bool blackFallbackFrame =
+		gameRectCount == 0 && !vk.sceneRenderedThisFrame;
 
 	XrCompositionLayerBaseHeader *layers[2] = {};
 	XrCompositionLayerProjection projectionLayer = {};
@@ -16421,13 +18083,7 @@ void VK_Backend_SubmitClearFrame()
 			useScreenLayer ? "quad screen layer" : "stereo projection layer" );
 		vk.screenLayerActive = useScreenLayer;
 		vk.screenLayerStateKnown = true;
-		if ( !useScreenLayer )
-		{
-			vk.screenLayerPoseValid = false;
-			vk.screenLayerContentValid = false;
-			vk.screenLayerTransitionHeld = false;
-		}
-		else if ( !holdScreenLayer )
+		if ( useScreenLayer && !holdScreenLayer )
 		{
 			vk.screenLayerPoseValid = false;
 		}
@@ -16480,7 +18136,30 @@ void VK_Backend_SubmitClearFrame()
 			reinterpret_cast<XrCompositionLayerBaseHeader *>( &screenLayer );
 	};
 
-	if ( frameState.shouldRender && vk.viewsValid && VK_CreateSwapchains() )
+	const auto appendProjectionComposition = [&]( const XrView *sourceViews )
+	{
+		for ( int eye = 0; eye < VK_BACKEND_EYE_COUNT; ++eye )
+		{
+			projectionViews[eye].type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
+			projectionViews[eye].pose = sourceViews[eye].pose;
+			projectionViews[eye].fov = sourceViews[eye].fov;
+			projectionViews[eye].subImage.swapchain = vk.colorSwapchain[eye];
+			projectionViews[eye].subImage.imageRect.extent.width =
+				static_cast<int32_t>( vk.viewConfiguration[eye].recommendedImageRectWidth );
+			projectionViews[eye].subImage.imageRect.extent.height =
+				static_cast<int32_t>( vk.viewConfiguration[eye].recommendedImageRectHeight );
+		}
+		projectionLayer.type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
+		projectionLayer.space = vk.localSpace;
+		projectionLayer.viewCount = ARRAY_LEN( projectionViews );
+		projectionLayer.views = projectionViews;
+		layers[layerCount++] =
+			reinterpret_cast<XrCompositionLayerBaseHeader *>( &projectionLayer );
+	};
+
+	const bool compositionReady =
+		frameState.shouldRender && vk.viewsValid && VK_CreateSwapchains();
+	if ( compositionReady )
 	{
 		if ( useScreenLayer )
 		{
@@ -16494,7 +18173,9 @@ void VK_Backend_SubmitClearFrame()
 					{ 0.08f, 0.10f, 0.12f, 1.0f },
 					{ 0.0f, 0.0f, 0.0f, 1.0f },
 				};
-				const bool clearOnly[VK_BACKEND_EYE_COUNT] = { false, true };
+				const bool clearOnly[VK_BACKEND_EYE_COUNT] = {
+					blackFallbackFrame, true
+				};
 				const bool screenRendered = VK_RenderEyes( screenTints, clearOnly );
 				const bool backgroundRendered = screenRendered;
 				if ( !vk.screenLayerPoseValid )
@@ -16505,7 +18186,11 @@ void VK_Backend_SubmitClearFrame()
 				{
 					appendScreenComposition( backgroundRendered );
 				}
-				vk.screenLayerContentValid = screenRendered && backgroundRendered;
+				if ( screenRendered && backgroundRendered )
+				{
+					vk.screenLayerContentValid = true;
+					vk.projectionLayerContentValid = false;
+				}
 			}
 		}
 		else
@@ -16515,30 +18200,58 @@ void VK_Backend_SubmitClearFrame()
 				{ 1.00f, 0.22f, 0.04f, 1.0f },
 			};
 
-			const bool clearOnly[VK_BACKEND_EYE_COUNT] = { false, false };
+			const bool clearOnly[VK_BACKEND_EYE_COUNT] = {
+				blackFallbackFrame, blackFallbackFrame
+			};
 			const bool rendered = VK_RenderEyes( eyeTints, clearOnly );
-			for ( int eye = 0; eye < VK_BACKEND_EYE_COUNT; ++eye )
-			{
-				projectionViews[eye].type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
-				projectionViews[eye].pose = vk.views[eye].pose;
-				projectionViews[eye].fov = vk.views[eye].fov;
-				projectionViews[eye].subImage.swapchain = vk.colorSwapchain[eye];
-				projectionViews[eye].subImage.imageRect.extent.width =
-					static_cast<int32_t>( vk.viewConfiguration[eye].recommendedImageRectWidth );
-				projectionViews[eye].subImage.imageRect.extent.height =
-					static_cast<int32_t>( vk.viewConfiguration[eye].recommendedImageRectHeight );
-			}
-
 			if ( rendered )
 			{
-				projectionLayer.type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
-				projectionLayer.space = vk.localSpace;
-				projectionLayer.viewCount = ARRAY_LEN( projectionViews );
-				projectionLayer.views = projectionViews;
-
-				layers[0] = reinterpret_cast<XrCompositionLayerBaseHeader *>( &projectionLayer );
-				layerCount = 1;
+				for ( int eye = 0; eye < VK_BACKEND_EYE_COUNT; ++eye )
+				{
+					vk.retainedProjectionViews[eye] = vk.views[eye];
+				}
+				vk.projectionLayerContentValid = true;
+				vk.screenLayerContentValid = false;
+				vk.screenLayerPoseValid = false;
+				vk.screenLayerTransitionHeld = false;
+				appendProjectionComposition( vk.retainedProjectionViews );
 			}
+		}
+	}
+
+	if ( layerCount == 0 && frameState.shouldRender && vk.swapchainsCreated )
+	{
+		if ( vk.screenLayerContentValid )
+		{
+			appendScreenComposition( vk.viewsValid );
+		}
+		else if ( vk.projectionLayerContentValid )
+		{
+			appendProjectionComposition( vk.retainedProjectionViews );
+		}
+		if ( layerCount != 0 )
+		{
+			++vk.retainedFrameSubmissions;
+			if ( vk.retainedFrameSubmissions <= 12 )
+			{
+				ri.Printf( PRINT_ALL,
+					"rd-vulkan-frame: retained last released %s image for empty handoff\n",
+					vk.screenLayerContentValid ? "screen-layer" : "projection" );
+			}
+		}
+	}
+	if ( layerCount == 0 && frameState.shouldRender )
+	{
+		static uint32_t zeroLayerWarnings = 0;
+		if ( zeroLayerWarnings++ < 12 )
+		{
+			ri.Printf( PRINT_WARNING,
+				"rd-vulkan-frame: ending renderable frame without a layer "
+				"(views=%d swapchains=%d screen=%d projection=%d)\n",
+				vk.viewsValid ? 1 : 0,
+				vk.swapchainsCreated ? 1 : 0,
+				vk.screenLayerContentValid ? 1 : 0,
+				vk.projectionLayerContentValid ? 1 : 0 );
 		}
 	}
 

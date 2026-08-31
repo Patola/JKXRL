@@ -334,6 +334,7 @@ vmCvar_t	cg_missionInfoFlashTime;
 vmCvar_t	cg_hudFiles;
 
 vmCvar_t	cg_forceSpeedFOVAdjust;
+vmCvar_t	cg_forceSpeedMotionBlur;
 
 vmCvar_t vr_weapon_adjustment_1;
 vmCvar_t vr_weapon_adjustment_2;
@@ -479,6 +480,7 @@ static cvarTable_t cvarTable[] = {
 	{ &cg_missionInfoFlashTime, "cg_missionInfoFlashTime", "10000", 0  },
 	{ &cg_hudFiles, "cg_hudFiles", "ui/jk2hud.txt", CVAR_ARCHIVE},
 	{ &cg_forceSpeedFOVAdjust, "cg_forceSpeedFOVAdjust", "1", CVAR_ARCHIVE},
+	{ &cg_forceSpeedMotionBlur, "cg_forceSpeedMotionBlur", "1", CVAR_ARCHIVE},
 
 	//Default Weapon adjustments - these WILL be overridden
 	//  scale,right,up,forward,pitch,yaw,roll
@@ -3973,7 +3975,6 @@ static void CG_RunCinematicFrame(int handle) {
 }
 #pragma warning ( default : 4505)
 */
-
 
 
 

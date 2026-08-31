@@ -213,6 +213,8 @@ typedef struct {
 	// text messages for deform text shaders
 //	char		text[MAX_RENDER_STRINGS][MAX_RENDER_STRING_LENGTH];
 	float worldscale;
+	// Normalized gameplay envelope for the stereo-safe Force Speed post effect.
+	float forceSpeedBlur;
 } refdef_t;
 
 

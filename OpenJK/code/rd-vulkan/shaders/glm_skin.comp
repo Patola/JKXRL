@@ -1,0 +1,104 @@
+#version 450
+
+layout(local_size_x = 64) in;
+
+struct SkinVertex
+{
+	uvec4 boneIndices;
+	vec4 weights;
+};
+
+struct BoneMatrix
+{
+	vec4 rows[3];
+};
+
+layout(std430, set = 0, binding = 0) readonly buffer BaseVertices
+{
+	float values[];
+} baseVertices;
+
+layout(std430, set = 0, binding = 1) readonly buffer SkinVertices
+{
+	SkinVertex vertices[];
+} skinVertices;
+
+layout(std430, set = 0, binding = 2) readonly buffer BoneMatrices
+{
+	BoneMatrix matrices[];
+} boneMatrices;
+
+layout(std430, set = 0, binding = 3) writeonly buffer OutputVertices
+{
+	float values[];
+} outputVertices;
+
+layout(push_constant) uniform SkinPush
+{
+	uint vertexCount;
+	uint outputFloatOffset;
+	uint boneOffset;
+	uint boneCount;
+} pc;
+
+const uint floatsPerVertex = 14;
+
+void main()
+{
+	uint vertexIndex = gl_GlobalInvocationID.x;
+	if (vertexIndex >= pc.vertexCount)
+	{
+		return;
+	}
+
+	uint sourceOffset = vertexIndex * floatsPerVertex;
+	uint destinationOffset = pc.outputFloatOffset + sourceOffset;
+	vec3 sourcePosition = vec3(
+		baseVertices.values[sourceOffset + 0],
+		baseVertices.values[sourceOffset + 1],
+		baseVertices.values[sourceOffset + 2]);
+	vec3 sourceNormal = vec3(
+		baseVertices.values[sourceOffset + 11],
+		baseVertices.values[sourceOffset + 12],
+		baseVertices.values[sourceOffset + 13]);
+
+	vec3 position = vec3(0.0);
+	vec3 normal = vec3(0.0);
+	SkinVertex skin = skinVertices.vertices[vertexIndex];
+	for (uint weightIndex = 0; weightIndex < 4; ++weightIndex)
+	{
+		float weight = skin.weights[weightIndex];
+		if (weight == 0.0)
+		{
+			continue;
+		}
+		if (skin.boneIndices[weightIndex] >= pc.boneCount)
+		{
+			continue;
+		}
+		BoneMatrix bone = boneMatrices.matrices[
+			pc.boneOffset + skin.boneIndices[weightIndex]];
+		position += weight * vec3(
+			dot(bone.rows[0].xyz, sourcePosition) + bone.rows[0].w,
+			dot(bone.rows[1].xyz, sourcePosition) + bone.rows[1].w,
+			dot(bone.rows[2].xyz, sourcePosition) + bone.rows[2].w);
+		normal += weight * vec3(
+			dot(bone.rows[0].xyz, sourceNormal),
+			dot(bone.rows[1].xyz, sourceNormal),
+			dot(bone.rows[2].xyz, sourceNormal));
+	}
+
+	float normalLength = length(normal);
+	normal = normalLength > 0.0 ? normal / normalLength : sourceNormal;
+	outputVertices.values[destinationOffset + 0] = position.x;
+	outputVertices.values[destinationOffset + 1] = position.y;
+	outputVertices.values[destinationOffset + 2] = position.z;
+	for (uint component = 3; component < 11; ++component)
+	{
+		outputVertices.values[destinationOffset + component] =
+			baseVertices.values[sourceOffset + component];
+	}
+	outputVertices.values[destinationOffset + 11] = normal.x;
+	outputVertices.values[destinationOffset + 12] = normal.y;
+	outputVertices.values[destinationOffset + 13] = normal.z;
+}

@@ -48,6 +48,23 @@ are equivalent only when surfaces do not overlap and no later stage depends on
 framebuffer contents produced by another surface. Do not change this globally
 until a captured material trace or focused A/B proves it affects the scene.
 
+### Rejected broad BSP experiment
+
+Do not enable shader `cull` directives globally on static BSP batches without
+first proving the winding contract for every BSP surface type. An August 2026
+experiment exposed mixed winding and intentionally two-sided scenery: reversing
+the assumed Vulkan face convention restored most walls but still inverted pipe
+geometry in `t1_sour`. The same experiment combined dynamic stage `depthFunc`
+state with hard-coded offsets for selected signs, so its remaining flicker and
+performance behavior could not be attributed safely. It was rolled back as a
+unit.
+
+Revisit coplanar flicker in isolated steps: capture the exact surfaces and
+authored stage sequence without changing rendering, place one candidate behavior
+behind an off-by-default switch, and compare `t1_sour`, `t2_rancor`, Yavin, and a
+closed combat area before making it the default. Never use a material-name list
+or global face culling as the acceptance criterion.
+
 ### Legacy color-space contract
 
 Original JKXR requests an sRGB OpenXR swapchain but explicitly disables
@@ -676,47 +693,184 @@ cannot silently choose the other renderer.
 
 ## GLM LOD parity objective
 
-The Vulkan GLM loader currently consumes only the first `mdxmLOD_t` at
-`mdxmHeader_t::ofsLODs`. The legacy renderers walk all `numLODs` entries using
-each LOD block's `ofsEnd`, then select a level with `G2_ComputeLOD`. This is a
-general renderer limitation, even though it was not the cause of the destroyed
-E-Web defect.
+The first implementation checkpoint is complete and awaits visual acceptance.
+The Vulkan GLM loader now walks every `mdxmLOD_t` using each block's `ofsEnd`.
+LOD 0 remains the authoritative hierarchy and bolt metadata, while every level
+retains its own vertices, triangles, bone references, and GPU buffers. A strict
+loader rejects the complete model if any level has an invalid table, surface
+index, vertex, triangle, or bone reference instead of silently constructing a
+partial model.
 
-The Vulkan implementation must:
+The runtime selection reproduces the legacy `G2_ComputeLOD` inputs:
 
-- load and retain every GLM LOD while preserving surface hierarchy, surface
-  numbers, skin and surface overrides, bolts, animation, collision, and Ghoul2
-  API behavior;
-- reproduce legacy projected-radius selection, including `r_lodscale`,
-  `r_lodbias`, `CGhoul2Info::mLodBias`, `RF_G2MINLOD`, and model scale;
-- choose one LOD per entity per frame for both VR eyes, preventing stereo
-  disagreement and eye-dependent popping;
-- retain the highest-detail level in the same near-view and weapon cases as the
-  legacy renderer; and
-- expose a diagnostic override that can force a particular LOD, plus logging of
-  model, entity, distance or projected radius, available levels, selected level,
-  and per-frame LOD draw and triangle counts.
+- projected radius uses the center VR view, model scale, entity radius,
+  `r_lodscale`, `r_lodbias`, `CGhoul2Info::mLodBias`, and `RF_G2MINLOD`;
+- the result is cached once per model instance per frame and reused by both VR
+  eyes and all material passes, preventing eye-dependent selection or popping;
+- `r_vulkanGLMLod -1` selects automatically, while values from `0` upward force
+  that level and clamp to the number available for each model;
+- `r_vulkanGLMLodAudit 1` logs each model's LOD inventory once, and value `2`
+  also logs selection changes with distance, projected radius, bias, level
+  count, and forced state; and
+- `r_vulkanTiming 1` adds an `rd-vulkan-glm-lod` sample containing per-level
+  stereo selections and selected vertex and triangle counts.
 
-Acceptance requires a repeatable multi-LOD model inventory and test scene. The
-asset audit must identify GLMs whose LODs have materially different geometry.
-Forced highest and lowest LOD captures must visibly prove that different blocks
-are rendered. Automatic mode must then be compared with the legacy or Quest
+An offline structured audit of the installed PK3 assets found 129 JKA GLMs, of
+which 87 have multiple LODs, and 71 JKO GLMs, of which 54 have multiple LODs.
+All offset chains and surface indices validated. Representative triangle counts
+are 4,956/2,668/1,172/645 for JKA Jan, 2,921/1,908/776/476 for a stormtrooper,
+and 2,948/1,953/887/509 for Kyle.
+
+The forced-level runtime log proves that distinct geometry is selected even in
+scenes where the authored lower LODs preserve silhouettes too closely to be
+obvious in a headset. For example, Rosh changes from 3,150 to 866 triangles and
+Kyle changes from 2,948 to 509 triangles. This mechanically accepts the loader
+and selector. Automatic mode must still be compared with the legacy or Quest
 renderer along a fixed near-to-far path, with no stereo mismatch, surface loss,
-skin error, animation error, bolt error, or unstable threshold. Finally, crowded
-ship and `t1_rail` captures must demonstrate reduced distant geometry and CPU
-skinning or draw cost without changing close-range rendering.
+skin error, animation error, bolt error, or unstable threshold.
+
+## GLM compute skinning objective
+
+Ordinary Ghoul2 deformation is dispatched once per visible surface and pose
+before the first eye render pass. Its output vertex range is cached and reused
+by both eyes and every material pass. CPU skeleton evaluation, bolts,
+attachments, collision queries, and gameplay remain unchanged. Disintegration
+uses the CPU deformation path because it mutates vertex position and color in a
+way that is intentionally separate from ordinary skinning.
+
+`r_vulkanComputeSkinning 1` enables the path and `0` provides a direct CPU A/B
+fallback. A graphics queue without compute support, optional resource creation
+failure, a malformed bone range, stream exhaustion, or a surface without its
+compute descriptor falls back surface-by-surface to CPU skinning rather than
+preventing renderer startup. `r_vulkanTiming 1` reports compute dispatches,
+vertices, command-recording time, and CPU fallbacks for each 120-frame sample.
+
+Acceptance requires correct customization models, crowded ship actors,
+attachments, ordinary gameplay animation, and Tenloss disintegration. The
+crowded ship capture must show a material reduction in CPU skinning time and no
+increase in GPU stereo time large enough to erase the frame-time gain.
+
+The first JKA headset acceptance passed without animation, attachment, surface,
+stereo, or disintegration regressions. In stable crowded-ship samples, CPU
+command recording fell from roughly 41 ms to 7.6 ms and measured skinning work
+from roughly 39.5 ms to 5.2 ms, while GPU stereo remained near 2.5 ms. Ordinary
+frames reported no CPU fallback; charged Tenloss disintegration exercised the
+intentional CPU path and remained visually correct.
+
+The JKO headset acceptance also passed. `ns_streets` and its cutscenes were
+visibly smoother, with no reported character, animation, attachment, stereo,
+scope, or cinematic regression.
+
+## Animated material and VR FOV contracts
+
+Vulkan now retains every image and frequency from `animMap`, `clampanimMap`,
+and `oneshotanimMap` stages. Ordinary stages advance from scene time; model
+entities carrying `RF_SETANIMINDEX` select the authored frame with `skinNum`,
+matching the legacy renderer. `rgbGen wave` is evaluated independently, so a
+charged shield/ammo station can pulse its additive glow while frame 1 selects
+the authored black/depleted image.
+
+World scenes with `refdef.override_fov` now rescale the horizontal and vertical
+OpenXR tangents independently by the game-to-headset FOV ratio. The asymmetric
+optical centers and stereo view poses remain intact. The already accepted
+Tenloss scope retains its separate circular zoom path; Force Speed and other
+legacy override effects use this new path.
+
+Acceptance requires a charged JKO shield station to be visibly illuminated and
+animated, then visibly depleted after its reserve reaches zero. An ammo station
+uses the same contract. Force Speed in both games must produce a centered,
+binocularly comfortable transition into its widened FOV, hold that projection
+for the active duration, and return cleanly to the normal projection without
+disturbing HUD, controllers, scopes, or ordinary head tracking. The inherited
+game-side envelope had accidentally commented the authored FOV amount out of
+its hold branch while retaining it at both transition boundaries; JKA and JKO
+now keep the full amount during the hold.
+
+## Force Speed motion-blur contract
+
+Both games expose `Force Speed Motion Blur` in the startup and in-game
+Advanced Video menus. It controls the archived `cg_forceSpeedMotionBlur` cvar
+and defaults to enabled. Because those menus and their localized strings live
+in game-specific PK3s, a valid deployment must rebuild `z_vr_assets_jka.pk3`
+and `z_vr_assets_jko.pk3` and refresh the higher-priority OpenJK/OpenJO home
+copies as well as the packaged copies.
+
+The cgame supplies a normalized effect envelope in `refdef_t`, using the same
+300 ms entry, held interval, and 200 ms exit timing as the accepted Force Speed
+FOV change. Scope views and live cinematics explicitly suppress it. While the
+effect is active, Vulkan renders each eye's world into a private color target
+and blends the preceding image from that same eye over the current scene. This
+produces temporal movement trails instead of a current-frame radial zoom. The
+history is refreshed after each eye is composed and invalidated whenever Force
+Speed stops, while screen-space HUD and controller elements are drawn afterward
+at full sharpness.
+
+Rapid physical headset rotation or translation attenuates the history
+contribution. In-game locomotion therefore retains the speed trail without
+smearing ordinary head movement or mixing eye histories.
+`r_vulkanForceSpeedBlurStrength` defaults to `1.0` and is a renderer-side
+tuning control; the user-facing menu remains a simple on/off choice.
+
+Acceptance requires a smooth temporal blur ramp into and out of Force Speed in
+both eyes, binocularly stable world trails, sharp HUD and controller overlays,
+unchanged scope behavior, no physical-head-motion smear, and no effect when the
+menu option is off. Ordinary rendering must continue on the direct swapchain
+path when the effect is inactive.
+
+The first JKA headset acceptance passed on 2026-08-31: the temporal trail gave
+a clear impression of accelerated movement, remained comfortable in both
+eyes, and left ordinary rendering unchanged after Force Speed ended. A brief
+frame-rate dip seen once in `yavin2` was not reproducible in `t2_rancor` and
+had no corresponding GPU-time spike, so it remains unconfirmed rather than a
+motion-blur regression.
+
+## OpenXR continuity contract
+
+`re.Shutdown(qfalse, qfalse)` is a soft renderer flush used while connecting,
+loading a map, and parsing a new game state. Its explicit legacy contract is to
+retain the window and graphics context. The Vulkan renderer must therefore keep
+the OpenXR instance, session, reference spaces, actions, Vulkan device,
+swapchains, persistent image cache, and most recently released swapchain images
+alive. Model, skin, and animation registrations are a per-map epoch and must be
+reset: game code requires the normal and cinematic Ghoul2 GLAs to receive
+consecutive handles. Transient scene collections and borrowed CGame/UI pointers
+are also cleared. A full teardown remains reserved for `destroyWindow == true`,
+such as `vid_restart` or process shutdown.
+
+Every renderable OpenXR frame must submit a composition layer. A successful
+screen-layer or stereo-projection render remains valid until a successful
+render in the other mode replaces it. During synchronous map and cinematic
+handoffs, the renderer re-submits that last released image with its captured
+pose and FOV. A genuinely empty engine frame renders opaque black into both
+eyes. It must never expose the WiVRn compositor background, and diagnostic eye
+colors or markers must never substitute for the black fallback.
+
+The log records each soft flush as `soft renderer shutdown reset model epoch`
+and reports any retained-image handoff. `ending renderable frame without a
+layer` is an acceptance failure. A single game process should initialize
+Vulkan/OpenXR only once across ordinary map and savegame loads.
+
+Acceptance requires both games to remain compositor-opaque through startup,
+menu-to-load, load-to-cinematic, cinematic-to-gameplay, gameplay-to-load, and
+cinematic-skip transitions. The preferred result is the last frame or authored
+loading/intermission image; black is acceptable where the engine has no image.
+The WiVRn background must never become visible.
 
 ## Deferred work
 
 - Full physical ragdolls.
-- Full GLM LOD loading, legacy-equivalent selection, diagnostic overrides, and
-  the acceptance matrix defined above.
+- Complete the automatic GLM LOD visual and performance regression matrix.
 - Tune tracked Force Push/Pull thresholds from captured gesture diagnostics as
   needed. A recognized gesture that cannot run because energy is insufficient
   should produce an
   audible rejection cue and controller haptic instead of failing silently.
 - Legacy-style glow/blur target or bloom buffer for sabers and authored glow
   effects.
+- Deliberately improve beyond original/Quest behavior by extending and tuning
+  `surfaceSprites` vegetation draw/fade distance after profiling its CPU,
+  geometry, and fill-rate cost. Preserve world anchoring, stereo stability,
+  wind animation, and authored density while replacing Yavin's conspicuous
+  few-metre pop-in with a substantially longer, gradual transition.
 - Evaluate AI-upscaled cinematics while preserving optional compatibility with
   original game assets and licensing constraints.
 - Broad x86-64 optimization before the eventual ARM64 port; ARM64-specific work

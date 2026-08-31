@@ -3,7 +3,7 @@ CONFIG W:\bin\striped.cfg
 ID 100
 REFERENCE MENUS_VR
 DESCRIPTION "VR Menu Localizations"
-COUNT 177
+COUNT 179
 INDEX 0
 {
    REFERENCE COMMON_CONTROLS_ITEM
@@ -888,4 +888,14 @@ INDEX 176
 {
    REFERENCE SUPER_SAMPLING_DESC
    TEXT_LANGUAGE1 "Configures super sampling value."
+}
+INDEX 177
+{
+   REFERENCE FORCE_SPEED_MOTION_BLUR_ITEM
+   TEXT_LANGUAGE1 "Force Speed Motion Blur:"
+}
+INDEX 178
+{
+   REFERENCE FORCE_SPEED_MOTION_BLUR_DESC
+   TEXT_LANGUAGE1 "Applies a radial motion blur while Force Speed is active."
 }

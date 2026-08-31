@@ -589,4 +589,10 @@ LANG_ENGLISH        "Super Sampling:"
 REFERENCE           SUPER_SAMPLING_DESC
 LANG_ENGLISH        "Configures super sampling value."
 
+REFERENCE           FORCE_SPEED_MOTION_BLUR_ITEM
+LANG_ENGLISH        "Force Speed Motion Blur:"
+
+REFERENCE           FORCE_SPEED_MOTION_BLUR_DESC
+LANG_ENGLISH        "Applies a radial motion blur while Force Speed is active."
+
 ENDMARKER

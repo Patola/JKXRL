@@ -94,6 +94,9 @@ static void CGCam_CaptureImmersivePose( void )
 {
 	VectorCopy( vr->hmdposition, vr->cinematic_hmdposition_snap );
 	VectorCopy( vr->hmdorientation, vr->cinematic_hmdorientation_snap );
+	// Keep scripted pitch/yaw recentering, but never bake a temporary head tilt
+	// into the cinematic horizon.
+	vr->cinematic_hmdorientation_snap[ROLL] = 0.0f;
 	vr->cinematic_pose_valid = true;
 }
 
