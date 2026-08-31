@@ -321,11 +321,62 @@ decoded once at model load instead of being unpacked again for every visible
 vertex on every frame; pose evaluation, surface selection, and material output
 remain unchanged.
 
-Shadow work is gated on a measured no-shadow baseline in the crowded JKA ship
-cutscene and representative gameplay. Record both renderer timing and the
-runtime/headset frame statistics first; any shadow implementation must expose a
-quality/off switch and remain inside an explicit frame budget rather than
-assuming the current playable margin is sufficient.
+### Measured no-shadow baseline
+
+The pre-shadow baseline was captured on 2026-08-31 with a Quest 3 connected
+through the Envision WiVRn build. WiVRn rendered at 150% (3096x3243), 50%
+foveation, 140 Mbit/s, normal supersampling and sharpening, fixed 90 Hz, and no
+spacewarp. The game ran with `r_vulkanTiming 1`; `pidstat` and `amdgpu_top`
+sampled the host once per second. The reported effective rate is derived from
+the wall-clock interval between each 120-frame renderer report. It is not a
+headset compositor or delivered-frame measurement.
+
+| Game and scene | Effective frames/s | CPU record | CPU skin | Stereo GPU |
+| --- | ---: | ---: | ---: | ---: |
+| JKA crowded `yavin1` ship cinematic | 22.1 | 39.6 ms | 38.0 ms | 2.3 ms |
+| JKA `t1_rail`, looking backward | 41.0 | 18.3 ms | 11.0 ms | 5.3 ms |
+| JKA `t1_rail`, looking forward | 53.7 | 13.5 ms | 6.6 ms | 4.9 ms |
+| JKA `t1_rail`, looking sideways | 62.4 | 11.2 ms | 4.3 ms | 4.4 ms |
+| JKA `t1_fatal` combat | 48.4 | 16.4 ms | 14.3 ms | 3.1 ms |
+| JKO Mon Mothma cinematic | 68.7 | 13.16 ms | 12.75 ms | 0.79 ms |
+| JKO `kejim_post` gameplay | 35.5 | 24.72 ms | 22.60 ms | 2.27 ms |
+| JKO `ns_streets` gameplay | 75.1 | 7.35 ms | 5.61 ms | 2.45 ms |
+
+JKA's crowded ship process consumed about 93% of one CPU core while total GFX
+activity averaged about 21%. JKO showed the same imbalance: the Mon Mothma
+cinematic used 93% of one core with 21% total GFX activity, and `kejim_post`
+used 90% of one core with 24% total GFX activity. WiVRn media-engine activity
+held near 74% throughout both games. JKO `ns_streets` rose to 33% total GFX
+activity but needed only 57% of one CPU core on average. The hottest sampled
+GPU-junction temperature was 70 C.
+
+The dominant limit is CPU Ghoul2 vertex skinning, not Vulkan execution or GPU
+fill. The stable Mon Mothma view is especially diagnostic: Kyle and Jan alone
+consume about 12.75 ms of CPU skinning while their complete stereo GPU work is
+under 0.8 ms. Apparent GPU headroom therefore does not justify an expensive
+per-caster CPU submission path.
+
+Shadow implementation is subject to these gates:
+
+- `r_vulkanShadows 0` must preserve the verified no-shadow command path and
+  stay within 3% of the corresponding baseline effective rate.
+- Camera-independent shadow data is generated once per stereo frame and reused
+  by both eyes. No shadow-map pass may be duplicated per eye.
+- Animated casters reuse the frame's decoded pose and skinned vertices. Shadow
+  collection must not invoke a second Ghoul2 skinning pass.
+- At the initial quality level, shadow CPU recording may add at most 0.35 ms on
+  average and 0.75 ms to a 120-frame report maximum. Stereo GPU time may add at
+  most 1.5 ms on average and 2.0 ms to a report maximum in `t1_rail`.
+- Shadow timing is reported as dedicated CPU collection/recording and GPU-map,
+  mask, and blur phases so regressions cannot hide inside general model time.
+- Resolution, caster/light limits, blur quality, and a complete off switch are
+  runtime cvars. Allocation and pipeline creation happen outside ordinary
+  frame recording.
+
+The first shadow acceptance loop must repeat the crowded JKA ship, all three
+`t1_rail` view directions, `t1_fatal`, the JKO Mon Mothma cinematic,
+`kejim_post`, and `ns_streets` with shadows off and on. Visual acceptance alone
+is insufficient if any budget above is exceeded.
 
 ## Scoped aiming contract
 
