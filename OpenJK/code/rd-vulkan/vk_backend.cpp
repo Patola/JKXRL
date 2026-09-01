@@ -2620,21 +2620,27 @@ static bool VK_CreateTextureFromPixels(
 		return false;
 	}
 
-	VkDescriptorSet descriptorSets[2] = {};
+	VkDescriptorSet descriptorSets[2] = {
+		texture->descriptorSet,
+		texture->repeatDescriptorSet,
+	};
 	VkDescriptorSetLayout descriptorLayouts[2] = {
 		vk.textureSetLayout,
 		vk.textureSetLayout,
 	};
-	VkDescriptorSetAllocateInfo descriptorAllocateInfo = {};
-	descriptorAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-	descriptorAllocateInfo.descriptorPool = vk.descriptorPool;
-	descriptorAllocateInfo.descriptorSetCount = ARRAY_LEN( descriptorSets );
-	descriptorAllocateInfo.pSetLayouts = descriptorLayouts;
-	if ( !VK_CheckVk( vkAllocateDescriptorSets( vk.device, &descriptorAllocateInfo, descriptorSets ),
-			"vkAllocateDescriptorSets(texture)" ) )
+	if ( descriptorSets[0] == VK_NULL_HANDLE || descriptorSets[1] == VK_NULL_HANDLE )
 	{
-		VK_DestroyTexture( *texture );
-		return false;
+		VkDescriptorSetAllocateInfo descriptorAllocateInfo = {};
+		descriptorAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+		descriptorAllocateInfo.descriptorPool = vk.descriptorPool;
+		descriptorAllocateInfo.descriptorSetCount = ARRAY_LEN( descriptorSets );
+		descriptorAllocateInfo.pSetLayouts = descriptorLayouts;
+		if ( !VK_CheckVk( vkAllocateDescriptorSets( vk.device, &descriptorAllocateInfo, descriptorSets ),
+				"vkAllocateDescriptorSets(texture)" ) )
+		{
+			VK_DestroyTexture( *texture );
+			return false;
+		}
 	}
 	texture->descriptorSet = descriptorSets[0];
 	texture->repeatDescriptorSet = descriptorSets[1];
@@ -3296,6 +3302,29 @@ static qhandle_t VK_CreateCinematicTexture( uint32_t width, uint32_t height )
 	return handle;
 }
 
+static bool VK_ResizeCinematicTexture( qhandle_t handle, uint32_t width, uint32_t height )
+{
+	if ( width == 0 || height == 0 || width > 4096 || height > 4096 ||
+		handle <= 2 || static_cast<size_t>( handle ) >= vk.textures.size() )
+	{
+		return false;
+	}
+
+	vk_texture_t &current = vk.textures[handle];
+	std::vector<byte> pixels( static_cast<size_t>( width ) * height * 4, 0 );
+	vk_texture_t replacement = {};
+	replacement.descriptorSet = current.descriptorSet;
+	replacement.repeatDescriptorSet = current.repeatDescriptorSet;
+	if ( !VK_CreateTextureFromPixels( pixels.data(), width, height, &replacement ) )
+	{
+		return false;
+	}
+
+	VK_DestroyTexture( current );
+	current = replacement;
+	return true;
+}
+
 static bool VK_UpdateTexturePixels(
 	qhandle_t handle,
 	uint32_t width,
@@ -3417,11 +3446,11 @@ static vk_cinematic_texture_t *VK_FindCinematicTexture(
 	int client )
 {
 	auto found = std::find_if(
-		cinematics.begin(), cinematics.end(),
+		cinematics.rbegin(), cinematics.rend(),
 		[client]( const vk_cinematic_texture_t &cinematic ) {
 			return cinematic.client == client;
 		} );
-	return found == cinematics.end() ? nullptr : &*found;
+	return found == cinematics.rend() ? nullptr : &*found;
 }
 
 static void VK_UpdateVideoMaps()
@@ -6279,21 +6308,27 @@ static void VK_BuildEntityModelMatrix( const refEntity_t &entity, float matrix[1
 		VectorLength( axis[0] ) > 0.0001f &&
 		VectorLength( axis[1] ) > 0.0001f &&
 		VectorLength( axis[2] ) > 0.0001f;
+	bool synthesizedAxis = false;
 	vec3_t fallbackAxis[3];
 	if ( !hasAxis && entity.ghoul2 != nullptr )
 	{
 		AnglesToAxis( entity.angles, fallbackAxis );
 		axis = fallbackAxis;
 		hasAxis = true;
+		synthesizedAxis = true;
 	}
 	if ( hasAxis )
 	{
+		// ScaleModelAxis has already folded modelScale into non-normalized Ghoul2
+		// axes. Apply the separate scale only for unit axes (including the VR hilt
+		// path) or for axes synthesized from angles.
+		const bool applyModelScale = synthesizedAxis || !entity.nonNormalizedAxes;
 		const float scaleX =
-			entity.ghoul2 != nullptr && entity.modelScale[0] != 0.0f ? entity.modelScale[0] : 1.0f;
+			applyModelScale && entity.modelScale[0] != 0.0f ? entity.modelScale[0] : 1.0f;
 		const float scaleY =
-			entity.ghoul2 != nullptr && entity.modelScale[1] != 0.0f ? entity.modelScale[1] : 1.0f;
+			applyModelScale && entity.modelScale[1] != 0.0f ? entity.modelScale[1] : 1.0f;
 		const float scaleZ =
-			entity.ghoul2 != nullptr && entity.modelScale[2] != 0.0f ? entity.modelScale[2] : 1.0f;
+			applyModelScale && entity.modelScale[2] != 0.0f ? entity.modelScale[2] : 1.0f;
 		matrix[0] = axis[0][0] * scaleX;
 		matrix[1] = axis[0][1] * scaleX;
 		matrix[2] = axis[0][2] * scaleX;
@@ -9886,6 +9921,109 @@ static void VK_AppendDynamicEffectLine(
 		color, color, color, uvs[2], uvs[1], uvs[3] );
 }
 
+static void VK_AppendDynamicEffectCylinder(
+	vk_dynamic_effect_batch_t *batch,
+	const refEntity_t &entity,
+	const refdef_t &refdef )
+{
+	constexpr int maxSegments = 40;
+	vec3_t midpoint;
+	VectorAdd( entity.origin, entity.oldorigin, midpoint );
+	VectorScale( midpoint, 0.5f, midpoint );
+	VectorSubtract( midpoint, refdef.vieworg, midpoint );
+	const float adjustedDistance =
+		VectorLength( midpoint ) * ( refdef.fov_x / 90.0f );
+	const int segments = VK_ClampValue(
+		static_cast<int>( maxSegments * ( 1.0f - adjustedDistance / 2048.0f ) ),
+		8, maxSegments );
+
+	vec3_t direction;
+	VectorCopy( entity.axis[0], direction );
+	if ( VectorNormalize( direction ) < 0.0001f )
+	{
+		VectorSubtract( entity.oldorigin, entity.origin, direction );
+		if ( VectorNormalize( direction ) < 0.0001f )
+		{
+			return;
+		}
+	}
+	vec3_t right;
+	vec3_t up;
+	MakeNormalVectors( direction, right, up );
+
+	const bool cone =
+		!( entity.radius < 0.3f && entity.backlerp < 0.3f ) &&
+		( entity.radius < 0.3f || entity.backlerp < 0.3f );
+	const float textureStep = 1.0f / static_cast<float>( segments );
+	const float angleStep = 360.0f / static_cast<float>( segments );
+	if ( cone )
+	{
+		const bool originIsBase = entity.radius < entity.backlerp;
+		const float baseRadius = originIsBase ? entity.backlerp : entity.radius;
+		const vec_t *base = originIsBase ? entity.origin : entity.oldorigin;
+		const vec_t *tip = originIsBase ? entity.oldorigin : entity.origin;
+		vec3_t radial;
+		VectorScale( up, baseRadius, radial );
+		for ( int segment = 0; segment < segments; ++segment )
+		{
+			vec3_t ring0;
+			vec3_t ring1;
+			RotatePointAroundVector(
+				ring0, direction, radial, angleStep * segment );
+			RotatePointAroundVector(
+				ring1, direction, radial, angleStep * ( segment + 1 ) );
+			VectorAdd( ring0, base, ring0 );
+			VectorAdd( ring1, base, ring1 );
+			const float uv0[2] = { textureStep * segment, 1.0f };
+			const float uvTip[2] = {
+				textureStep * ( segment + 0.5f ), 0.0f
+			};
+			const float uv1[2] = { textureStep * ( segment + 1 ), 1.0f };
+			VK_AppendDynamicEffectTriangle(
+				batch, ring0, tip, ring1,
+				entity.shaderRGBA, entity.shaderRGBA, entity.shaderRGBA,
+				uv0, uvTip, uv1 );
+		}
+		return;
+	}
+
+	vec3_t originRadial;
+	vec3_t oldOriginRadial;
+	VectorScale( up, entity.backlerp, originRadial );
+	VectorScale( up, entity.radius, oldOriginRadial );
+	for ( int segment = 0; segment < segments; ++segment )
+	{
+		vec3_t upper0;
+		vec3_t upper1;
+		vec3_t lower0;
+		vec3_t lower1;
+		RotatePointAroundVector(
+			upper0, direction, originRadial, angleStep * segment );
+		RotatePointAroundVector(
+			upper1, direction, originRadial, angleStep * ( segment + 1 ) );
+		RotatePointAroundVector(
+			lower0, direction, oldOriginRadial, angleStep * segment );
+		RotatePointAroundVector(
+			lower1, direction, oldOriginRadial, angleStep * ( segment + 1 ) );
+		VectorAdd( upper0, entity.origin, upper0 );
+		VectorAdd( upper1, entity.origin, upper1 );
+		VectorAdd( lower0, entity.oldorigin, lower0 );
+		VectorAdd( lower1, entity.oldorigin, lower1 );
+		const float upperUv0[2] = { textureStep * segment, 1.0f };
+		const float lowerUv0[2] = { textureStep * segment, 0.0f };
+		const float upperUv1[2] = { textureStep * ( segment + 1 ), 1.0f };
+		const float lowerUv1[2] = { textureStep * ( segment + 1 ), 0.0f };
+		VK_AppendDynamicEffectTriangle(
+			batch, upper0, lower0, upper1,
+			entity.shaderRGBA, entity.shaderRGBA, entity.shaderRGBA,
+			upperUv0, lowerUv0, upperUv1 );
+		VK_AppendDynamicEffectTriangle(
+			batch, upper1, lower0, lower1,
+			entity.shaderRGBA, entity.shaderRGBA, entity.shaderRGBA,
+			upperUv1, lowerUv0, lowerUv1 );
+	}
+}
+
 static bool VK_DynamicShaderUsesPass( qhandle_t shader, vk_world_pass_t pass )
 {
 	if ( shader > 0 && static_cast<size_t>( shader ) < vk.materials.size() &&
@@ -9949,7 +10087,8 @@ static void VK_BuildDynamicEffectBatches(
 		}
 		if ( entity.reType != RT_SPRITE && entity.reType != RT_SABER_GLOW &&
 			 entity.reType != RT_ORIENTED_QUAD && entity.reType != RT_LINE &&
-			 entity.reType != RT_ELECTRICITY && entity.reType != RT_BEAM )
+			 entity.reType != RT_ELECTRICITY && entity.reType != RT_BEAM &&
+			 entity.reType != RT_CYLINDER )
 		{
 			continue;
 		}
@@ -10075,6 +10214,10 @@ static void VK_BuildDynamicEffectBatches(
 			VectorScale( up, entity.radius, up );
 			VK_AppendDynamicEffectQuad(
 				batch, entity.origin, left, up, entity.shaderRGBA );
+		}
+		else if ( entity.reType == RT_CYLINDER )
+		{
+			VK_AppendDynamicEffectCylinder( batch, entity, refdef );
 		}
 		else if ( entity.reType == RT_ELECTRICITY )
 		{
@@ -10300,11 +10443,12 @@ static void VK_RecordDynamicEffects(
 	{
 		ri.Printf( PRINT_ALL,
 			"rd-vulkan-fx: rendering dynamic effects: batches=%zu draws=%u triangles=%u "
-			"sprites=%u oriented=%u lines=%u electricity=%u beams=%u polys=%zu\n",
+			"sprites=%u oriented=%u lines=%u electricity=%u cylinders=%u beams=%u polys=%zu\n",
 			batches.size(), draws, triangles,
 			typeCounts[RT_SPRITE] + typeCounts[RT_SABER_GLOW],
 			typeCounts[RT_ORIENTED_QUAD], typeCounts[RT_LINE],
-			typeCounts[RT_ELECTRICITY], typeCounts[RT_BEAM], polys.size() );
+			typeCounts[RT_ELECTRICITY], typeCounts[RT_CYLINDER],
+			typeCounts[RT_BEAM], polys.size() );
 		vk.loggedDynamicEffects = true;
 	}
 }
@@ -17863,8 +18007,7 @@ void VK_Backend_DrawStretchRaw(
 		return;
 	}
 	vk_cinematic_texture_t *cinematic = VK_FindCinematicTexture( vk.rawCinematics, client );
-	if ( cinematic == nullptr || cinematic->width != static_cast<uint32_t>( cols ) ||
-		 cinematic->height != static_cast<uint32_t>( rows ) )
+	if ( cinematic == nullptr )
 	{
 		const qhandle_t texture = VK_CreateCinematicTexture(
 			static_cast<uint32_t>( cols ), static_cast<uint32_t>( rows ) );
@@ -17876,6 +18019,27 @@ void VK_Backend_DrawStretchRaw(
 			client, texture, static_cast<uint32_t>( cols ), static_cast<uint32_t>( rows ),
 			false, 0, 0, false } );
 		cinematic = &vk.rawCinematics.back();
+		dirty = qtrue;
+	}
+	else if ( cinematic->width != static_cast<uint32_t>( cols ) ||
+		cinematic->height != static_cast<uint32_t>( rows ) )
+	{
+		const uint32_t oldWidth = cinematic->width;
+		const uint32_t oldHeight = cinematic->height;
+		if ( !VK_ResizeCinematicTexture(
+				cinematic->texture,
+				static_cast<uint32_t>( cols ),
+				static_cast<uint32_t>( rows ) ) )
+		{
+			return;
+		}
+		cinematic->width = static_cast<uint32_t>( cols );
+		cinematic->height = static_cast<uint32_t>( rows );
+		cinematic->loggedUpload = false;
+		cinematic->loggedNonzero = false;
+		ri.Printf( PRINT_ALL,
+			"rd-vulkan: resized raw cinematic client=%d from %ux%u to %dx%d\n",
+			client, oldWidth, oldHeight, cols, rows );
 		dirty = qtrue;
 	}
 	if ( dirty )

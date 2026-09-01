@@ -826,6 +826,46 @@ motion-blur regression.
 
 ## OpenXR continuity contract
 
+### Cinematic texture ownership
+
+The legacy cinematic system reuses integer client IDs after a stream stops.
+Vulkan material registrations can outlive those decoder clients, so a client
+lookup must select the newest active registration rather than the oldest
+historical texture with the same ID. Otherwise decoded `videoMap` frames are
+uploaded into a stale menu texture while the current in-world display remains
+black, as happened to JKO's Mon Mothma hologram.
+
+Raw cinematics also reuse a client ID across different dimensions. There must
+be exactly one raw texture owner per client. A dimension change replaces that
+texture's image in place while retaining its texture handle and descriptor
+sets; it must not append another same-client entry every frame. Repeated
+`first raw cinematic frame` messages or growth toward the 4,096-texture limit
+during one movie is an acceptance failure.
+
+### Procedural effect primitives
+
+JKO's Valley of the Jedi pool illumination uses the Raven `RT_CYLINDER`
+contract: `origin` and `oldorigin` are its endpoints, `radius` and `backlerp`
+are the two ring radii, and `axis[0]` is its longitudinal direction. Vulkan
+must generate the same wrapped 8-to-40-segment cylinder, including the legacy
+tapered-cone case. Aggregate effect diagnostics report cylinder counts so a
+submitted but unsupported primitive cannot silently disappear again.
+
+### Ghoul2 entity transforms
+
+A submitted `refEntity_t::axis` marked with `nonNormalizedAxes` is the
+authoritative scaled model transform. The game-side `ScaleModelAxis` helper has
+already folded `modelScale` into normal scaled Ghoul2 submissions, so the Vulkan
+model matrix must not multiply those axes by `modelScale` again. Doing so scales
+actors twice while `G2API_GetBoltMatrix` scales its result once, separating
+attached geometry from bolt-derived effects.
+
+Vulkan applies `modelScale` to unscaled axes, such as the tracked first-person
+saber-hilt submission, and when it has to synthesize missing Ghoul2 axes from
+`refEntity_t::angles`. This keeps scaled actor geometry, attached weapon models,
+and effects such as saber blades in one coordinate space without changing VR
+hilt size.
+
 `re.Shutdown(qfalse, qfalse)` is a soft renderer flush used while connecting,
 loading a map, and parsing a new game state. Its explicit legacy contract is to
 retain the window and graphics context. The Vulkan renderer must therefore keep
