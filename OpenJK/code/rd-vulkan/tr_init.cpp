@@ -254,6 +254,10 @@ extern "C" Q_EXPORT refexport_t* QDECL GetRefAPI( int apiVersion, refimport_t *r
 	re.VR_BeginStereoReplayCapture = []() -> qboolean { return qfalse; };
 	re.VR_ReplayStereoFrame = []( stereoFrame_t, qboolean ) -> qboolean { return qfalse; };
 	re.VR_CancelStereoReplayCapture = []() {};
+	re.VR_SetConsoleMode = []( qboolean active ) {
+		VK_Backend_SetConsoleMode( active != qfalse );
+	};
+	re.VR_ApplyHaptic = VK_Backend_ApplyHaptic;
 
 	re.ProcessDissolve = []() -> qboolean { return qfalse; };
 	re.InitDissolve = []( qboolean ) -> qboolean { return qfalse; };

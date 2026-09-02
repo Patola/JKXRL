@@ -1,5 +1,6 @@
 #include "VrInput.h"
 #include "VrCvars.h"
+#include <client/client.h>
 
 extern ovrApp gAppState;
 
@@ -1005,6 +1006,7 @@ void TBXR_UpdateControllers( )
 //0 = left, 1 = right
 float vibration_channel_duration[2] = {0.0f, 0.0f};
 float vibration_channel_intensity[2] = {0.0f, 0.0f};
+bool vibration_channel_apply_logged[2] = {false, false};
 
 static bool TBXR_HapticsAvailable()
 {
@@ -1015,6 +1017,24 @@ static bool TBXR_HapticsAvailable()
 
 void TBXR_Vibrate( int duration, int chan, float intensity )
 {
+	if (re.VR_ApplyHaptic != nullptr)
+	{
+		const float scale = vr_haptic_intensity != nullptr
+			? vr_haptic_intensity->value : 1.0f;
+		const float amplitude = Com_Clamp( 0.0f, 1.0f, intensity * scale );
+		// Preserve the inherited channel mask: bit 0 is the right hand and
+		// bit 1 is the left hand.
+		if (chan & 1)
+		{
+			re.VR_ApplyHaptic( 1, duration, amplitude );
+		}
+		if (chan & 2)
+		{
+			re.VR_ApplyHaptic( 0, duration, amplitude );
+		}
+		return;
+	}
+
     if (!TBXR_HapticsAvailable())
     {
         return;
@@ -1033,6 +1053,12 @@ void TBXR_Vibrate( int duration, int chan, float intensity )
 
             vibration_channel_duration[channel] = duration;
             vibration_channel_intensity[channel] = intensity * vr_haptic_intensity->value;
+            vibration_channel_apply_logged[channel] = false;
+			if (Cvar_VariableIntegerValue("vr_controller_debug"))
+			{
+				Com_Printf("jkxr-haptics: schedule hand=%d durationMs=%d amplitude=%.3f\n",
+					channel, duration, vibration_channel_intensity[channel]);
+			}
         }
     }
 }
@@ -1057,10 +1083,11 @@ void TBXR_ProcessHaptics() {
             vibration.type = XR_TYPE_HAPTIC_VIBRATION;
             vibration.next = NULL;
             vibration.amplitude = vibration_channel_intensity[i];
-            vibration.duration = ToXrTime(vibration_channel_duration[i]);            
-            
-            if(gAppState.controllersPresent == VIVE_CONTROLLERS)
-                vibration.duration /= 1000;
+			// The queue stores milliseconds; OpenXR durations are nanoseconds and
+			// ToXrTime accepts seconds. Preserve OpenXR's runtime-selected sentinel.
+			vibration.duration = vibration_channel_duration[i] == -1.0f
+				? XR_MIN_HAPTIC_DURATION
+				: ToXrTime(vibration_channel_duration[i] / 1000.0);
             
             //Lets see what happens when the runtime decides it (as per https://registry.khronos.org/OpenXR/specs/1.0/man/html/XrHapticVibration.html)
             //GB - If not then we might need to do this by platform or controller
@@ -1072,7 +1099,21 @@ void TBXR_ProcessHaptics() {
             hapticActionInfo.action = vibrateAction;
             hapticActionInfo.subactionPath = handSubactionPath[i];
             
-            OXR(xrApplyHapticFeedback(gAppState.Session, &hapticActionInfo, (const XrHapticBaseHeader*)&vibration));
+			const XrResult applyResult = xrApplyHapticFeedback(
+				gAppState.Session, &hapticActionInfo,
+				(const XrHapticBaseHeader*)&vibration);
+			if (XR_FAILED(applyResult))
+			{
+				Com_Printf("jkxr-haptics: xrApplyHapticFeedback failed hand=%d result=%d\n",
+					i, (int)applyResult);
+			}
+			else if (!vibration_channel_apply_logged[i] &&
+				Cvar_VariableIntegerValue("vr_controller_debug"))
+			{
+				Com_Printf("jkxr-haptics: applied hand=%d durationNs=%lld amplitude=%.3f\n",
+					i, (long long)vibration.duration, vibration.amplitude);
+			}
+			vibration_channel_apply_logged[i] = true;
 
             if (vibration_channel_duration[i] != -1.0f) {
                 vibration_channel_duration[i] -= frametime;

@@ -20,9 +20,9 @@ repeatable acceptance test must agree.
 | `vulkan-m4-portal-decals` | `4961d34` | Portal depth and polygon-offset decal stability |
 | `vulkan-m4-stereo-submit` | `5ea40ae` | Batched two-eye command submission |
 
-The worktree currently contains post-checkpoint changes. New fixes should be
-committed by subsystem after focused verification, rather than accumulating into
-another large uncommitted checkpoint.
+New fixes should be committed by subsystem after focused verification rather
+than accumulated into large uncommitted checkpoints. Annotated tags identify
+the headset-accepted recovery points used before broader renderer work.
 
 ## Renderer shader-stage contract
 
@@ -64,6 +64,14 @@ authored stage sequence without changing rendering, place one candidate behavior
 behind an off-by-default switch, and compare `t1_sour`, `t2_rancor`, Yavin, and a
 closed combat area before making it the default. Never use a material-name list
 or global face culling as the acceptance criterion.
+
+The small black screens below the `t1_sour` towers retain a subtle flicker in
+both original OpenJK and Quest JKXR. Their candidate five-stage desert display
+material contains sine, square-wave, inverse-sawtooth, and scrolling additive
+layers, so this is a material timing or stage-composition issue rather than
+polygon-offset calibration. Headset acceptance with the current material path
+reported no conspicuous flicker; keep the screen black and do not restore the
+previous white flashes.
 
 ### Legacy color-space contract
 
@@ -895,6 +903,64 @@ menu-to-load, load-to-cinematic, cinematic-to-gameplay, gameplay-to-load, and
 cinematic-skip transitions. The preferred result is the last frame or authored
 loading/intermission image; black is acceptable where the engine has no image.
 The WiVRn background must never become visible.
+
+## VR console presentation
+
+The legacy console derives its columns from the native render-target width.
+That produces hundreds of tiny glyphs at supersampled headset resolutions and
+places the edit line outside the comfortable central field of view. Under the
+Vulkan renderers, the same console buffer, command history, completion, and
+scroll controls instead use a fixed 120-column layout with 40 visible output
+rows. They are drawn in a centered translucent panel with the edit line pinned
+near its lower center.
+
+While an active world is present, opening the console must not promote the
+composed eye image to a mono OpenXR quad. Vulkan retains the ordinary stereo
+projection and tags only the console's rectangles. Those rectangles are scaled
+about the optical center to 56% width and 35% height, with reduced binocular
+disparity placing the panel at a calibrated apparent distance of about four
+metres. Its calibrated downward center offset is retained as its dimensions are
+tuned. The world therefore remains fully stereoscopic behind the head-locked console.
+Menus and cinematic screen layers retain their captured world-locked behavior.
+
+Acceptance requires readable, fused text and cursor rendering; an input line
+that remains in view for long commands; working history, completion, and
+scrollback; stable head-locked placement; and an artifact-free return to the
+world when the console closes.
+
+Headset acceptance confirmed the 56% by 35% panel is comfortable and usable,
+preserves stereo world rendering behind it, and should remain at this size.
+
+The active renderer owns the OpenXR session and therefore must also own its
+vibration output action. Vulkan adds that action to the same `jkxr_gameplay`
+action set used for tracked input, binds it to both controller haptic paths, and
+exposes a small renderer API accepting a hand, duration in milliseconds, and
+normalized amplitude. The executable preserves the inherited controller
+channel mask while routing every existing haptic event to that active action.
+The legacy GL-side action remains only as a fallback for its own session.
+
+Force Push/Pull emits one 120 ms, full-intensity off-hand pulse from
+`ForceThrowEx`, after health, state, debounce, cinematic, ability, and Force
+energy checks have accepted the action. A rejected gesture therefore produces
+no false success pulse. `vr_haptic_test [left|right|both] [duration_ms]
+[amplitude]` bypasses gameplay and validates the renderer/runtime path directly.
+With `vr_controller_debug 1`, every accepted Vulkan submission records its
+hand, duration, and amplitude, while OpenXR failures report their result code.
+Quest 3/WiVRn headset acceptance confirmed independent left/right diagnostic
+pulses, successful Force Push/Pull feedback, and right-hand saber feedback.
+
+The fallback haptic queue stores durations in milliseconds, while `ToXrTime`
+accepts seconds. It converts milliseconds to seconds before constructing the
+OpenXR nanosecond duration for every controller profile. The inherited code
+performed this conversion only for Vive controllers, leaving Touch/WiVRn
+requests three orders of magnitude too long.
+
+The packaged launchers content-compare both the game module and VR asset PK3s
+against the engine's per-user `base` directory before every launch. The game
+module must be synchronized alongside its executable whenever the shared VR
+state changes; otherwise OpenJK can silently load an older module left in the
+game directory and produce an executable/module ABI mismatch. Timestamp-only
+copying is insufficient for local builds and package replacements.
 
 ## Deferred work
 

@@ -92,6 +92,8 @@ void VK_Backend_DrawStretchPic(
 	float x, float y, float w, float h,
 	float s1, float t1, float s2, float t2,
 	qhandle_t shader );
+void VK_Backend_SetConsoleMode( bool active );
+qboolean VK_Backend_ApplyHaptic( int hand, int durationMs, float amplitude );
 void VK_Backend_DrawRotatePic(
 	float x, float y, float w, float h,
 	float s1, float t1, float s2, float t2,

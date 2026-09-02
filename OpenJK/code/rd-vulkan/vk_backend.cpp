@@ -67,6 +67,13 @@ enum vk_alpha_test_t
 	VK_ALPHA_TEST_GREATER_EQUAL_THREE_QUARTER,
 };
 
+enum vk_depth_func_t
+{
+	VK_DEPTH_FUNC_LEQUAL,
+	VK_DEPTH_FUNC_EQUAL,
+	VK_DEPTH_FUNC_DISABLED,
+};
+
 enum vk_surface_sprite_type_t
 {
 	VK_SURFACE_SPRITE_NONE,
@@ -181,6 +188,7 @@ struct vk_rect_t
 	bool headLockedOverlay;
 	bool forceSenseVignette;
 	bool forceSenseRays;
+	bool consoleOverlay;
 };
 
 struct vk_texture_t
@@ -227,6 +235,7 @@ struct vk_material_stage_t
 	bool lightingDiffuse;
 	bool lightingDiffuseEntity;
 	bool depthWrite;
+	vk_depth_func_t depthFunc;
 	bool clampMap;
 	bool environmentMap;
 	bool glow;
@@ -268,6 +277,7 @@ struct vk_shader_stage_definition_t
 	bool lightingDiffuse;
 	bool lightingDiffuseEntity;
 	bool depthWrite;
+	vk_depth_func_t depthFunc;
 	bool clampMap;
 	bool environmentMap;
 	bool glow;
@@ -731,8 +741,10 @@ struct vk_backend_state_t
 	XrAction secondaryTouchAction;
 	XrAction thumbrestTouchAction;
 	XrAction menuAction;
+	XrAction hapticAction;
 	XrSpace aimSpaces[VK_BACKEND_EYE_COUNT];
 	XrSpace gripSpaces[VK_BACKEND_EYE_COUNT];
+	int hapticEndTime[VK_BACKEND_EYE_COUNT];
 	vrControllerType_t controllerType;
 	bool loggedControllerInput;
 	XrViewConfigurationView viewConfiguration[VK_BACKEND_EYE_COUNT];
@@ -905,6 +917,7 @@ struct vk_backend_state_t
 	bool screenLayerPoseValid;
 	bool screenLayerContentValid;
 	bool screenLayerTransitionHeld;
+	bool consoleDrawActive;
 	XrPosef screenLayerPose;
 	bool projectionLayerContentValid;
 	XrView retainedProjectionViews[VK_BACKEND_EYE_COUNT];
@@ -1256,6 +1269,7 @@ static void VK_Backend_Clear()
 	vk.screenLayerPoseValid = false;
 	vk.screenLayerContentValid = false;
 	vk.screenLayerTransitionHeld = false;
+	vk.consoleDrawActive = false;
 	vk.screenLayerPose.orientation.w = 1.0f;
 	vk.projectionLayerContentValid = false;
 	vk.retainedFrameSubmissions = 0;
@@ -1448,8 +1462,14 @@ static bool VK_Backend_AppendScreenRect(
 	rect.headLockedOverlay = headLockedOverlay;
 	rect.forceSenseVignette = forceSenseVignette;
 	rect.forceSenseRays = forceSenseRays;
+	rect.consoleOverlay = vk.consoleDrawActive;
 	vk.rects.push_back( rect );
 	return true;
+}
+
+void VK_Backend_SetConsoleMode( bool active )
+{
+	vk.consoleDrawActive = active;
 }
 
 static void VK_LogXrFailure( const char *what, XrResult result )
@@ -3110,6 +3130,18 @@ static void VK_ParseShaderFile( const char *filename )
 			{
 				stage.depthWrite = true;
 			}
+			else if ( Q_stricmp( token, "depthFunc" ) == 0 )
+			{
+				const char *function = COM_ParseExt( &text, qfalse );
+				if ( Q_stricmp( function, "equal" ) == 0 )
+				{
+					stage.depthFunc = VK_DEPTH_FUNC_EQUAL;
+				}
+				else if ( Q_stricmp( function, "disable" ) == 0 )
+				{
+					stage.depthFunc = VK_DEPTH_FUNC_DISABLED;
+				}
+			}
 			else if ( Q_stricmp( token, "rgbGen" ) == 0 )
 			{
 				const char *generator = COM_ParseExt( &text, qtrue );
@@ -3606,7 +3638,8 @@ static bool VK_CreateControllerActions()
 		 !VK_CreateControllerAction( XR_ACTION_TYPE_BOOLEAN_INPUT, "primary_touch", "Primary Touch", &vk.primaryTouchAction ) ||
 		 !VK_CreateControllerAction( XR_ACTION_TYPE_BOOLEAN_INPUT, "secondary_touch", "Secondary Touch", &vk.secondaryTouchAction ) ||
 		 !VK_CreateControllerAction( XR_ACTION_TYPE_BOOLEAN_INPUT, "thumbrest_touch", "Thumbrest Touch", &vk.thumbrestTouchAction ) ||
-		 !VK_CreateControllerAction( XR_ACTION_TYPE_BOOLEAN_INPUT, "menu", "Menu", &vk.menuAction ) )
+		 !VK_CreateControllerAction( XR_ACTION_TYPE_BOOLEAN_INPUT, "menu", "Menu", &vk.menuAction ) ||
+		 !VK_CreateControllerAction( XR_ACTION_TYPE_VIBRATION_OUTPUT, "haptic", "Haptic Feedback", &vk.hapticAction ) )
 	{
 		return false;
 	}
@@ -3643,6 +3676,8 @@ static bool VK_CreateControllerActions()
 		{ vk.thumbrestTouchAction, "/user/hand/left/input/thumbrest/touch" },
 		{ vk.thumbrestTouchAction, "/user/hand/right/input/thumbrest/touch" },
 		{ vk.menuAction, "/user/hand/left/input/menu/click" },
+		{ vk.hapticAction, "/user/hand/left/output/haptic" },
+		{ vk.hapticAction, "/user/hand/right/output/haptic" },
 	};
 	for ( const auto &binding : touchBindings )
 	{
@@ -3666,6 +3701,8 @@ static bool VK_CreateControllerActions()
 		{ vk.triggerClickAction, "/user/hand/right/input/select/click" },
 		{ vk.menuAction, "/user/hand/left/input/menu/click" },
 		{ vk.menuAction, "/user/hand/right/input/menu/click" },
+		{ vk.hapticAction, "/user/hand/left/output/haptic" },
+		{ vk.hapticAction, "/user/hand/right/output/haptic" },
 	};
 	for ( const auto &binding : simpleBindings )
 	{
@@ -3711,6 +3748,61 @@ static bool VK_CreateControllerActions()
 
 	ri.Printf( PRINT_ALL, "rd-vulkan: OpenXR tracked-controller actions attached\n" );
 	return true;
+}
+
+qboolean VK_Backend_ApplyHaptic( int hand, int durationMs, float amplitude )
+{
+	if ( hand < 0 || hand >= VK_BACKEND_EYE_COUNT ||
+		 vk.xrSession == XR_NULL_HANDLE || vk.hapticAction == XR_NULL_HANDLE ||
+		 !vk.sessionRunning )
+	{
+		if ( ri.Cvar_VariableIntegerValue( "vr_controller_debug" ) )
+		{
+			ri.Printf(
+				PRINT_ALL,
+				"rd-vulkan-haptics: unavailable hand=%d session=%d action=%d running=%d\n",
+				hand, vk.xrSession != XR_NULL_HANDLE,
+				vk.hapticAction != XR_NULL_HANDLE, vk.sessionRunning );
+		}
+		return qfalse;
+	}
+
+	durationMs = std::clamp( durationMs, 1, 5000 );
+	amplitude = std::clamp( amplitude, 0.0f, 1.0f );
+	const int now = ri.Milliseconds();
+	if ( now < vk.hapticEndTime[hand] )
+	{
+		return qtrue;
+	}
+
+	XrHapticVibration vibration = {};
+	vibration.type = XR_TYPE_HAPTIC_VIBRATION;
+	vibration.duration = static_cast<XrDuration>( durationMs ) * 1000000LL;
+	vibration.frequency = XR_FREQUENCY_UNSPECIFIED;
+	vibration.amplitude = amplitude;
+
+	XrHapticActionInfo info = {};
+	info.type = XR_TYPE_HAPTIC_ACTION_INFO;
+	info.action = vk.hapticAction;
+	info.subactionPath = vk.handPaths[hand];
+	const XrResult result = xrApplyHapticFeedback(
+		vk.xrSession, &info,
+		reinterpret_cast<const XrHapticBaseHeader *>( &vibration ) );
+	if ( XR_FAILED( result ) )
+	{
+		VK_LogXrFailure( "xrApplyHapticFeedback", result );
+		return qfalse;
+	}
+
+	vk.hapticEndTime[hand] = now + durationMs;
+	if ( ri.Cvar_VariableIntegerValue( "vr_controller_debug" ) )
+	{
+		ri.Printf(
+			PRINT_ALL,
+			"rd-vulkan-haptics: applied hand=%d durationMs=%d amplitude=%.3f\n",
+			hand, durationMs, amplitude );
+	}
+	return qtrue;
 }
 
 static bool VK_QueryViewConfiguration()
@@ -12448,7 +12540,11 @@ static bool VK_PrepareXrFrame()
 	return true;
 }
 
-static void VK_GetHudNdcOffset( int eye, float *xOffset, float *yOffset )
+static void VK_GetHudNdcOffset(
+	int eye,
+	float *xOffset,
+	float *yOffset,
+	float stereoScale = 1.0f )
 {
 	*xOffset = 0.0f;
 	*yOffset = 0.0f;
@@ -12459,7 +12555,7 @@ static void VK_GetHudNdcOffset( int eye, float *xOffset, float *yOffset )
 
 	const cvar_t *hudStereo = ri.Cvar_Get( "cg_hudStereo", "20", 0 );
 	const float stereoPixels = hudStereo != nullptr ? hudStereo->value : 20.0f;
-	float xPixels = eye == 0 ? stereoPixels : -stereoPixels;
+	float xPixels = ( eye == 0 ? stereoPixels : -stereoPixels ) * stereoScale;
 
 	// Match the legacy JKXR HUD correction for asymmetric per-eye FOVs.
 	const XrFovf &fov = vk.views[eye].fov;
@@ -12597,6 +12693,8 @@ static void VK_RecordScreenRects( int eye, size_t firstRect, size_t endRect )
 
 	float hudXOffset = 0.0f;
 	float hudYOffset = 0.0f;
+	float consoleXOffset = 0.0f;
+	float consoleYOffset = 0.0f;
 	if ( vk.sceneWorldRenderedThisFrame )
 	{
 		if ( VK_ScopeHudActive( firstRect, endRect ) )
@@ -12606,6 +12704,11 @@ static void VK_RecordScreenRects( int eye, size_t firstRect, size_t endRect )
 		else
 		{
 			VK_GetHudNdcOffset( eye, &hudXOffset, &hudYOffset );
+			// The console is a head-locked stereoscopic plane, not part of the
+			// HUD. Half the normal disparity gives the calibrated four-metre
+			// reading distance while retaining asymmetric-FOV correction.
+			VK_GetHudNdcOffset(
+				eye, &consoleXOffset, &consoleYOffset, 0.5f );
 		}
 	}
 
@@ -12680,8 +12783,33 @@ static void VK_RecordScreenRects( int eye, size_t firstRect, size_t endRect )
 		const bool fullScreen = rect.rect[0] <= -0.996f && rect.rect[1] <= -0.996f &&
 			rect.rect[2] >= 0.996f && rect.rect[3] >= 0.996f;
 		const bool stereoOffset = !fullScreen || rect.forceHudStereo;
-		const float rectXOffset = stereoOffset ? hudXOffset : 0.0f;
-		const float rectYOffset = stereoOffset ? hudYOffset : 0.0f;
+		const float rectXOffset = stereoOffset
+			? ( rect.consoleOverlay ? consoleXOffset : hudXOffset ) : 0.0f;
+		const float rectYOffset = stereoOffset
+			? ( rect.consoleOverlay ? consoleYOffset : hudYOffset ) : 0.0f;
+		float drawRect[4];
+		float rotationPivot[2] = { rect.rotation[2], rect.rotation[3] };
+		if ( rect.consoleOverlay )
+		{
+			// Scale the complete 120x40 console about the optical center. This
+			// changes its apparent dimensions without reducing its text capacity.
+			constexpr float consoleWidthScale = 0.56f;
+			constexpr float consoleHeightScale = 0.35f;
+			// Retain the previously accepted center position while shrinking the
+			// panel around it.
+			constexpr float consoleYOffset = 0.18f;
+			drawRect[0] = rect.rect[0] * consoleWidthScale;
+			drawRect[1] = rect.rect[1] * consoleHeightScale + consoleYOffset;
+			drawRect[2] = rect.rect[2] * consoleWidthScale;
+			drawRect[3] = rect.rect[3] * consoleHeightScale + consoleYOffset;
+			rotationPivot[0] *= consoleWidthScale;
+			rotationPivot[1] =
+				rotationPivot[1] * consoleHeightScale + consoleYOffset;
+		}
+		else
+		{
+			std::memcpy( drawRect, rect.rect, sizeof( drawRect ) );
+		}
 		float scopeAspectScale = 1.0f;
 		if ( rect.forceHudStereo )
 		{
@@ -12702,11 +12830,11 @@ static void VK_RecordScreenRects( int eye, size_t firstRect, size_t endRect )
 				: 1.0f;
 		}
 		float pushConstants[28] = {
-			rect.rect[0], rect.rect[1], rect.rect[2], rect.rect[3],
+			drawRect[0], drawRect[1], drawRect[2], drawRect[3],
 			rect.uv[0], rect.uv[1], rect.uv[2], rect.uv[3],
 			rect.color[0], rect.color[1], rect.color[2], rect.color[3],
 			rect.rotation[0], rect.rotation[1],
-			rect.rotation[2], rect.rotation[3],
+			rotationPivot[0], rotationPivot[1],
 			rect.uvRotation[0], rect.uvRotation[1], forceSenseRayScale, 0.0f,
 			overlayUvTransform[0], overlayUvTransform[1],
 			overlayUvTransform[2], overlayUvTransform[3],
@@ -13469,8 +13597,8 @@ bool VK_Backend_Init()
 	vk.detailTexturesCvar =
 		ri.Cvar_Get( "r_detailtextures", "1", CVAR_ARCHIVE_ND | CVAR_LATCH );
 #endif
-	vk.offsetFactorCvar = ri.Cvar_Get( "r_offsetfactor", "-1", CVAR_CHEAT );
-	vk.offsetUnitsCvar = ri.Cvar_Get( "r_offsetunits", "-2", CVAR_CHEAT );
+	vk.offsetFactorCvar = ri.Cvar_Get( "r_offsetfactor", "-8", 0 );
+	vk.offsetUnitsCvar = ri.Cvar_Get( "r_offsetunits", "-8", 0 );
 	vk.worldDebugCvar = ri.Cvar_Get( "r_vulkanWorldDebug", "0", 0 );
 	vk.glowIntensityCvar =
 		ri.Cvar_Get( "r_vulkanGlowIntensity", "1.45", CVAR_ARCHIVE );
@@ -17676,6 +17804,7 @@ qhandle_t VK_Backend_RegisterTexture( const char *name )
 			stage.blendMode = stageDefinition.blendMode;
 			stage.alphaTest = stageDefinition.alphaTest;
 			stage.depthWrite = stageDefinition.depthWrite;
+			stage.depthFunc = stageDefinition.depthFunc;
 			stage.clampMap = stageDefinition.clampMap;
 			stage.environmentMap = stageDefinition.environmentMap;
 			stage.glow = stageDefinition.glow;
@@ -18224,8 +18353,10 @@ void VK_Backend_SubmitClearFrame()
 	XrCompositionLayerProjectionView screenBackgroundViews[VK_BACKEND_EYE_COUNT] = {};
 	XrCompositionLayerQuad screenLayer = {};
 	uint32_t layerCount = 0;
-	const bool requestedScreenLayer = !vk.sceneWorldRenderedThisFrame &&
+	const bool clientRequestsScreenLayer =
 		ri.TBXR_useScreenLayer != nullptr && ri.TBXR_useScreenLayer();
+	const bool requestedScreenLayer =
+		clientRequestsScreenLayer && !vk.sceneWorldRenderedThisFrame;
 	bool holdScreenLayer = false;
 	if ( requestedScreenLayer )
 	{

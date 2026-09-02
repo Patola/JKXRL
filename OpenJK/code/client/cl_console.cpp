@@ -42,7 +42,110 @@ cvar_t		*con_autoclear;
 
 #define	DEFAULT_CONSOLE_WIDTH	78
 
+#define VR_CONSOLE_COLUMNS 120
+#define VR_CONSOLE_CHAR_WIDTH 4
+#define VR_CONSOLE_CHAR_HEIGHT 8
+#define VR_CONSOLE_LEFT 56
+#define VR_CONSOLE_TOP 24
+#define VR_CONSOLE_WIDTH 528
+#define VR_CONSOLE_HEIGHT 432
+#define VR_CONSOLE_TEXT_LEFT 72
+#define VR_CONSOLE_OUTPUT_TOP 64
+#define VR_CONSOLE_OUTPUT_BOTTOM 376
+#define VR_CONSOLE_INPUT_Y 404
+
 vec4_t	console_color = {0.509f, 0.609f, 0.847f, 1.0f};
+
+static qboolean Con_UseVrLayout()
+{
+	const char *renderer = Cvar_VariableString( "cl_renderer" );
+	const qboolean jkaVulkan = ( !Q_stricmpn( renderer, "rdsp-vulkan", 11 ) &&
+		( renderer[11] == '\0' || renderer[11] == '-' ) ) ? qtrue : qfalse;
+	const qboolean jkoVulkan = ( !Q_stricmpn( renderer, "rdjosp-vulkan", 13 ) &&
+		( renderer[13] == '\0' || renderer[13] == '-' ) ) ? qtrue : qfalse;
+	return ( jkaVulkan || jkoVulkan ) ? qtrue : qfalse;
+}
+
+static void Con_DrawVrChar( int x, int y, int ch )
+{
+	ch &= 255;
+	if ( ch == ' ' )
+	{
+		return;
+	}
+
+	const int row = ch >> 4;
+	const int column = ch & 15;
+	const float textureRow = row * 0.0625f;
+	const float textureColumn = column * 0.0625f;
+	re.DrawStretchPic(
+		x,
+		y,
+		VR_CONSOLE_CHAR_WIDTH,
+		VR_CONSOLE_CHAR_HEIGHT,
+		textureColumn,
+		textureRow,
+		textureColumn + 0.03125f,
+		textureRow + 0.0625f,
+		cls.charSetShader );
+}
+
+static void Con_DrawVrString( int x, int y, const char *text )
+{
+	for ( ; text != nullptr && *text != '\0'; ++text, x += VR_CONSOLE_CHAR_WIDTH )
+	{
+		Con_DrawVrChar( x, y, *text );
+	}
+}
+
+static void Con_DrawVrInput( int x, int y )
+{
+	if ( cls.state != CA_DISCONNECTED && !( Key_GetCatcher() & KEYCATCH_CONSOLE ) )
+	{
+		return;
+	}
+
+	Con_DrawVrChar( x, y, CONSOLE_PROMPT_CHAR );
+	x += VR_CONSOLE_CHAR_WIDTH;
+
+	const int visibleCharacters = std::max( 1, g_consoleField.widthInChars - 1 );
+	const int length = static_cast<int>( strlen( g_consoleField.buffer ) );
+	int firstCharacter = g_consoleField.scroll;
+	if ( length <= visibleCharacters )
+	{
+		firstCharacter = 0;
+	}
+	else if ( firstCharacter + visibleCharacters > length )
+	{
+		firstCharacter = length - visibleCharacters;
+	}
+	firstCharacter = std::max( 0, firstCharacter );
+	g_consoleField.scroll = firstCharacter;
+
+	const int drawnCharacters = std::min(
+		visibleCharacters,
+		std::max( 0, length - firstCharacter ) );
+	for ( int i = 0; i < drawnCharacters; ++i )
+	{
+		Con_DrawVrChar(
+			x + i * VR_CONSOLE_CHAR_WIDTH,
+			y,
+			g_consoleField.buffer[firstCharacter + i] );
+	}
+
+	if ( ( static_cast<int>( cls.realtime >> 8 ) & 1 ) == 0 )
+	{
+		const int cursor = std::max(
+			0,
+			std::min(
+				visibleCharacters,
+				g_consoleField.cursor - firstCharacter ) );
+		Con_DrawVrChar(
+			x + cursor * VR_CONSOLE_CHAR_WIDTH,
+			y,
+			kg.key_overstrikeMode ? 11 : 10 );
+	}
+}
 
 /*
 ================
@@ -194,11 +297,16 @@ void Con_CheckResize (void)
 	int		i, j, width, oldwidth, oldtotallines, numlines, numchars;
 	short	tbuf[CON_TEXTSIZE];
 
-	//width = (SCREEN_WIDTH / SMALLCHAR_WIDTH) - 2;
-	width = (cls.glconfig.vidWidth / SMALLCHAR_WIDTH) - 2;
+	width = Con_UseVrLayout()
+		? VR_CONSOLE_COLUMNS
+		: (cls.glconfig.vidWidth / SMALLCHAR_WIDTH) - 2;
 
 	if (width == con.linewidth)
+	{
+		g_console_field_width = width;
+		g_consoleField.widthInChars = width;
 		return;
+	}
 
 	if (width < 1)			// video hasn't been initialized yet
 	{
@@ -214,9 +322,17 @@ void Con_CheckResize (void)
 	}
 	else
 	{
-		// on wide screens, we will center the text
-		con.xadjust = 640.0f / cls.glconfig.vidWidth;
-		con.yadjust = 480.0f / cls.glconfig.vidHeight;
+		if ( Con_UseVrLayout() )
+		{
+			con.xadjust = 1.0f;
+			con.yadjust = 1.0f;
+		}
+		else
+		{
+			// on wide screens, we will center the text
+			con.xadjust = 640.0f / cls.glconfig.vidWidth;
+			con.yadjust = 480.0f / cls.glconfig.vidHeight;
+		}
 
 		oldwidth = con.linewidth;
 		con.linewidth = width;
@@ -253,6 +369,12 @@ void Con_CheckResize (void)
 
 	con.current = con.totallines - 1;
 	con.display = con.current;
+	g_console_field_width = width;
+	g_consoleField.widthInChars = width;
+	for ( i = 0; i < COMMAND_HISTORY; ++i )
+	{
+		historyEditLines[i].widthInChars = width;
+	}
 }
 
 
@@ -417,21 +539,27 @@ Con_DrawInput
 Draw the editline after a ] prompt
 ================
 */
-void Con_DrawInput (void) {
-	int		y;
-
+static void Con_DrawInputAt( int x, int y, int width )
+{
 	if ( cls.state != CA_DISCONNECTED && !(Key_GetCatcher( ) & KEYCATCH_CONSOLE ) ) {
 		return;
 	}
 
-	y = con.vislines - ( SMALLCHAR_HEIGHT * (re.Language_IsAsian() ? 1.5 : 2) );
-
 	re.SetColor( con.color );
 
-	SCR_DrawSmallChar( con.xadjust + 1 * SMALLCHAR_WIDTH, y, CONSOLE_PROMPT_CHAR );
+	SCR_DrawSmallChar( x, y, CONSOLE_PROMPT_CHAR );
 
-	Field_Draw( &g_consoleField, con.xadjust + 2 * SMALLCHAR_WIDTH, y,
-		SCREEN_WIDTH - 3 * SMALLCHAR_WIDTH, qtrue, qtrue );
+	Field_Draw( &g_consoleField, x + SMALLCHAR_WIDTH, y,
+		width - SMALLCHAR_WIDTH, qtrue, qtrue );
+}
+
+void Con_DrawInput (void) {
+	const int y = con.vislines -
+		( SMALLCHAR_HEIGHT * (re.Language_IsAsian() ? 1.5 : 2) );
+	Con_DrawInputAt(
+		static_cast<int>( con.xadjust ) + SMALLCHAR_WIDTH,
+		y,
+		SCREEN_WIDTH - 2 * SMALLCHAR_WIDTH );
 }
 
 
@@ -663,6 +791,111 @@ void Con_DrawSolidConsole( float frac )
 	re.SetColor( NULL );
 }
 
+static void Con_DrawVrConsole()
+{
+	if ( re.VR_SetConsoleMode != nullptr )
+	{
+		re.VR_SetConsoleMode( qtrue );
+	}
+
+	const float opacity = Com_Clamp( 0.0f, 1.0f, con_opacity->value );
+	vec4_t background = { 0.055f, 0.070f, 0.095f, opacity };
+	re.SetColor( background );
+	SCR_DrawPic(
+		VR_CONSOLE_LEFT,
+		VR_CONSOLE_TOP,
+		VR_CONSOLE_WIDTH,
+		VR_CONSOLE_HEIGHT,
+		cls.consoleShader );
+
+	re.SetColor( console_color );
+	re.DrawStretchPic(
+		VR_CONSOLE_LEFT,
+		VR_CONSOLE_TOP,
+		VR_CONSOLE_WIDTH,
+		2,
+		0, 0, 0, 0,
+		cls.whiteShader );
+	re.DrawStretchPic(
+		VR_CONSOLE_LEFT,
+		VR_CONSOLE_TOP + VR_CONSOLE_HEIGHT - 2,
+		VR_CONSOLE_WIDTH,
+		2,
+		0, 0, 0, 0,
+		cls.whiteShader );
+	re.SetColor( console_color );
+	Con_DrawVrString(
+		VR_CONSOLE_TEXT_LEFT,
+		VR_CONSOLE_TOP + VR_CONSOLE_CHAR_HEIGHT,
+		"JKXR CONSOLE" );
+	re.DrawStretchPic(
+		VR_CONSOLE_TEXT_LEFT,
+		VR_CONSOLE_INPUT_Y - 10,
+		VR_CONSOLE_WIDTH - 2 * ( VR_CONSOLE_TEXT_LEFT - VR_CONSOLE_LEFT ),
+		1,
+		0, 0, 0, 0,
+		cls.whiteShader );
+
+	int row = con.display;
+	if ( con.x == 0 )
+	{
+		--row;
+	}
+
+	int y = VR_CONSOLE_OUTPUT_BOTTOM;
+	if ( con.display != con.current )
+	{
+		for ( int x = 0; x < con.linewidth; x += 4 )
+		{
+			Con_DrawVrChar(
+				VR_CONSOLE_TEXT_LEFT + x * VR_CONSOLE_CHAR_WIDTH,
+				y,
+				'^' );
+		}
+		y -= VR_CONSOLE_CHAR_HEIGHT;
+	}
+
+	int currentColor = ColorIndex( COLOR_WHITE );
+	re.SetColor( g_color_table[currentColor] );
+	for ( ; y >= VR_CONSOLE_OUTPUT_TOP; y -= VR_CONSOLE_CHAR_HEIGHT, --row )
+	{
+		if ( row < 0 )
+		{
+			break;
+		}
+		if ( con.current - row >= con.totallines )
+		{
+			continue;
+		}
+
+		short *text = con.text + ( row % con.totallines ) * con.linewidth;
+		for ( int x = 0; x < con.linewidth; ++x )
+		{
+			if ( ( text[x] & 0xff ) == ' ' )
+			{
+				continue;
+			}
+			const int color = ( text[x] >> 8 ) & Q_COLOR_BITS;
+			if ( color != currentColor )
+			{
+				currentColor = color;
+				re.SetColor( g_color_table[currentColor] );
+			}
+			Con_DrawVrChar(
+				VR_CONSOLE_TEXT_LEFT + x * VR_CONSOLE_CHAR_WIDTH,
+				y,
+				text[x] & 0xff );
+		}
+	}
+
+	Con_DrawVrInput( VR_CONSOLE_TEXT_LEFT, VR_CONSOLE_INPUT_Y );
+	re.SetColor( NULL );
+	if ( re.VR_SetConsoleMode != nullptr )
+	{
+		re.VR_SetConsoleMode( qfalse );
+	}
+}
+
 
 
 /*
@@ -677,13 +910,27 @@ void Con_DrawConsole( void ) {
 	// if disconnected, render console full screen
 	if ( cls.state == CA_DISCONNECTED ) {
 		if ( !( Key_GetCatcher( ) & KEYCATCH_UI) ) {
-			Con_DrawSolidConsole( 1.0 );
+			if ( Con_UseVrLayout() )
+			{
+				Con_DrawVrConsole();
+			}
+			else
+			{
+				Con_DrawSolidConsole( 1.0 );
+			}
 			return;
 		}
 	}
 
 	if ( con.displayFrac ) {
-		Con_DrawSolidConsole( con.displayFrac );
+		if ( Con_UseVrLayout() )
+		{
+			Con_DrawVrConsole();
+		}
+		else
+		{
+			Con_DrawSolidConsole( con.displayFrac );
+		}
 	} else {
 		// draw notify lines
 		if ( cls.state == CA_ACTIVE && con_drawnotify->integer ) {
@@ -702,6 +949,13 @@ Scroll it up or down
 ==================
 */
 void Con_RunConsole (void) {
+	if ( Con_UseVrLayout() )
+	{
+		con.finalFrac = ( Key_GetCatcher( ) & KEYCATCH_CONSOLE ) ? 1.0f : 0.0f;
+		con.displayFrac = con.finalFrac;
+		return;
+	}
+
 	// decide on the destination height of the console
 	if ( Key_GetCatcher( ) & KEYCATCH_CONSOLE )
 		con.finalFrac = 0.5;		// half screen

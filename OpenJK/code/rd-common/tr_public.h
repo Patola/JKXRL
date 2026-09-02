@@ -30,7 +30,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "../ghoul2/G2.h"
 #include "../ghoul2/ghoul2_gore.h"
 
-#define	REF_API_VERSION		19
+#define	REF_API_VERSION		20
 
 typedef enum vrControllerType_e {
 	VR_CONTROLLER_TYPE_UNKNOWN = -1,
@@ -257,6 +257,8 @@ typedef struct {
 	qboolean (*VR_BeginStereoReplayCapture)( void );
 	qboolean (*VR_ReplayStereoFrame)( stereoFrame_t stereoFrame, qboolean finalReplay );
 	void (*VR_CancelStereoReplayCapture)( void );
+	void (*VR_SetConsoleMode)( qboolean active );
+	qboolean (*VR_ApplyHaptic)( int hand, int durationMs, float amplitude );
 
 	qboolean (*ProcessDissolve)(void);
 	qboolean (*InitDissolve)(qboolean bForceCircularExtroWipe);

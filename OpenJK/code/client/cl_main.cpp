@@ -1094,8 +1094,7 @@ void CL_InitRenderer( void ) {
 	cls.charSetShader = re.RegisterShaderNoMip("gfx/2d/charsgrid_med");
 	cls.whiteShader = re.RegisterShader( "white" );
 	cls.consoleShader = re.RegisterShader( "console" );
-	g_console_field_width = cls.glconfig.vidWidth / SMALLCHAR_WIDTH - 2;
-	g_consoleField.widthInChars = g_console_field_width;
+	Con_CheckResize();
 }
 
 /*
@@ -1377,6 +1376,35 @@ void CL_InitRef( void ) {
 }
 
 
+static void CL_VRHapticTest_f( void )
+{
+	const char *handName = Cmd_Argc() > 1 ? Cmd_Argv( 1 ) : "both";
+	int channel = 3;
+	if ( !Q_stricmp( handName, "left" ) )
+	{
+		channel = 2;
+	}
+	else if ( !Q_stricmp( handName, "right" ) )
+	{
+		channel = 1;
+	}
+	else if ( Q_stricmp( handName, "both" ) )
+	{
+		Com_Printf( "usage: vr_haptic_test [left|right|both] [duration_ms] [amplitude]\n" );
+		return;
+	}
+
+	int duration = Cmd_Argc() > 2 ? atoi( Cmd_Argv( 2 ) ) : 250;
+	duration = duration < 1 ? 1 : ( duration > 5000 ? 5000 : duration );
+	float amplitude = Cmd_Argc() > 3 ? atof( Cmd_Argv( 3 ) ) : 1.0f;
+	amplitude = Com_Clamp( 0.0f, 1.0f, amplitude );
+	Com_Printf(
+		"jkxr-haptics: diagnostic request hand=%s durationMs=%d amplitude=%.3f\n",
+		handName, duration, amplitude );
+	TBXR_Vibrate( duration, channel, amplitude );
+}
+
+
 //===========================================================================================
 
 void CL_CompleteCinematic( char *args, int argNum );
@@ -1488,6 +1516,7 @@ void CL_Init( void ) {
 	Cmd_AddCommand ("uimenu", CL_GenericMenu_f);
 	Cmd_AddCommand ("datapad", CL_DataPad_f);
 	Cmd_AddCommand ("endscreendissolve", CL_EndScreenDissolve_f);
+	Cmd_AddCommand ("vr_haptic_test", CL_VRHapticTest_f);
 
 	CL_InitRef();
 
@@ -1541,6 +1570,7 @@ void CL_Shutdown( void ) {
 	Cmd_RemoveCommand ("uimenu");
 	Cmd_RemoveCommand ("datapad");
 	Cmd_RemoveCommand ("endscreendissolve");
+	Cmd_RemoveCommand ("vr_haptic_test");
 
 	Cvar_Set( "cl_running", "0" );
 

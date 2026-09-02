@@ -26,11 +26,20 @@ if [ -z "$GAMEDATA" ] || [ ! -d "$GAMEDATA/base" ]; then
 	exit 1
 fi
 
-# Sync the VR asset pk3s into the engine's per-user home path, which is the
-# highest-priority search path - no need to write into the game directory.
+# Sync runtime files into the engine's highest-priority per-user search path.
+# Compare contents rather than timestamps: package rebuilds and local test
+# deployments do not necessarily make the source file newer than an old copy.
 mkdir -p "$HOMEDATA"
+sync_runtime_file() {
+	src=$1
+	dst=$2
+	if [ ! -f "$dst" ] || ! cmp -s "$src" "$dst"; then
+		cp "$src" "$dst"
+	fi
+}
+sync_runtime_file "$LIBDIR/base/jagamex86_64.so" "$HOMEDATA/jagamex86_64.so"
 for pk3 in "$SHAREDIR"/*.pk3; do
-	cp -u "$pk3" "$HOMEDATA/"
+	sync_runtime_file "$pk3" "$HOMEDATA/$(basename "$pk3")"
 done
 
 # The OpenXR session uses the X11/GLX graphics binding (XWayland is fine).

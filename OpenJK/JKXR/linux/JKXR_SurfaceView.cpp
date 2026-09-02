@@ -478,8 +478,10 @@ void VR_HapticDisable()
  */
 void VR_HapticEvent(const char* event, int position, int flags, int intensity, float angle, float yHeight )
 {
-	if (!gAppState.Initialised || !gAppState.SessionActive ||
-		gAppState.Session == XR_NULL_HANDLE || vr_haptic_intensity == NULL ||
+	const bool rendererHaptics = re.VR_ApplyHaptic != nullptr;
+	const bool legacyHaptics = gAppState.Initialised && gAppState.SessionActive &&
+		gAppState.Session != XR_NULL_HANDLE;
+	if ((!rendererHaptics && !legacyHaptics) || vr_haptic_intensity == NULL ||
 		vr_control_scheme == NULL || vr_haptic_intensity->value == 0.0f)
 	{
 		return;
@@ -566,6 +568,10 @@ void VR_HapticEvent(const char* event, int position, int flags, int intensity, f
 	{
 		//Quick blip
 		TBXR_Vibrate(50, flags, fIntensity);
+	}
+	else if (strcmp(event, "force_push_pull") == 0)
+	{
+		TBXR_Vibrate(120, weaponFireChannel, fIntensity);
 	}
 }
 
