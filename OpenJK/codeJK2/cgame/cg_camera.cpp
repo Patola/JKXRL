@@ -66,11 +66,16 @@ static void CGCam_AxisToAngles( const matrix3_t axis, vec3_t angles )
 
 static void CGCam_ComposeImmersiveView( const vec3_t cameraAngles, matrix3_t outputAxis )
 {
+	vec3_t turnedCameraAngles;
 	matrix3_t cameraAxis;
 	matrix3_t hmdAxis;
 	matrix3_t hmdSnapAxis;
 
-	AnglesToAxis( cameraAngles, cameraAxis );
+	VectorCopy( cameraAngles, turnedCameraAngles );
+	turnedCameraAngles[YAW] = AngleNormalize180(
+		turnedCameraAngles[YAW] +
+		AngleNormalize180( vr->snapTurn - vr->cinematic_snapTurn_snap ) );
+	AnglesToAxis( turnedCameraAngles, cameraAxis );
 	AnglesToAxis( vr->hmdorientation, hmdAxis );
 	AnglesToAxis( vr->cinematic_hmdorientation_snap, hmdSnapAxis );
 
@@ -94,6 +99,7 @@ static void CGCam_CaptureImmersivePose( void )
 {
 	VectorCopy( vr->hmdposition, vr->cinematic_hmdposition_snap );
 	VectorCopy( vr->hmdorientation, vr->cinematic_hmdorientation_snap );
+	vr->cinematic_snapTurn_snap = vr->snapTurn;
 	// Keep scripted pitch/yaw recentering, but never bake a temporary head tilt
 	// into the cinematic horizon.
 	vr->cinematic_hmdorientation_snap[ROLL] = 0.0f;

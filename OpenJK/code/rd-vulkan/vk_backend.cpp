@@ -40,7 +40,18 @@ published by the Free Software Foundation.
 #include <utility>
 #include <vector>
 
-enum { VK_BACKEND_EYE_COUNT = 2 };
+enum
+{
+	VK_BACKEND_EYE_COUNT = 2,
+	VK_SHADOW_DIRECTION_GROUP_COUNT = 4,
+	VK_TIMING_EYE_QUERY_COUNT = VK_BACKEND_EYE_COUNT * 2,
+	VK_TIMING_SHADOW_MAP_BEGIN = VK_TIMING_EYE_QUERY_COUNT,
+	VK_TIMING_SHADOW_MAP_END = VK_TIMING_EYE_QUERY_COUNT + 1,
+	VK_TIMING_SHADOW_MASK_BEGIN = VK_TIMING_EYE_QUERY_COUNT + 2,
+	VK_TIMING_SHADOW_MASK_END =
+		VK_TIMING_SHADOW_MASK_BEGIN + VK_BACKEND_EYE_COUNT * 2,
+	VK_TIMING_QUERY_COUNT = VK_TIMING_SHADOW_MASK_END,
+};
 
 enum vk_blend_mode_t
 {
@@ -168,6 +179,30 @@ static const uint32_t worldVertSpv[] =
 
 static const uint32_t worldFragSpv[] =
 #include "world.frag.inc"
+;
+
+static const uint32_t shadowMapVertSpv[] =
+#include "shadow_map.vert.inc"
+;
+
+static const uint32_t shadowMapFragSpv[] =
+#include "shadow_map.frag.inc"
+;
+
+static const uint32_t shadowReceiverVertSpv[] =
+#include "shadow_receiver.vert.inc"
+;
+
+static const uint32_t shadowReceiverFragSpv[] =
+#include "shadow_receiver.frag.inc"
+;
+
+static const uint32_t shadowResponseFragSpv[] =
+#include "shadow_response.frag.inc"
+;
+
+static const uint32_t shadowCompositeFragSpv[] =
+#include "shadow_composite.frag.inc"
 ;
 
 static const uint32_t glmSkinCompSpv[] =
@@ -302,6 +337,8 @@ struct vk_shader_definition_t
 	std::string name;
 	std::string skyOuterbox;
 	float skyCloudHeight;
+	float sunDirection[3];
+	bool hasSunDirection;
 	float fogColor[3];
 	float fogDepth;
 	bool hasFog;
@@ -436,6 +473,8 @@ struct vk_world_geometry_t
 	qhandle_t skyTextures[6];
 	std::string skyName;
 	bool hasSky;
+	float sunDirection[3];
+	bool hasAuthoredSunDirection;
 	float globalFogColor[3];
 	float globalFogDepth;
 	bool hasGlobalFog;
@@ -462,6 +501,7 @@ struct vk_entity_lighting_t
 {
 	float ambient[3];
 	float directed[3];
+	float worldDirection[3];
 	float localDirection[3];
 };
 
@@ -711,6 +751,18 @@ struct vk_ghoul2_skinned_audit_t
 	size_t expandedTriangles;
 };
 
+struct vk_shadow_caster_t
+{
+	const refEntity_t *entity;
+	const CGhoul2Info *ghoul;
+	const vk_model_t *model;
+	int modelIndex;
+	int lod;
+	float distanceSquared;
+	float lightDirection[3];
+	int directionGroup;
+};
+
 struct vk_backend_state_t
 {
 	bool initialized;
@@ -815,7 +867,15 @@ struct vk_backend_state_t
 	std::vector<const CGhoul2Info *> loggedGhoul2RenderAudits;
 	std::vector<const CGhoul2Info *> loggedGhoul2SkinnedAudits;
 	VkRenderPass renderPass;
+	VkRenderPass shadowMapRenderPass;
+	VkRenderPass shadowSceneRenderPass;
+	VkRenderPass shadowLoadRenderPass;
+	VkRenderPass shadowMaskRenderPass;
+	VkRenderPass shadowResponseRenderPass;
 	VkPipelineLayout pipelineLayout;
+	VkPipelineLayout shadowMapPipelineLayout;
+	VkPipelineLayout shadowReceiverPipelineLayout;
+	VkPipelineLayout shadowCompositePipelineLayout;
 	VkDescriptorSetLayout glmSkinSetLayout;
 	VkDescriptorPool glmSkinDescriptorPool;
 	VkPipelineLayout glmSkinPipelineLayout;
@@ -850,6 +910,37 @@ struct vk_backend_state_t
 	VkPipeline worldDoubleModulatePipeline;
 	VkPipeline worldInverseSourceColorModulatePipeline;
 	VkPipeline worldScreenPipeline;
+	VkPipeline shadowMapPipeline;
+	VkPipeline shadowReceiverPipeline;
+	VkPipeline shadowReceiverFilteredPipeline;
+	VkPipeline shadowReceiverSoftPipeline;
+	VkPipeline shadowResponsePipeline;
+	VkPipeline shadowCompositePipeline;
+	VkImage shadowMapImage;
+	VkDeviceMemory shadowMapMemory;
+	VkImageView shadowMapViews[VK_SHADOW_DIRECTION_GROUP_COUNT];
+	VkFramebuffer shadowMapFramebuffers[VK_SHADOW_DIRECTION_GROUP_COUNT];
+	uint32_t shadowMapSize;
+	float shadowLightDirection[3];
+	int shadowLightDirectionTime;
+	bool shadowLightDirectionValid;
+	float shadowGroupViewProjections[VK_SHADOW_DIRECTION_GROUP_COUNT][16];
+	float shadowGroupDirections[VK_SHADOW_DIRECTION_GROUP_COUNT][3];
+	float shadowGroupHalfExtents[VK_SHADOW_DIRECTION_GROUP_COUNT];
+	int shadowGroupDirectionTimes[VK_SHADOW_DIRECTION_GROUP_COUNT];
+	bool shadowGroupDirectionValid[VK_SHADOW_DIRECTION_GROUP_COUNT];
+	bool shadowGroupActive[VK_SHADOW_DIRECTION_GROUP_COUNT];
+	uint32_t shadowActiveGroupCount;
+	bool shadowMapValid;
+	vk_texture_t shadowMaskTargets[VK_BACKEND_EYE_COUNT];
+	VkFramebuffer shadowMaskFramebuffers[VK_BACKEND_EYE_COUNT];
+	vk_texture_t shadowResponseTargets[VK_BACKEND_EYE_COUNT];
+	VkFramebuffer shadowResponseFramebuffers[VK_BACKEND_EYE_COUNT];
+	VkDescriptorSet shadowReceiverDescriptorSets
+		[VK_BACKEND_EYE_COUNT][VK_SHADOW_DIRECTION_GROUP_COUNT];
+	VkDescriptorSetLayout shadowReceiverSetLayout;
+	VkDescriptorSet shadowCompositeDescriptorSets[VK_BACKEND_EYE_COUNT];
+	VkSampler shadowDepthSampler;
 	VkDescriptorSetLayout textureSetLayout;
 	VkDescriptorPool descriptorPool;
 	VkSampler textureSampler;
@@ -998,6 +1089,17 @@ struct vk_backend_state_t
 	cvar_t *glmLodAuditCvar;
 	cvar_t *computeSkinningCvar;
 	cvar_t *forceSpeedBlurStrengthCvar;
+	cvar_t *shadowsCvar;
+	cvar_t *cgShadowsCvar;
+	cvar_t *shadowMapSizeCvar;
+	cvar_t *shadowCasterLimitCvar;
+	cvar_t *shadowDistanceCvar;
+	cvar_t *shadowDepthBiasCvar;
+	cvar_t *shadowSlopeBiasCvar;
+	cvar_t *shadowOpacityCvar;
+	cvar_t *shadowFilterCvar;
+	cvar_t *shadowWhiteArmorScaleCvar;
+	cvar_t *shadowAuditCvar;
 	std::vector<std::string> loggedGlmLodInventories;
 	std::unordered_map<uint64_t, vk_glm_lod_selection_t> glmLodFrameCache;
 	std::unordered_map<uint64_t, int> glmLodAuditLastSelection;
@@ -1035,11 +1137,28 @@ struct vk_backend_state_t
 	double timingModelSkinTotalMs;
 	double timingModelSubmitTotalMs;
 	double timingEffectTotalMs;
+	double timingShadowCollectTotalMs;
+	double timingShadowPrepareTotalMs;
+	double timingShadowRecordTotalMs;
+	double timingShadowMaskRecordTotalMs;
+	double timingShadowMapGpuTotalMs;
+	double timingShadowMapGpuMaxMs;
+	uint32_t timingShadowMapGpuSamples;
+	double timingShadowMaskGpuTotalMs;
+	double timingShadowMaskGpuMaxMs;
+	uint32_t timingShadowMaskGpuSamples;
+	uint64_t timingShadowCasterTotal;
+	uint64_t timingShadowPrepareDispatchTotal;
+	uint64_t timingShadowDrawTotal;
+	uint64_t timingShadowCacheMissTotal;
 	uint64_t timingBspDrawTotal;
 	std::unordered_map<const vk_model_t *, vk_skin_model_timing_t> timingSkinModels;
 	bool loggedComputeSkinning;
 	bool loggedComputeSkinningFallback;
 	bool loggedForceSpeedMotionBlur;
+	bool loggedShadowMapActive;
+	bool loggedShadowDirectionAudit;
+	bool loggedShadowReceiverActive;
 };
 
 static vk_backend_state_t vk = {};
@@ -1166,7 +1285,15 @@ static void VK_Backend_Clear()
 	vk.loggedGhoul2RenderAudits.clear();
 	vk.loggedGhoul2SkinnedAudits.clear();
 	vk.renderPass = VK_NULL_HANDLE;
+	vk.shadowMapRenderPass = VK_NULL_HANDLE;
+	vk.shadowSceneRenderPass = VK_NULL_HANDLE;
+	vk.shadowLoadRenderPass = VK_NULL_HANDLE;
+	vk.shadowMaskRenderPass = VK_NULL_HANDLE;
+	vk.shadowResponseRenderPass = VK_NULL_HANDLE;
 	vk.pipelineLayout = VK_NULL_HANDLE;
+	vk.shadowMapPipelineLayout = VK_NULL_HANDLE;
+	vk.shadowReceiverPipelineLayout = VK_NULL_HANDLE;
+	vk.shadowCompositePipelineLayout = VK_NULL_HANDLE;
 	vk.glmSkinSetLayout = VK_NULL_HANDLE;
 	vk.glmSkinDescriptorPool = VK_NULL_HANDLE;
 	vk.glmSkinPipelineLayout = VK_NULL_HANDLE;
@@ -1201,6 +1328,47 @@ static void VK_Backend_Clear()
 	vk.worldDoubleModulatePipeline = VK_NULL_HANDLE;
 	vk.worldInverseSourceColorModulatePipeline = VK_NULL_HANDLE;
 	vk.worldScreenPipeline = VK_NULL_HANDLE;
+	vk.shadowMapPipeline = VK_NULL_HANDLE;
+	vk.shadowReceiverPipeline = VK_NULL_HANDLE;
+	vk.shadowReceiverFilteredPipeline = VK_NULL_HANDLE;
+	vk.shadowReceiverSoftPipeline = VK_NULL_HANDLE;
+	vk.shadowResponsePipeline = VK_NULL_HANDLE;
+	vk.shadowCompositePipeline = VK_NULL_HANDLE;
+	vk.shadowMapImage = VK_NULL_HANDLE;
+	vk.shadowMapMemory = VK_NULL_HANDLE;
+	for ( int group = 0; group < VK_SHADOW_DIRECTION_GROUP_COUNT; ++group )
+	{
+		vk.shadowMapViews[group] = VK_NULL_HANDLE;
+		vk.shadowMapFramebuffers[group] = VK_NULL_HANDLE;
+		std::memset(
+			vk.shadowGroupViewProjections[group], 0,
+			sizeof( vk.shadowGroupViewProjections[group] ) );
+		VectorClear( vk.shadowGroupDirections[group] );
+		vk.shadowGroupHalfExtents[group] = 0.0f;
+		vk.shadowGroupDirectionTimes[group] = 0;
+		vk.shadowGroupDirectionValid[group] = false;
+		vk.shadowGroupActive[group] = false;
+	}
+	vk.shadowMapSize = 0;
+	std::memset( vk.shadowLightDirection, 0, sizeof( vk.shadowLightDirection ) );
+	vk.shadowLightDirectionTime = 0;
+	vk.shadowLightDirectionValid = false;
+	vk.shadowActiveGroupCount = 0;
+	vk.shadowMapValid = false;
+	for ( int eye = 0; eye < VK_BACKEND_EYE_COUNT; ++eye )
+	{
+		vk.shadowMaskTargets[eye] = {};
+		vk.shadowMaskFramebuffers[eye] = VK_NULL_HANDLE;
+		vk.shadowResponseTargets[eye] = {};
+		vk.shadowResponseFramebuffers[eye] = VK_NULL_HANDLE;
+		vk.shadowCompositeDescriptorSets[eye] = VK_NULL_HANDLE;
+		for ( int group = 0; group < VK_SHADOW_DIRECTION_GROUP_COUNT; ++group )
+		{
+			vk.shadowReceiverDescriptorSets[eye][group] = VK_NULL_HANDLE;
+		}
+	}
+	vk.shadowReceiverSetLayout = VK_NULL_HANDLE;
+	vk.shadowDepthSampler = VK_NULL_HANDLE;
 	vk.textureSetLayout = VK_NULL_HANDLE;
 	vk.descriptorPool = VK_NULL_HANDLE;
 	vk.textureSampler = VK_NULL_HANDLE;
@@ -1357,6 +1525,17 @@ static void VK_Backend_Clear()
 	vk.glmLodAuditCvar = nullptr;
 	vk.computeSkinningCvar = nullptr;
 	vk.forceSpeedBlurStrengthCvar = nullptr;
+	vk.shadowsCvar = nullptr;
+	vk.cgShadowsCvar = nullptr;
+	vk.shadowMapSizeCvar = nullptr;
+	vk.shadowCasterLimitCvar = nullptr;
+	vk.shadowDistanceCvar = nullptr;
+	vk.shadowDepthBiasCvar = nullptr;
+	vk.shadowSlopeBiasCvar = nullptr;
+	vk.shadowOpacityCvar = nullptr;
+	vk.shadowFilterCvar = nullptr;
+	vk.shadowWhiteArmorScaleCvar = nullptr;
+	vk.shadowAuditCvar = nullptr;
 	vk.timingCvar = nullptr;
 	vk.timingWasEnabled = false;
 	vk.loggedTimingNoGpu = false;
@@ -1390,11 +1569,28 @@ static void VK_Backend_Clear()
 	vk.timingModelSkinTotalMs = 0.0;
 	vk.timingModelSubmitTotalMs = 0.0;
 	vk.timingEffectTotalMs = 0.0;
+	vk.timingShadowCollectTotalMs = 0.0;
+	vk.timingShadowPrepareTotalMs = 0.0;
+	vk.timingShadowRecordTotalMs = 0.0;
+	vk.timingShadowMaskRecordTotalMs = 0.0;
+	vk.timingShadowMapGpuTotalMs = 0.0;
+	vk.timingShadowMapGpuMaxMs = 0.0;
+	vk.timingShadowMapGpuSamples = 0;
+	vk.timingShadowMaskGpuTotalMs = 0.0;
+	vk.timingShadowMaskGpuMaxMs = 0.0;
+	vk.timingShadowMaskGpuSamples = 0;
+	vk.timingShadowCasterTotal = 0;
+	vk.timingShadowPrepareDispatchTotal = 0;
+	vk.timingShadowDrawTotal = 0;
+	vk.timingShadowCacheMissTotal = 0;
 	vk.timingBspDrawTotal = 0;
 	vk.timingSkinModels.clear();
 	vk.loggedComputeSkinning = false;
 	vk.loggedComputeSkinningFallback = false;
 	vk.loggedForceSpeedMotionBlur = false;
+	vk.loggedShadowMapActive = false;
+	vk.loggedShadowDirectionAudit = false;
+	vk.loggedShadowReceiverActive = false;
 }
 
 static bool VK_Backend_AppendScreenRect(
@@ -1830,7 +2026,7 @@ static void VK_CreateTimingResources()
 	VkQueryPoolCreateInfo queryInfo = {};
 	queryInfo.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
 	queryInfo.queryType = VK_QUERY_TYPE_TIMESTAMP;
-	queryInfo.queryCount = VK_BACKEND_EYE_COUNT * 2;
+	queryInfo.queryCount = VK_TIMING_QUERY_COUNT;
 	const VkResult result = vkCreateQueryPool(
 		vk.device, &queryInfo, nullptr, &vk.timingQueryPool );
 	if ( result != VK_SUCCESS )
@@ -2076,6 +2272,8 @@ static void VK_DestroyWorldGeometry()
 	std::memset( vk.world.skyTextures, 0, sizeof( vk.world.skyTextures ) );
 	vk.world.skyName.clear();
 	vk.world.hasSky = false;
+	std::memset( vk.world.sunDirection, 0, sizeof( vk.world.sunDirection ) );
+	vk.world.hasAuthoredSunDirection = false;
 	std::memset( vk.world.globalFogColor, 0, sizeof( vk.world.globalFogColor ) );
 	vk.world.globalFogDepth = 0.0f;
 	vk.world.hasGlobalFog = false;
@@ -2845,6 +3043,31 @@ static void VK_ParseShaderFile( const char *filename )
 				COM_ParseExt( &text, qtrue );
 				continue;
 			}
+			if ( depth == 1 &&
+				 ( Q_stricmp( token, "sun" ) == 0 ||
+				   Q_stricmp( token, "q3map_sun" ) == 0 ||
+				   Q_stricmp( token, "q3map_sunExt" ) == 0 ) )
+			{
+				// RGB and intensity affect illumination, while the final two
+				// values define the map-wide azimuth and elevation.
+				for ( int parameter = 0; parameter < 4; ++parameter )
+				{
+					COM_ParseExt( &text, qfalse );
+				}
+				const float azimuth = DEG2RAD( static_cast<float>(
+					std::atof( COM_ParseExt( &text, qfalse ) ) ) );
+				const float elevation = DEG2RAD( static_cast<float>(
+					std::atof( COM_ParseExt( &text, qfalse ) ) ) );
+				definition.sunDirection[0] =
+					std::cos( azimuth ) * std::cos( elevation );
+				definition.sunDirection[1] =
+					std::sin( azimuth ) * std::cos( elevation );
+				definition.sunDirection[2] = std::sin( elevation );
+				definition.hasSunDirection =
+					VectorNormalize( definition.sunDirection ) > 0.0f;
+				SkipRestOfLine( &text );
+				continue;
+			}
 			if ( depth == 1 && Q_stricmp( token, "fogParms" ) == 0 )
 			{
 				const char *red = COM_ParseExt( &text, qtrue );
@@ -3219,7 +3442,8 @@ static void VK_ParseShaderFile( const char *filename )
 			}
 		}
 
-		if ( !definition.stages.empty() || !definition.skyOuterbox.empty() || definition.hasFog )
+		if ( !definition.stages.empty() || !definition.skyOuterbox.empty() ||
+			 definition.hasSunDirection || definition.hasFog )
 		{
 			vk.shaderDefinitions.push_back( definition );
 		}
@@ -3991,7 +4215,10 @@ static bool VK_SelectDepthFormat()
 	{
 		VkFormatProperties properties = {};
 		vkGetPhysicalDeviceFormatProperties( vk.physicalDevice, format, &properties );
-		if ( ( properties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT ) != 0 )
+		const VkFormatFeatureFlags required =
+			VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT |
+			VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
+		if ( ( properties.optimalTilingFeatures & required ) == required )
 		{
 			vk.depthFormat = format;
 			return true;
@@ -4062,7 +4289,518 @@ static bool VK_CreateRenderPass()
 	createInfo.dependencyCount = 1;
 	createInfo.pDependencies = &dependency;
 
-	return VK_CheckVk( vkCreateRenderPass( vk.device, &createInfo, nullptr, &vk.renderPass ), "vkCreateRenderPass" );
+	if ( !VK_CheckVk(
+		vkCreateRenderPass( vk.device, &createInfo, nullptr, &vk.renderPass ),
+		"vkCreateRenderPass" ) )
+	{
+		return false;
+	}
+
+	// The ordinary pass keeps its original discard-only depth path. Shadows use
+	// a compatible variant which preserves depth for the per-eye receiver mask.
+	VkAttachmentDescription shadowAttachments[2] = {
+		attachments[0], attachments[1],
+	};
+	shadowAttachments[1].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	shadowAttachments[1].finalLayout =
+		VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+	VkSubpassDependency shadowDependencies[2] = { dependency, {} };
+	shadowDependencies[1].srcSubpass = 0;
+	shadowDependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+	shadowDependencies[1].srcStageMask =
+		VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+	shadowDependencies[1].dstStageMask =
+		VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+	shadowDependencies[1].srcAccessMask =
+		VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+	shadowDependencies[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	createInfo.pAttachments = shadowAttachments;
+	createInfo.dependencyCount = ARRAY_LEN( shadowDependencies );
+	createInfo.pDependencies = shadowDependencies;
+	if ( !VK_CheckVk(
+		vkCreateRenderPass(
+			vk.device, &createInfo, nullptr, &vk.shadowSceneRenderPass ),
+		"vkCreateRenderPass(shadow scene)" ) )
+	{
+		return false;
+	}
+
+	shadowAttachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+	shadowAttachments[0].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	shadowAttachments[1].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+	shadowAttachments[1].initialLayout =
+		VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+	depthReference.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+	dependency.srcStageMask =
+		VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+		VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	dependency.srcAccessMask =
+		VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+	dependency.dstAccessMask =
+		VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+	createInfo.pSubpasses = &subpass;
+	createInfo.dependencyCount = 1;
+	createInfo.pDependencies = &dependency;
+	return VK_CheckVk(
+		vkCreateRenderPass(
+			vk.device, &createInfo, nullptr, &vk.shadowLoadRenderPass ),
+		"vkCreateRenderPass(shadow load)" );
+}
+
+static void VK_DestroyShadowMapResources()
+{
+	for ( int group = 0; group < VK_SHADOW_DIRECTION_GROUP_COUNT; ++group )
+	{
+		if ( vk.shadowMapFramebuffers[group] != VK_NULL_HANDLE )
+		{
+			vkDestroyFramebuffer(
+				vk.device, vk.shadowMapFramebuffers[group], nullptr );
+			vk.shadowMapFramebuffers[group] = VK_NULL_HANDLE;
+		}
+		if ( vk.shadowMapViews[group] != VK_NULL_HANDLE )
+		{
+			vkDestroyImageView( vk.device, vk.shadowMapViews[group], nullptr );
+			vk.shadowMapViews[group] = VK_NULL_HANDLE;
+		}
+	}
+	if ( vk.shadowMapImage != VK_NULL_HANDLE )
+	{
+		vkDestroyImage( vk.device, vk.shadowMapImage, nullptr );
+		vk.shadowMapImage = VK_NULL_HANDLE;
+	}
+	if ( vk.shadowMapMemory != VK_NULL_HANDLE )
+	{
+		vkFreeMemory( vk.device, vk.shadowMapMemory, nullptr );
+		vk.shadowMapMemory = VK_NULL_HANDLE;
+	}
+	if ( vk.shadowMapRenderPass != VK_NULL_HANDLE )
+	{
+		vkDestroyRenderPass( vk.device, vk.shadowMapRenderPass, nullptr );
+		vk.shadowMapRenderPass = VK_NULL_HANDLE;
+	}
+	vk.shadowMapSize = 0;
+	vk.shadowActiveGroupCount = 0;
+}
+
+static bool VK_CreateShadowMapResources()
+{
+	VkAttachmentDescription depthAttachment = {};
+	depthAttachment.format = vk.depthFormat;
+	depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+	depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+
+	VkAttachmentReference depthReference = {};
+	depthReference.attachment = 0;
+	depthReference.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+	VkSubpassDescription subpass = {};
+	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+	subpass.pDepthStencilAttachment = &depthReference;
+	VkSubpassDependency dependencies[2] = {};
+	dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+	dependencies[0].dstSubpass = 0;
+	dependencies[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+	dependencies[0].dstStageMask =
+		VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+		VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+	dependencies[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	dependencies[0].dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+	dependencies[1].srcSubpass = 0;
+	dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+	dependencies[1].srcStageMask = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+	dependencies[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+	dependencies[1].srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+	dependencies[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+	VkRenderPassCreateInfo renderPassInfo = {};
+	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+	renderPassInfo.attachmentCount = 1;
+	renderPassInfo.pAttachments = &depthAttachment;
+	renderPassInfo.subpassCount = 1;
+	renderPassInfo.pSubpasses = &subpass;
+	renderPassInfo.dependencyCount = ARRAY_LEN( dependencies );
+	renderPassInfo.pDependencies = dependencies;
+	if ( !VK_CheckVk(
+			vkCreateRenderPass(
+				vk.device, &renderPassInfo, nullptr, &vk.shadowMapRenderPass ),
+			"vkCreateRenderPass(shadow map)" ) )
+	{
+		return false;
+	}
+
+	const uint32_t requested = static_cast<uint32_t>( VK_ClampValue(
+		vk.shadowMapSizeCvar != nullptr ? vk.shadowMapSizeCvar->integer : 2048,
+		256,
+		4096 ) );
+	uint32_t size = 256;
+	while ( size < requested && size < 4096 )
+	{
+		size <<= 1;
+	}
+	vk.shadowMapSize = size;
+
+	VkImageCreateInfo imageInfo = {};
+	imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	imageInfo.imageType = VK_IMAGE_TYPE_2D;
+	imageInfo.format = vk.depthFormat;
+	imageInfo.extent = { size, size, 1 };
+	imageInfo.mipLevels = 1;
+	imageInfo.arrayLayers = VK_SHADOW_DIRECTION_GROUP_COUNT;
+	imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+	imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+	imageInfo.usage =
+		VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+	imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	if ( !VK_CheckVk(
+			vkCreateImage( vk.device, &imageInfo, nullptr, &vk.shadowMapImage ),
+			"vkCreateImage(shadow map)" ) )
+	{
+		VK_DestroyShadowMapResources();
+		return false;
+	}
+
+	VkMemoryRequirements requirements = {};
+	vkGetImageMemoryRequirements( vk.device, vk.shadowMapImage, &requirements );
+	uint32_t memoryType = 0;
+	if ( !VK_FindMemoryType(
+			requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &memoryType ) )
+	{
+		VK_DestroyShadowMapResources();
+		return false;
+	}
+	VkMemoryAllocateInfo allocation = {};
+	allocation.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	allocation.allocationSize = requirements.size;
+	allocation.memoryTypeIndex = memoryType;
+	if ( !VK_CheckVk(
+			vkAllocateMemory( vk.device, &allocation, nullptr, &vk.shadowMapMemory ),
+			"vkAllocateMemory(shadow map)" ) ||
+		 !VK_CheckVk(
+			vkBindImageMemory( vk.device, vk.shadowMapImage, vk.shadowMapMemory, 0 ),
+			"vkBindImageMemory(shadow map)" ) )
+	{
+		VK_DestroyShadowMapResources();
+		return false;
+	}
+
+	VkFramebufferCreateInfo framebufferInfo = {};
+	framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+	framebufferInfo.renderPass = vk.shadowMapRenderPass;
+	framebufferInfo.attachmentCount = 1;
+	framebufferInfo.width = size;
+	framebufferInfo.height = size;
+	framebufferInfo.layers = 1;
+	for ( int group = 0; group < VK_SHADOW_DIRECTION_GROUP_COUNT; ++group )
+	{
+		VkImageViewCreateInfo viewInfo = {};
+		viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+		viewInfo.image = vk.shadowMapImage;
+		viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+		viewInfo.format = vk.depthFormat;
+		viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+		viewInfo.subresourceRange.baseArrayLayer = group;
+		viewInfo.subresourceRange.levelCount = 1;
+		viewInfo.subresourceRange.layerCount = 1;
+		if ( !VK_CheckVk(
+				vkCreateImageView(
+					vk.device, &viewInfo, nullptr, &vk.shadowMapViews[group] ),
+				"vkCreateImageView(shadow map layer)" ) )
+		{
+			VK_DestroyShadowMapResources();
+			return false;
+		}
+
+		framebufferInfo.pAttachments = &vk.shadowMapViews[group];
+		if ( !VK_CheckVk(
+				vkCreateFramebuffer(
+					vk.device, &framebufferInfo, nullptr,
+					&vk.shadowMapFramebuffers[group] ),
+				"vkCreateFramebuffer(shadow map layer)" ) )
+		{
+			VK_DestroyShadowMapResources();
+			return false;
+		}
+	}
+
+	return true;
+}
+
+static bool VK_CreateShadowMapPipeline()
+{
+	VkShaderModule vertexShader = VK_NULL_HANDLE;
+	VkShaderModule fragmentShader = VK_NULL_HANDLE;
+	if ( !VK_CreateShaderModule(
+			shadowMapVertSpv, ARRAY_LEN( shadowMapVertSpv ), &vertexShader ) ||
+		 !VK_CreateShaderModule(
+			shadowMapFragSpv, ARRAY_LEN( shadowMapFragSpv ), &fragmentShader ) )
+	{
+		if ( vertexShader != VK_NULL_HANDLE )
+		{
+			vkDestroyShaderModule( vk.device, vertexShader, nullptr );
+		}
+		if ( fragmentShader != VK_NULL_HANDLE )
+		{
+			vkDestroyShaderModule( vk.device, fragmentShader, nullptr );
+		}
+		return false;
+	}
+
+	VkPushConstantRange pushConstant = {};
+	pushConstant.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+	pushConstant.size = sizeof( float ) * 16;
+	VkPipelineLayoutCreateInfo layoutInfo = {};
+	layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+	layoutInfo.pushConstantRangeCount = 1;
+	layoutInfo.pPushConstantRanges = &pushConstant;
+	if ( !VK_CheckVk(
+			vkCreatePipelineLayout(
+				vk.device, &layoutInfo, nullptr, &vk.shadowMapPipelineLayout ),
+			"vkCreatePipelineLayout(shadow map)" ) )
+	{
+		vkDestroyShaderModule( vk.device, vertexShader, nullptr );
+		vkDestroyShaderModule( vk.device, fragmentShader, nullptr );
+		return false;
+	}
+
+	VkPipelineShaderStageCreateInfo shaderStages[2] = {};
+	shaderStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	shaderStages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+	shaderStages[0].module = vertexShader;
+	shaderStages[0].pName = "main";
+	shaderStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	shaderStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+	shaderStages[1].module = fragmentShader;
+	shaderStages[1].pName = "main";
+
+	VkVertexInputBindingDescription binding = {};
+	binding.binding = 0;
+	binding.stride = sizeof( vk_world_vertex_t );
+	binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+	VkVertexInputAttributeDescription position = {};
+	position.location = 0;
+	position.binding = 0;
+	position.format = VK_FORMAT_R32G32B32_SFLOAT;
+	position.offset = offsetof( vk_world_vertex_t, position );
+	VkPipelineVertexInputStateCreateInfo vertexInput = {};
+	vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+	vertexInput.vertexBindingDescriptionCount = 1;
+	vertexInput.pVertexBindingDescriptions = &binding;
+	vertexInput.vertexAttributeDescriptionCount = 1;
+	vertexInput.pVertexAttributeDescriptions = &position;
+	VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
+	inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+	inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+	VkPipelineViewportStateCreateInfo viewportState = {};
+	viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+	viewportState.viewportCount = 1;
+	viewportState.scissorCount = 1;
+	VkPipelineRasterizationStateCreateInfo rasterization = {};
+	rasterization.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+	rasterization.polygonMode = VK_POLYGON_MODE_FILL;
+	rasterization.cullMode = VK_CULL_MODE_NONE;
+	rasterization.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+	rasterization.depthBiasEnable = VK_TRUE;
+	rasterization.lineWidth = 1.0f;
+	VkPipelineMultisampleStateCreateInfo multisample = {};
+	multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+	multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+	VkPipelineDepthStencilStateCreateInfo depthStencil = {};
+	depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+	depthStencil.depthTestEnable = VK_TRUE;
+	depthStencil.depthWriteEnable = VK_TRUE;
+	depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
+	VkPipelineColorBlendStateCreateInfo colorBlend = {};
+	colorBlend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+	const VkDynamicState dynamicStates[] = {
+		VK_DYNAMIC_STATE_VIEWPORT,
+		VK_DYNAMIC_STATE_SCISSOR,
+		VK_DYNAMIC_STATE_DEPTH_BIAS,
+	};
+	VkPipelineDynamicStateCreateInfo dynamicState = {};
+	dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+	dynamicState.dynamicStateCount = ARRAY_LEN( dynamicStates );
+	dynamicState.pDynamicStates = dynamicStates;
+
+	VkGraphicsPipelineCreateInfo pipelineInfo = {};
+	pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+	pipelineInfo.stageCount = ARRAY_LEN( shaderStages );
+	pipelineInfo.pStages = shaderStages;
+	pipelineInfo.pVertexInputState = &vertexInput;
+	pipelineInfo.pInputAssemblyState = &inputAssembly;
+	pipelineInfo.pViewportState = &viewportState;
+	pipelineInfo.pRasterizationState = &rasterization;
+	pipelineInfo.pMultisampleState = &multisample;
+	pipelineInfo.pDepthStencilState = &depthStencil;
+	pipelineInfo.pColorBlendState = &colorBlend;
+	pipelineInfo.pDynamicState = &dynamicState;
+	pipelineInfo.layout = vk.shadowMapPipelineLayout;
+	pipelineInfo.renderPass = vk.shadowMapRenderPass;
+	pipelineInfo.subpass = 0;
+	const bool created = VK_CheckVk(
+		vkCreateGraphicsPipelines(
+			vk.device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &vk.shadowMapPipeline ),
+		"vkCreateGraphicsPipelines(shadow map)" );
+	vkDestroyShaderModule( vk.device, vertexShader, nullptr );
+	vkDestroyShaderModule( vk.device, fragmentShader, nullptr );
+	return created;
+}
+
+static bool VK_CreateShadowReceiverResources()
+{
+	VkAttachmentDescription maskAttachment = {};
+	maskAttachment.format = VK_FORMAT_R8_UNORM;
+	maskAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+	maskAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	maskAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	maskAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	maskAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	maskAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	maskAttachment.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	VkAttachmentReference maskReference = {};
+	maskReference.attachment = 0;
+	maskReference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	VkSubpassDescription subpass = {};
+	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+	subpass.colorAttachmentCount = 1;
+	subpass.pColorAttachments = &maskReference;
+	VkSubpassDependency dependencies[2] = {};
+	dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+	dependencies[0].dstSubpass = 0;
+	dependencies[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+	dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	dependencies[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+	dependencies[1].srcSubpass = 0;
+	dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+	dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	dependencies[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+	dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+	dependencies[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	VkRenderPassCreateInfo renderPassInfo = {};
+	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+	renderPassInfo.attachmentCount = 1;
+	renderPassInfo.pAttachments = &maskAttachment;
+	renderPassInfo.subpassCount = 1;
+	renderPassInfo.pSubpasses = &subpass;
+	renderPassInfo.dependencyCount = ARRAY_LEN( dependencies );
+	renderPassInfo.pDependencies = dependencies;
+	if ( !VK_CheckVk(
+		vkCreateRenderPass(
+			vk.device, &renderPassInfo, nullptr, &vk.shadowMaskRenderPass ),
+		"vkCreateRenderPass(shadow mask)" ) )
+	{
+		return false;
+	}
+
+	VkAttachmentDescription responseAttachments[2] = {};
+	responseAttachments[0] = maskAttachment;
+	responseAttachments[1].format = vk.depthFormat;
+	responseAttachments[1].samples = VK_SAMPLE_COUNT_1_BIT;
+	responseAttachments[1].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+	responseAttachments[1].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	responseAttachments[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	responseAttachments[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	responseAttachments[1].initialLayout =
+		VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+	responseAttachments[1].finalLayout =
+		VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+	VkAttachmentReference responseColorReference = {};
+	responseColorReference.attachment = 0;
+	responseColorReference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	VkAttachmentReference responseDepthReference = {};
+	responseDepthReference.attachment = 1;
+	responseDepthReference.layout =
+		VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+	VkSubpassDescription responseSubpass = {};
+	responseSubpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+	responseSubpass.colorAttachmentCount = 1;
+	responseSubpass.pColorAttachments = &responseColorReference;
+	responseSubpass.pDepthStencilAttachment = &responseDepthReference;
+	VkSubpassDependency responseDependencies[2] = {};
+	responseDependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+	responseDependencies[0].dstSubpass = 0;
+	responseDependencies[0].srcStageMask =
+		VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+		VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+		VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+	responseDependencies[0].dstStageMask =
+		VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+		VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+	responseDependencies[0].srcAccessMask =
+		VK_ACCESS_SHADER_READ_BIT |
+		VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+		VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+	responseDependencies[0].dstAccessMask =
+		VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+		VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+	responseDependencies[1].srcSubpass = 0;
+	responseDependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+	responseDependencies[1].srcStageMask =
+		VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	responseDependencies[1].dstStageMask =
+		VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+	responseDependencies[1].srcAccessMask =
+		VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+	responseDependencies[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	VkRenderPassCreateInfo responseRenderPassInfo = {};
+	responseRenderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+	responseRenderPassInfo.attachmentCount = ARRAY_LEN( responseAttachments );
+	responseRenderPassInfo.pAttachments = responseAttachments;
+	responseRenderPassInfo.subpassCount = 1;
+	responseRenderPassInfo.pSubpasses = &responseSubpass;
+	responseRenderPassInfo.dependencyCount = ARRAY_LEN( responseDependencies );
+	responseRenderPassInfo.pDependencies = responseDependencies;
+	if ( !VK_CheckVk(
+		vkCreateRenderPass(
+			vk.device, &responseRenderPassInfo, nullptr,
+			&vk.shadowResponseRenderPass ),
+		"vkCreateRenderPass(shadow response)" ) )
+	{
+		return false;
+	}
+
+	VkDescriptorSetLayoutBinding bindings[2] = {};
+	for ( uint32_t bindingIndex = 0;
+		  bindingIndex < ARRAY_LEN( bindings ); ++bindingIndex )
+	{
+		bindings[bindingIndex].binding = bindingIndex;
+		bindings[bindingIndex].descriptorType =
+			VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		bindings[bindingIndex].descriptorCount = 1;
+		bindings[bindingIndex].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+	}
+	VkDescriptorSetLayoutCreateInfo layoutInfo = {};
+	layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	layoutInfo.bindingCount = ARRAY_LEN( bindings );
+	layoutInfo.pBindings = bindings;
+	if ( !VK_CheckVk(
+		vkCreateDescriptorSetLayout(
+			vk.device, &layoutInfo, nullptr, &vk.shadowReceiverSetLayout ),
+		"vkCreateDescriptorSetLayout(shadow receiver)" ) )
+	{
+		return false;
+	}
+
+	VkSamplerCreateInfo samplerInfo = {};
+	samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+	samplerInfo.magFilter = VK_FILTER_NEAREST;
+	samplerInfo.minFilter = VK_FILTER_NEAREST;
+	samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+	samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+	samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+	samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+	samplerInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+	samplerInfo.maxLod = 0.0f;
+	return VK_CheckVk(
+		vkCreateSampler(
+			vk.device, &samplerInfo, nullptr, &vk.shadowDepthSampler ),
+		"vkCreateSampler(shadow depth)" );
 }
 
 static bool VK_CreatePipeline(
@@ -4077,7 +4815,9 @@ static bool VK_CreatePipeline(
 	bool depthTest = false,
 	bool depthWrite = false,
 	bool worldVertexInput = false,
-	VkCullModeFlags cullMode = VK_CULL_MODE_NONE )
+	VkCullModeFlags cullMode = VK_CULL_MODE_NONE,
+	VkRenderPass renderPass = VK_NULL_HANDLE,
+	VkPipelineLayout pipelineLayout = VK_NULL_HANDLE )
 {
 	VkShaderModule vertexShader = VK_NULL_HANDLE;
 	VkShaderModule fragmentShader = VK_NULL_HANDLE;
@@ -4308,8 +5048,10 @@ static bool VK_CreatePipeline(
 	pipelineInfo.pDepthStencilState = &depthStencil;
 	pipelineInfo.pColorBlendState = &colorBlend;
 	pipelineInfo.pDynamicState = &dynamicState;
-	pipelineInfo.layout = vk.pipelineLayout;
-	pipelineInfo.renderPass = vk.renderPass;
+	pipelineInfo.layout = pipelineLayout != VK_NULL_HANDLE
+		? pipelineLayout : vk.pipelineLayout;
+	pipelineInfo.renderPass = renderPass != VK_NULL_HANDLE
+		? renderPass : vk.renderPass;
 	pipelineInfo.subpass = 0;
 
 	const bool created = VK_CheckVk( vkCreateGraphicsPipelines( vk.device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, pipeline ),
@@ -4318,6 +5060,200 @@ static bool VK_CreatePipeline(
 	vkDestroyShaderModule( vk.device, vertexShader, nullptr );
 	vkDestroyShaderModule( vk.device, fragmentShader, nullptr );
 	return created;
+}
+
+static bool VK_CreateShadowReceiverPipelines()
+{
+	VkShaderModule vertexShader = VK_NULL_HANDLE;
+	VkShaderModule fragmentShader = VK_NULL_HANDLE;
+	if ( !VK_CreateShaderModule(
+			shadowReceiverVertSpv, ARRAY_LEN( shadowReceiverVertSpv ), &vertexShader ) ||
+		 !VK_CreateShaderModule(
+			shadowReceiverFragSpv, ARRAY_LEN( shadowReceiverFragSpv ), &fragmentShader ) )
+	{
+		if ( vertexShader != VK_NULL_HANDLE )
+		{
+			vkDestroyShaderModule( vk.device, vertexShader, nullptr );
+		}
+		if ( fragmentShader != VK_NULL_HANDLE )
+		{
+			vkDestroyShaderModule( vk.device, fragmentShader, nullptr );
+		}
+		return false;
+	}
+
+	VkPushConstantRange pushConstant = {};
+	pushConstant.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+	pushConstant.size = sizeof( float ) * 32;
+	VkPipelineLayoutCreateInfo layoutInfo = {};
+	layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+	layoutInfo.setLayoutCount = 1;
+	layoutInfo.pSetLayouts = &vk.shadowReceiverSetLayout;
+	layoutInfo.pushConstantRangeCount = 1;
+	layoutInfo.pPushConstantRanges = &pushConstant;
+	bool created = VK_CheckVk(
+		vkCreatePipelineLayout(
+			vk.device, &layoutInfo, nullptr, &vk.shadowReceiverPipelineLayout ),
+		"vkCreatePipelineLayout(shadow receiver)" );
+
+	VkPipelineShaderStageCreateInfo shaderStages[2] = {};
+	shaderStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	shaderStages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+	shaderStages[0].module = vertexShader;
+	shaderStages[0].pName = "main";
+	shaderStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	shaderStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+	shaderStages[1].module = fragmentShader;
+	shaderStages[1].pName = "main";
+	VkSpecializationMapEntry filterEntry = {};
+	filterEntry.constantID = 0;
+	filterEntry.offset = 0;
+	filterEntry.size = sizeof( uint32_t );
+	uint32_t filterMode = 0;
+	VkSpecializationInfo filterSpecialization = {};
+	filterSpecialization.mapEntryCount = 1;
+	filterSpecialization.pMapEntries = &filterEntry;
+	filterSpecialization.dataSize = sizeof( filterMode );
+	filterSpecialization.pData = &filterMode;
+	shaderStages[1].pSpecializationInfo = &filterSpecialization;
+	VkPipelineVertexInputStateCreateInfo vertexInput = {};
+	vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+	VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
+	inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+	inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+	VkPipelineViewportStateCreateInfo viewportState = {};
+	viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+	viewportState.viewportCount = 1;
+	viewportState.scissorCount = 1;
+	VkPipelineRasterizationStateCreateInfo rasterization = {};
+	rasterization.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+	rasterization.polygonMode = VK_POLYGON_MODE_FILL;
+	rasterization.cullMode = VK_CULL_MODE_NONE;
+	rasterization.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+	rasterization.lineWidth = 1.0f;
+	VkPipelineMultisampleStateCreateInfo multisample = {};
+	multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+	multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+	VkPipelineDepthStencilStateCreateInfo depthStencil = {};
+	depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+	VkPipelineColorBlendAttachmentState colorAttachment = {};
+	colorAttachment.blendEnable = VK_TRUE;
+	colorAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+	colorAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+	colorAttachment.colorBlendOp = VK_BLEND_OP_MAX;
+	colorAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+	colorAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+	colorAttachment.alphaBlendOp = VK_BLEND_OP_MAX;
+	colorAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT;
+	VkPipelineColorBlendStateCreateInfo colorBlend = {};
+	colorBlend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+	colorBlend.attachmentCount = 1;
+	colorBlend.pAttachments = &colorAttachment;
+	const VkDynamicState dynamicStates[] = {
+		VK_DYNAMIC_STATE_VIEWPORT,
+		VK_DYNAMIC_STATE_SCISSOR,
+	};
+	VkPipelineDynamicStateCreateInfo dynamicState = {};
+	dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+	dynamicState.dynamicStateCount = ARRAY_LEN( dynamicStates );
+	dynamicState.pDynamicStates = dynamicStates;
+	VkGraphicsPipelineCreateInfo pipelineInfo = {};
+	pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+	pipelineInfo.stageCount = ARRAY_LEN( shaderStages );
+	pipelineInfo.pStages = shaderStages;
+	pipelineInfo.pVertexInputState = &vertexInput;
+	pipelineInfo.pInputAssemblyState = &inputAssembly;
+	pipelineInfo.pViewportState = &viewportState;
+	pipelineInfo.pRasterizationState = &rasterization;
+	pipelineInfo.pMultisampleState = &multisample;
+	pipelineInfo.pDepthStencilState = &depthStencil;
+	pipelineInfo.pColorBlendState = &colorBlend;
+	pipelineInfo.pDynamicState = &dynamicState;
+	pipelineInfo.layout = vk.shadowReceiverPipelineLayout;
+	pipelineInfo.renderPass = vk.shadowMaskRenderPass;
+	pipelineInfo.subpass = 0;
+	if ( created )
+	{
+		created = VK_CheckVk(
+			vkCreateGraphicsPipelines(
+				vk.device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr,
+				&vk.shadowReceiverPipeline ),
+			"vkCreateGraphicsPipelines(shadow receiver raw)" );
+	}
+	if ( created )
+	{
+		filterMode = 1;
+		created = VK_CheckVk(
+			vkCreateGraphicsPipelines(
+				vk.device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr,
+				&vk.shadowReceiverFilteredPipeline ),
+			"vkCreateGraphicsPipelines(shadow receiver PCF)" );
+	}
+	if ( created )
+	{
+		filterMode = 2;
+		created = VK_CheckVk(
+			vkCreateGraphicsPipelines(
+				vk.device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr,
+				&vk.shadowReceiverSoftPipeline ),
+			"vkCreateGraphicsPipelines(shadow receiver soft)" );
+	}
+	vkDestroyShaderModule( vk.device, vertexShader, nullptr );
+	vkDestroyShaderModule( vk.device, fragmentShader, nullptr );
+	if ( !created )
+	{
+		return false;
+	}
+
+	VkPushConstantRange compositePushConstant = {};
+	compositePushConstant.stageFlags =
+		VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+	compositePushConstant.size = sizeof( float ) * 4;
+	VkPipelineLayoutCreateInfo compositeLayoutInfo = {};
+	compositeLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+	compositeLayoutInfo.setLayoutCount = 1;
+	compositeLayoutInfo.pSetLayouts = &vk.shadowReceiverSetLayout;
+	compositeLayoutInfo.pushConstantRangeCount = 1;
+	compositeLayoutInfo.pPushConstantRanges = &compositePushConstant;
+	if ( !VK_CheckVk(
+		vkCreatePipelineLayout(
+			vk.device, &compositeLayoutInfo, nullptr,
+			&vk.shadowCompositePipelineLayout ),
+		"vkCreatePipelineLayout(shadow composite)" ) )
+	{
+		return false;
+	}
+
+	if ( !VK_CreatePipeline(
+		shadowMapVertSpv, ARRAY_LEN( shadowMapVertSpv ),
+		shadowResponseFragSpv, ARRAY_LEN( shadowResponseFragSpv ),
+		&vk.shadowResponsePipeline,
+		"vkCreateGraphicsPipelines(shadow response)",
+		VK_BLEND_OPAQUE,
+		VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+		true,
+		false,
+		true,
+		VK_CULL_MODE_NONE,
+		vk.shadowResponseRenderPass,
+		vk.shadowMapPipelineLayout ) )
+	{
+		return false;
+	}
+
+	return VK_CreatePipeline(
+		shadowReceiverVertSpv, ARRAY_LEN( shadowReceiverVertSpv ),
+		shadowCompositeFragSpv, ARRAY_LEN( shadowCompositeFragSpv ),
+		&vk.shadowCompositePipeline,
+		"vkCreateGraphicsPipelines(shadow composite)",
+		VK_BLEND_ALPHA,
+		VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+		false,
+		false,
+		false,
+		VK_CULL_MODE_NONE,
+		vk.shadowLoadRenderPass,
+		vk.shadowCompositePipelineLayout );
 }
 
 static bool VK_CreateGLMSkinPipeline()
@@ -4561,7 +5497,8 @@ static bool VK_CreateEyeDepthResources( int eye )
 	imageInfo.arrayLayers = 1;
 	imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
 	imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-	imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+	imageInfo.usage =
+		VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 	imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 	imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
@@ -4767,6 +5704,328 @@ static bool VK_CreateForceSpeedTarget( int eye )
 	return true;
 }
 
+static void VK_DestroyShadowMaskTarget( int eye )
+{
+	if ( vk.shadowMaskFramebuffers[eye] != VK_NULL_HANDLE )
+	{
+		vkDestroyFramebuffer(
+			vk.device, vk.shadowMaskFramebuffers[eye], nullptr );
+		vk.shadowMaskFramebuffers[eye] = VK_NULL_HANDLE;
+	}
+	VK_DestroyTexture( vk.shadowMaskTargets[eye] );
+	for ( int group = 0; group < VK_SHADOW_DIRECTION_GROUP_COUNT; ++group )
+	{
+		vk.shadowReceiverDescriptorSets[eye][group] = VK_NULL_HANDLE;
+	}
+}
+
+static void VK_DestroyShadowResponseTarget( int eye )
+{
+	if ( vk.shadowResponseFramebuffers[eye] != VK_NULL_HANDLE )
+	{
+		vkDestroyFramebuffer(
+			vk.device, vk.shadowResponseFramebuffers[eye], nullptr );
+		vk.shadowResponseFramebuffers[eye] = VK_NULL_HANDLE;
+	}
+	VK_DestroyTexture( vk.shadowResponseTargets[eye] );
+	vk.shadowCompositeDescriptorSets[eye] = VK_NULL_HANDLE;
+}
+
+static bool VK_CreateShadowMaskTarget( int eye )
+{
+	VK_DestroyShadowMaskTarget( eye );
+	vk_texture_t &target = vk.shadowMaskTargets[eye];
+	const uint32_t width = std::max<uint32_t>(
+		1, ( vk.viewConfiguration[eye].recommendedImageRectWidth + 1 ) / 2 );
+	const uint32_t height = std::max<uint32_t>(
+		1, ( vk.viewConfiguration[eye].recommendedImageRectHeight + 1 ) / 2 );
+
+	VkImageCreateInfo imageInfo = {};
+	imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	imageInfo.imageType = VK_IMAGE_TYPE_2D;
+	imageInfo.format = VK_FORMAT_R8_UNORM;
+	imageInfo.extent = { width, height, 1 };
+	imageInfo.mipLevels = 1;
+	imageInfo.arrayLayers = 1;
+	imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+	imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+	imageInfo.usage =
+		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+	imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	if ( !VK_CheckVk(
+		vkCreateImage( vk.device, &imageInfo, nullptr, &target.image ),
+		"vkCreateImage(shadow mask)" ) )
+	{
+		return false;
+	}
+
+	VkMemoryRequirements requirements = {};
+	vkGetImageMemoryRequirements( vk.device, target.image, &requirements );
+	uint32_t memoryType = 0;
+	if ( !VK_FindMemoryType(
+		requirements.memoryTypeBits,
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+		&memoryType ) )
+	{
+		VK_DestroyShadowMaskTarget( eye );
+		return false;
+	}
+	VkMemoryAllocateInfo allocateInfo = {};
+	allocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	allocateInfo.allocationSize = requirements.size;
+	allocateInfo.memoryTypeIndex = memoryType;
+	if ( !VK_CheckVk(
+			vkAllocateMemory(
+				vk.device, &allocateInfo, nullptr, &target.memory ),
+			"vkAllocateMemory(shadow mask)" ) ||
+		 !VK_CheckVk(
+			vkBindImageMemory( vk.device, target.image, target.memory, 0 ),
+			"vkBindImageMemory(shadow mask)" ) )
+	{
+		VK_DestroyShadowMaskTarget( eye );
+		return false;
+	}
+
+	VkImageViewCreateInfo viewInfo = {};
+	viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	viewInfo.image = target.image;
+	viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	viewInfo.format = VK_FORMAT_R8_UNORM;
+	viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	viewInfo.subresourceRange.levelCount = 1;
+	viewInfo.subresourceRange.layerCount = 1;
+	if ( !VK_CheckVk(
+		vkCreateImageView( vk.device, &viewInfo, nullptr, &target.view ),
+		"vkCreateImageView(shadow mask)" ) )
+	{
+		VK_DestroyShadowMaskTarget( eye );
+		return false;
+	}
+
+	VkDescriptorSetLayout layouts[1 + VK_SHADOW_DIRECTION_GROUP_COUNT] = {};
+	layouts[0] = vk.textureSetLayout;
+	for ( int group = 0; group < VK_SHADOW_DIRECTION_GROUP_COUNT; ++group )
+	{
+		layouts[group + 1] = vk.shadowReceiverSetLayout;
+	}
+	VkDescriptorSet sets[1 + VK_SHADOW_DIRECTION_GROUP_COUNT] = {};
+	VkDescriptorSetAllocateInfo descriptorInfo = {};
+	descriptorInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	descriptorInfo.descriptorPool = vk.descriptorPool;
+	descriptorInfo.descriptorSetCount = ARRAY_LEN( layouts );
+	descriptorInfo.pSetLayouts = layouts;
+	if ( !VK_CheckVk(
+		vkAllocateDescriptorSets( vk.device, &descriptorInfo, sets ),
+		"vkAllocateDescriptorSets(shadow mask)" ) )
+	{
+		VK_DestroyShadowMaskTarget( eye );
+		return false;
+	}
+	target.descriptorSet = sets[0];
+	target.repeatDescriptorSet = sets[0];
+	for ( int group = 0; group < VK_SHADOW_DIRECTION_GROUP_COUNT; ++group )
+	{
+		vk.shadowReceiverDescriptorSets[eye][group] = sets[group + 1];
+	}
+	target.width = width;
+	target.height = height;
+	target.mipLevels = 1;
+
+	VkDescriptorImageInfo maskInfo = {};
+	maskInfo.sampler = vk.textureSampler;
+	maskInfo.imageView = target.view;
+	maskInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	VkWriteDescriptorSet maskWrite = {};
+	maskWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	maskWrite.dstSet = target.descriptorSet;
+	maskWrite.dstBinding = 0;
+	maskWrite.descriptorCount = 1;
+	maskWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	maskWrite.pImageInfo = &maskInfo;
+	vkUpdateDescriptorSets( vk.device, 1, &maskWrite, 0, nullptr );
+
+	for ( int group = 0; group < VK_SHADOW_DIRECTION_GROUP_COUNT; ++group )
+	{
+		VkDescriptorImageInfo receiverInfos[2] = {};
+		receiverInfos[0].sampler = vk.shadowDepthSampler;
+		receiverInfos[0].imageView = vk.depthImageViews[eye];
+		receiverInfos[0].imageLayout =
+			VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+		receiverInfos[1].sampler = vk.shadowDepthSampler;
+		receiverInfos[1].imageView = vk.shadowMapViews[group];
+		receiverInfos[1].imageLayout =
+			VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+		VkWriteDescriptorSet receiverWrites[2] = {};
+		for ( uint32_t bindingIndex = 0;
+			  bindingIndex < ARRAY_LEN( receiverWrites ); ++bindingIndex )
+		{
+			receiverWrites[bindingIndex].sType =
+				VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			receiverWrites[bindingIndex].dstSet =
+				vk.shadowReceiverDescriptorSets[eye][group];
+			receiverWrites[bindingIndex].dstBinding = bindingIndex;
+			receiverWrites[bindingIndex].descriptorCount = 1;
+			receiverWrites[bindingIndex].descriptorType =
+				VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			receiverWrites[bindingIndex].pImageInfo = &receiverInfos[bindingIndex];
+		}
+		vkUpdateDescriptorSets(
+			vk.device, ARRAY_LEN( receiverWrites ), receiverWrites, 0, nullptr );
+	}
+
+	VkFramebufferCreateInfo framebufferInfo = {};
+	framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+	framebufferInfo.renderPass = vk.shadowMaskRenderPass;
+	framebufferInfo.attachmentCount = 1;
+	framebufferInfo.pAttachments = &target.view;
+	framebufferInfo.width = width;
+	framebufferInfo.height = height;
+	framebufferInfo.layers = 1;
+	if ( !VK_CheckVk(
+		vkCreateFramebuffer(
+			vk.device, &framebufferInfo, nullptr,
+			&vk.shadowMaskFramebuffers[eye] ),
+		"vkCreateFramebuffer(shadow mask)" ) )
+	{
+		VK_DestroyShadowMaskTarget( eye );
+		return false;
+	}
+	return true;
+}
+
+static bool VK_CreateShadowResponseTarget( int eye )
+{
+	VK_DestroyShadowResponseTarget( eye );
+	vk_texture_t &target = vk.shadowResponseTargets[eye];
+	const uint32_t width =
+		vk.viewConfiguration[eye].recommendedImageRectWidth;
+	const uint32_t height =
+		vk.viewConfiguration[eye].recommendedImageRectHeight;
+
+	VkImageCreateInfo imageInfo = {};
+	imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	imageInfo.imageType = VK_IMAGE_TYPE_2D;
+	imageInfo.format = VK_FORMAT_R8_UNORM;
+	imageInfo.extent = { width, height, 1 };
+	imageInfo.mipLevels = 1;
+	imageInfo.arrayLayers = 1;
+	imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+	imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+	imageInfo.usage =
+		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+	imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	if ( !VK_CheckVk(
+		vkCreateImage( vk.device, &imageInfo, nullptr, &target.image ),
+		"vkCreateImage(shadow response)" ) )
+	{
+		return false;
+	}
+
+	VkMemoryRequirements requirements = {};
+	vkGetImageMemoryRequirements( vk.device, target.image, &requirements );
+	uint32_t memoryType = 0;
+	if ( !VK_FindMemoryType(
+		requirements.memoryTypeBits,
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+		&memoryType ) )
+	{
+		VK_DestroyShadowResponseTarget( eye );
+		return false;
+	}
+	VkMemoryAllocateInfo allocateInfo = {};
+	allocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	allocateInfo.allocationSize = requirements.size;
+	allocateInfo.memoryTypeIndex = memoryType;
+	if ( !VK_CheckVk(
+		vkAllocateMemory(
+			vk.device, &allocateInfo, nullptr, &target.memory ),
+		"vkAllocateMemory(shadow response)" ) ||
+		 !VK_CheckVk(
+		vkBindImageMemory( vk.device, target.image, target.memory, 0 ),
+		"vkBindImageMemory(shadow response)" ) )
+	{
+		VK_DestroyShadowResponseTarget( eye );
+		return false;
+	}
+
+	VkImageViewCreateInfo viewInfo = {};
+	viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	viewInfo.image = target.image;
+	viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	viewInfo.format = VK_FORMAT_R8_UNORM;
+	viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	viewInfo.subresourceRange.levelCount = 1;
+	viewInfo.subresourceRange.layerCount = 1;
+	if ( !VK_CheckVk(
+		vkCreateImageView( vk.device, &viewInfo, nullptr, &target.view ),
+		"vkCreateImageView(shadow response)" ) )
+	{
+		VK_DestroyShadowResponseTarget( eye );
+		return false;
+	}
+	target.width = width;
+	target.height = height;
+	target.mipLevels = 1;
+
+	VkDescriptorSetAllocateInfo descriptorInfo = {};
+	descriptorInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	descriptorInfo.descriptorPool = vk.descriptorPool;
+	descriptorInfo.descriptorSetCount = 1;
+	descriptorInfo.pSetLayouts = &vk.shadowReceiverSetLayout;
+	if ( !VK_CheckVk(
+		vkAllocateDescriptorSets(
+			vk.device, &descriptorInfo,
+			&vk.shadowCompositeDescriptorSets[eye] ),
+		"vkAllocateDescriptorSets(shadow composite)" ) )
+	{
+		VK_DestroyShadowResponseTarget( eye );
+		return false;
+	}
+	VkDescriptorImageInfo imageDescriptors[2] = {};
+	imageDescriptors[0].sampler = vk.textureSampler;
+	imageDescriptors[0].imageView = vk.shadowMaskTargets[eye].view;
+	imageDescriptors[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	imageDescriptors[1].sampler = vk.textureSampler;
+	imageDescriptors[1].imageView = target.view;
+	imageDescriptors[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	VkWriteDescriptorSet descriptorWrites[2] = {};
+	for ( uint32_t binding = 0; binding < ARRAY_LEN( descriptorWrites ); ++binding )
+	{
+		descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		descriptorWrites[binding].dstSet =
+			vk.shadowCompositeDescriptorSets[eye];
+		descriptorWrites[binding].dstBinding = binding;
+		descriptorWrites[binding].descriptorCount = 1;
+		descriptorWrites[binding].descriptorType =
+			VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		descriptorWrites[binding].pImageInfo = &imageDescriptors[binding];
+	}
+	vkUpdateDescriptorSets(
+		vk.device, ARRAY_LEN( descriptorWrites ), descriptorWrites, 0, nullptr );
+
+	VkImageView attachments[] = { target.view, vk.depthImageViews[eye] };
+	VkFramebufferCreateInfo framebufferInfo = {};
+	framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+	framebufferInfo.renderPass = vk.shadowResponseRenderPass;
+	framebufferInfo.attachmentCount = ARRAY_LEN( attachments );
+	framebufferInfo.pAttachments = attachments;
+	framebufferInfo.width = width;
+	framebufferInfo.height = height;
+	framebufferInfo.layers = 1;
+	if ( !VK_CheckVk(
+		vkCreateFramebuffer(
+			vk.device, &framebufferInfo, nullptr,
+			&vk.shadowResponseFramebuffers[eye] ),
+		"vkCreateFramebuffer(shadow response)" ) )
+	{
+		VK_DestroyShadowResponseTarget( eye );
+		return false;
+	}
+	return true;
+}
+
 static bool VK_CreateEyeFramebuffers( int eye )
 {
 	if ( !VK_CreateEyeDepthResources( eye ) )
@@ -4837,7 +6096,11 @@ static bool VK_CreateRenderResources()
 
 	if ( !VK_SelectDepthFormat() ||
 		 !VK_CreateRenderPass() ||
+		 !VK_CreateShadowMapResources() ||
+		 !VK_CreateShadowMapPipeline() ||
+		 !VK_CreateShadowReceiverResources() ||
 		 !VK_CreatePipelines() ||
+		 !VK_CreateShadowReceiverPipelines() ||
 		 !VK_CreateSkinnedVertexStream() )
 	{
 		return false;
@@ -4845,7 +6108,10 @@ static bool VK_CreateRenderResources()
 
 	for ( int eye = 0; eye < VK_BACKEND_EYE_COUNT; ++eye )
 	{
-		if ( !VK_CreateEyeFramebuffers( eye ) || !VK_CreateForceSpeedTarget( eye ) )
+		if ( !VK_CreateEyeFramebuffers( eye ) ||
+			 !VK_CreateForceSpeedTarget( eye ) ||
+			 !VK_CreateShadowMaskTarget( eye ) ||
+			 !VK_CreateShadowResponseTarget( eye ) )
 		{
 			return false;
 		}
@@ -4979,13 +6245,12 @@ static void VK_BuildDiagnosticModelMatrix( float matrix[16] )
 	matrix[15] = 1.0f;
 }
 
-static void VK_BuildViewMatrix(
+static void VK_BuildEyeOrigin(
 	const refdef_t &refdef,
 	int eye,
-	float matrix[16],
+	vec3_t eyeOrigin,
 	bool applyStereoSeparation = true )
 {
-	vec3_t eyeOrigin;
 	VectorCopy( refdef.vieworg, eyeOrigin );
 
 	float worldScale = refdef.worldscale > 0.0f ? refdef.worldscale : 33.5f;
@@ -5014,6 +6279,16 @@ static void VK_BuildViewMatrix(
 	}
 
 	VectorMA( eyeOrigin, separation, refdef.viewaxis[1], eyeOrigin );
+}
+
+static void VK_BuildViewMatrix(
+	const refdef_t &refdef,
+	int eye,
+	float matrix[16],
+	bool applyStereoSeparation = true )
+{
+	vec3_t eyeOrigin;
+	VK_BuildEyeOrigin( refdef, eye, eyeOrigin, applyStereoSeparation );
 
 	std::memset( matrix, 0, sizeof( float ) * 16 );
 	matrix[0] = -refdef.viewaxis[1][0];
@@ -5375,8 +6650,20 @@ static bool VK_ShaderIsYavinRiver( qhandle_t shader )
 {
 	return shader > 0 && static_cast<size_t>( shader ) < vk.materials.size() &&
 		std::any_of(
-			vk.materials[shader].stages.begin(), vk.materials[shader].stages.end(),
-			[]( const vk_material_stage_t &stage ) { return stage.yavinRiverStage != 0; } );
+				vk.materials[shader].stages.begin(), vk.materials[shader].stages.end(),
+				[]( const vk_material_stage_t &stage ) { return stage.yavinRiverStage != 0; } );
+}
+
+static bool VK_ShaderIsYavinWaterOverlay( qhandle_t shader )
+{
+	return shader > 0 && static_cast<size_t>( shader ) < vk.materials.size() &&
+		std::any_of(
+				vk.materials[shader].stages.begin(), vk.materials[shader].stages.end(),
+				[]( const vk_material_stage_t &stage )
+				{
+					return stage.yavinRiverStage != 0 ||
+						stage.yavinWaterBase || stage.yavinWaterDetail;
+				} );
 }
 
 static bool VK_WorldIndirectBatchesMatch(
@@ -8419,6 +9706,7 @@ static void VK_SetupEntityLighting(
 	{
 		VectorCopy( fallbackDirection, weightedDirection );
 	}
+	VectorCopy( weightedDirection, lighting->worldDirection );
 	for ( int axis = 0; axis < 3; ++axis )
 	{
 		lighting->localDirection[axis] = DotProduct( weightedDirection, entity.axis[axis] );
@@ -9003,7 +10291,77 @@ static uint32_t VK_RecordGLMComputeSkinningForEntities(
 	return dispatchCount;
 }
 
-static void VK_RecordGLMComputeSkinningPrepass()
+static uint32_t VK_RecordGLMComputeSkinningForShadowCasters(
+	const std::vector<vk_shadow_caster_t> &casters,
+	int sceneTime )
+{
+	uint32_t dispatchCount = 0;
+	for ( const vk_shadow_caster_t &caster : casters )
+	{
+		if ( caster.entity == nullptr || caster.entity->ghoul2 == nullptr ||
+			 caster.ghoul == nullptr || caster.model == nullptr ||
+			 caster.modelIndex < 0 ||
+			 caster.modelIndex >= caster.entity->ghoul2->size() )
+		{
+			continue;
+		}
+
+		std::vector<byte> hierarchyStates(
+			static_cast<size_t>( caster.entity->ghoul2->size() ), 0 );
+		std::vector<const std::vector<mdxaBone_t> *> hierarchyBones(
+			static_cast<size_t>( caster.entity->ghoul2->size() ), nullptr );
+		const std::vector<mdxaBone_t> *bones = VK_ResolveGhoul2HierarchyBones(
+			*caster.entity->ghoul2,
+			caster.modelIndex,
+			sceneTime,
+			&hierarchyStates,
+			&hierarchyBones );
+		if ( bones == nullptr )
+		{
+			continue;
+		}
+
+		qhandle_t skinHandle = caster.entity->customSkin;
+		if ( skinHandle <= 0 )
+		{
+			skinHandle = caster.ghoul->mSkin;
+		}
+		if ( skinHandle <= 0 )
+		{
+			skinHandle = caster.ghoul->mCustomSkin;
+		}
+		for ( const vk_model_surface_t &surface :
+			  VK_GLMSurfacesForLod( *caster.model, caster.lod ) )
+		{
+			if ( !VK_GLMShouldDrawSurface( *caster.model, surface, caster.ghoul ) )
+			{
+				continue;
+			}
+			const vk_skin_surface_t *skinSurface =
+				VK_FindSkinSurface( skinHandle, surface.name );
+			if ( skinSurface != nullptr && skinSurface->off )
+			{
+				continue;
+			}
+			const size_t cacheSize = vk.ghoul2SurfaceCache.size();
+			if ( VK_DispatchGLMSkinSurface(
+					*caster.model,
+					surface,
+					*caster.ghoul,
+					sceneTime,
+					*bones,
+					*caster.entity ) &&
+				 vk.ghoul2SurfaceCache.size() != cacheSize )
+			{
+				++dispatchCount;
+			}
+		}
+	}
+	return dispatchCount;
+}
+
+static void VK_RecordGLMComputeSkinningPrepass(
+	const std::vector<vk_shadow_caster_t> *shadowCasters )
 {
 	if ( !VK_ComputeSkinningEnabled() )
 	{
@@ -9027,6 +10385,24 @@ static void VK_RecordGLMComputeSkinningPrepass()
 	{
 		dispatchCount += VK_RecordGLMComputeSkinningForEntities(
 			scene.entities, false, scene.refdef.time, scene.refdef );
+	}
+	if ( shadowCasters != nullptr && !shadowCasters->empty() )
+	{
+		const std::chrono::steady_clock::time_point shadowPrepareBegin =
+			VK_TimingEnabled()
+				? std::chrono::steady_clock::now()
+				: std::chrono::steady_clock::time_point{};
+		const uint32_t shadowDispatchCount =
+			VK_RecordGLMComputeSkinningForShadowCasters(
+				*shadowCasters, vk.worldRefdef.time );
+		dispatchCount += shadowDispatchCount;
+		if ( VK_TimingEnabled() )
+		{
+			vk.timingShadowPrepareTotalMs +=
+				std::chrono::duration<double, std::milli>(
+					std::chrono::steady_clock::now() - shadowPrepareBegin ).count();
+			vk.timingShadowPrepareDispatchTotal += shadowDispatchCount;
+		}
 	}
 
 	if ( dispatchCount > 0 )
@@ -9052,6 +10428,613 @@ static void VK_RecordGLMComputeSkinningPrepass()
 		vk.timingComputeSkinRecordTotalMs +=
 			std::chrono::duration<double, std::milli>(
 				std::chrono::steady_clock::now() - begin ).count();
+	}
+}
+
+static bool VK_ShadowMapEnabled()
+{
+	return vk.shadowsCvar != nullptr && vk.shadowsCvar->integer != 0 &&
+		vk.cgShadowsCvar != nullptr && vk.cgShadowsCvar->integer >= 2 &&
+		vk.haveWorldRefdef && vk.sceneWorldRenderedThisFrame &&
+		vk.shadowMapPipeline != VK_NULL_HANDLE &&
+		vk.shadowMapPipelineLayout != VK_NULL_HANDLE &&
+		vk.shadowMapRenderPass != VK_NULL_HANDLE &&
+		vk.shadowMapFramebuffers[0] != VK_NULL_HANDLE &&
+		vk.shadowMapSize > 0;
+}
+
+static std::vector<vk_shadow_caster_t> VK_CollectShadowCasters()
+{
+	std::vector<vk_shadow_caster_t> casters;
+	if ( !VK_ShadowMapEnabled() )
+	{
+		return casters;
+	}
+
+	const float maximumDistance = VK_ClampValue(
+		vk.shadowDistanceCvar != nullptr ? vk.shadowDistanceCvar->value : 2048.0f,
+		256.0f,
+		8192.0f );
+	const float maximumDistanceSquared = maximumDistance * maximumDistance;
+	for ( const refEntity_t &entity : vk.worldEntities )
+	{
+		if ( entity.reType != RT_MODEL || entity.ghoul2 == nullptr ||
+			 !entity.ghoul2->IsValid() ||
+			 ( entity.renderfx & RF_SHADOW_PLANE ) == 0 ||
+			 ( entity.renderfx & ( RF_FIRST_PERSON | RF_DEPTHHACK ) ) != 0 )
+		{
+			continue;
+		}
+
+		vec3_t offset;
+		VectorSubtract( entity.origin, vk.worldRefdef.vieworg, offset );
+		const float distanceSquared = DotProduct( offset, offset );
+		if ( distanceSquared > maximumDistanceSquared )
+		{
+			continue;
+		}
+		vk_entity_lighting_t shadowLighting = {};
+		static const std::vector<vk_dynamic_light_t> noDynamicLights;
+		VK_SetupEntityLighting(
+			entity, vk.worldRefdef, noDynamicLights, &shadowLighting );
+		for ( int modelIndex = 0; modelIndex < entity.ghoul2->size(); ++modelIndex )
+		{
+			const CGhoul2Info &ghoul = ( *entity.ghoul2 )[modelIndex];
+			if ( ghoul.mModelindex < 0 ||
+				 ( ghoul.mFlags & ( GHOUL2_NOMODEL | GHOUL2_NORENDER ) ) != 0 )
+			{
+				continue;
+			}
+			const vk_model_t *model = VK_ModelForHandle( ghoul.mModel );
+			if ( model == nullptr || model->type != VK_MODEL_GLM )
+			{
+				continue;
+			}
+			vk_shadow_caster_t caster = {};
+			caster.entity = &entity;
+			caster.ghoul = &ghoul;
+			caster.model = model;
+			caster.modelIndex = modelIndex;
+				caster.lod = VK_SelectGLMLod(
+					entity, *model, &ghoul, vk.worldRefdef ).lod;
+				caster.distanceSquared = distanceSquared;
+				VectorCopy( shadowLighting.worldDirection, caster.lightDirection );
+				const float absoluteX = std::abs( caster.lightDirection[0] );
+				const float absoluteY = std::abs( caster.lightDirection[1] );
+				if ( absoluteX >= absoluteY )
+				{
+					caster.directionGroup = caster.lightDirection[0] >= 0.0f ? 0 : 2;
+				}
+				else
+				{
+					caster.directionGroup = caster.lightDirection[1] >= 0.0f ? 1 : 3;
+				}
+				casters.push_back( caster );
+		}
+	}
+
+	std::sort(
+		casters.begin(),
+		casters.end(),
+		[]( const vk_shadow_caster_t &left, const vk_shadow_caster_t &right )
+		{
+			return left.distanceSquared < right.distanceSquared;
+		} );
+	const size_t casterLimit = static_cast<size_t>( VK_ClampValue(
+		vk.shadowCasterLimitCvar != nullptr ? vk.shadowCasterLimitCvar->integer : 24,
+		1,
+		64 ) );
+	if ( casters.size() > casterLimit )
+	{
+		casters.resize( casterLimit );
+	}
+	return casters;
+}
+
+static bool VK_BuildBoundedShadowDirection(
+	const vec3_t sourceDirection,
+	vec3_t boundedDirection )
+{
+	VectorCopy( sourceDirection, boundedDirection );
+	boundedDirection[2] = 0.0f;
+	if ( VectorNormalize( boundedDirection ) == 0.0f )
+	{
+		return false;
+	}
+	boundedDirection[0] *= 0.3f;
+	boundedDirection[1] *= 0.3f;
+	boundedDirection[2] = 1.0f;
+	VectorNormalize( boundedDirection );
+	return true;
+}
+
+static void VK_GetShadowLightDirection(
+	const std::vector<vk_shadow_caster_t> &casters,
+	vec3_t lightDirection )
+{
+	VectorClear( lightDirection );
+	std::unordered_set<const refEntity_t *> sampledEntities;
+	for ( const vk_shadow_caster_t &caster : casters )
+	{
+		if ( caster.entity == nullptr ||
+			 !sampledEntities.insert( caster.entity ).second )
+		{
+			continue;
+		}
+		vec3_t boundedDirection;
+		if ( !VK_BuildBoundedShadowDirection(
+				caster.lightDirection, boundedDirection ) )
+		{
+			continue;
+		}
+		VectorAdd( lightDirection, boundedDirection, lightDirection );
+	}
+	if ( VectorNormalize( lightDirection ) == 0.0f )
+	{
+		if ( !VK_BuildBoundedShadowDirection(
+				vk.world.sunDirection, lightDirection ) )
+		{
+			VectorSet( lightDirection, 0.239046f, 0.159364f, 0.957826f );
+		}
+	}
+}
+
+static void VK_LogShadowDirections(
+	const std::vector<vk_shadow_caster_t> &casters,
+	const vec3_t consensusDirection )
+{
+	if ( vk.shadowAuditCvar == nullptr || vk.shadowAuditCvar->integer == 0 ||
+		 vk.loggedShadowDirectionAudit )
+	{
+		return;
+	}
+
+	ri.Printf(
+		PRINT_ALL,
+		"rd-vulkan-shadow-audit: unique actor light-grid samples; "
+		"consensus=(%.3f %.3f %.3f)\n",
+		consensusDirection[0], consensusDirection[1], consensusDirection[2] );
+	std::unordered_set<const refEntity_t *> loggedEntities;
+	for ( const vk_shadow_caster_t &caster : casters )
+	{
+		if ( caster.entity == nullptr ||
+			 !loggedEntities.insert( caster.entity ).second )
+		{
+			continue;
+		}
+
+		const vk_shadow_caster_t *root = &caster;
+		for ( const vk_shadow_caster_t &part : casters )
+		{
+			if ( part.entity == caster.entity && part.modelIndex < root->modelIndex )
+			{
+				root = &part;
+			}
+		}
+		vec3_t boundedDirection;
+		if ( !VK_BuildBoundedShadowDirection(
+				caster.lightDirection, boundedDirection ) )
+		{
+			VectorSet( boundedDirection, 0.0f, 0.0f, 1.0f );
+		}
+		const ptrdiff_t entityIndex = caster.entity - vk.worldEntities.data();
+		ri.Printf(
+			PRINT_ALL,
+			"rd-vulkan-shadow-audit: entity=%td group=%d model=%s "
+			"origin=(%.1f %.1f %.1f) "
+			"raw=(%.3f %.3f %.3f) bounded=(%.3f %.3f %.3f)\n",
+			entityIndex,
+			caster.directionGroup,
+			root->model != nullptr ? root->model->name.c_str() : "<unknown>",
+			caster.entity->origin[0], caster.entity->origin[1], caster.entity->origin[2],
+			caster.lightDirection[0], caster.lightDirection[1], caster.lightDirection[2],
+			boundedDirection[0], boundedDirection[1], boundedDirection[2] );
+	}
+	vk.loggedShadowDirectionAudit = true;
+}
+
+static void VK_UpdateShadowLightDirection(
+	const std::vector<vk_shadow_caster_t> &casters )
+{
+	vec3_t targetDirection;
+	VK_GetShadowLightDirection( casters, targetDirection );
+	const int sceneTime = vk.worldRefdef.time;
+	const int elapsed = sceneTime - vk.shadowLightDirectionTime;
+	const float agreement = vk.shadowLightDirectionValid
+		? DotProduct( vk.shadowLightDirection, targetDirection ) : -1.0f;
+	if ( !vk.shadowLightDirectionValid || elapsed < 0 || elapsed > 1000 ||
+		 agreement < 0.5f )
+	{
+		VectorCopy( targetDirection, vk.shadowLightDirection );
+		vk.shadowLightDirectionValid = true;
+	}
+	else if ( agreement < 0.99985f )
+	{
+		const float blend = VK_ClampValue(
+			static_cast<float>( elapsed ) / 350.0f, 0.02f, 0.20f );
+		VectorScale( vk.shadowLightDirection, 1.0f - blend, vk.shadowLightDirection );
+		VectorMA( vk.shadowLightDirection, blend, targetDirection, vk.shadowLightDirection );
+		VectorNormalize( vk.shadowLightDirection );
+	}
+	vk.shadowLightDirectionTime = sceneTime;
+}
+
+static void VK_UpdateShadowDirectionGroups(
+	const std::vector<vk_shadow_caster_t> &casters )
+{
+	vk.shadowActiveGroupCount = 0;
+	for ( int group = 0; group < VK_SHADOW_DIRECTION_GROUP_COUNT; ++group )
+	{
+		vk.shadowGroupActive[group] = false;
+		vec3_t targetDirection;
+		VectorClear( targetDirection );
+		std::unordered_set<const refEntity_t *> sampledEntities;
+		for ( const vk_shadow_caster_t &caster : casters )
+		{
+			if ( caster.directionGroup != group || caster.entity == nullptr ||
+				 !sampledEntities.insert( caster.entity ).second )
+			{
+				continue;
+			}
+			vec3_t boundedDirection;
+			if ( VK_BuildBoundedShadowDirection(
+					caster.lightDirection, boundedDirection ) )
+			{
+				VectorAdd( targetDirection, boundedDirection, targetDirection );
+			}
+		}
+		if ( sampledEntities.empty() || VectorNormalize( targetDirection ) == 0.0f )
+		{
+			continue;
+		}
+
+		const int sceneTime = vk.worldRefdef.time;
+		const int elapsed = sceneTime - vk.shadowGroupDirectionTimes[group];
+		const float agreement = vk.shadowGroupDirectionValid[group]
+			? DotProduct( vk.shadowGroupDirections[group], targetDirection ) : -1.0f;
+		if ( !vk.shadowGroupDirectionValid[group] || elapsed < 0 || elapsed > 1000 ||
+			 agreement < 0.5f )
+		{
+			VectorCopy( targetDirection, vk.shadowGroupDirections[group] );
+			vk.shadowGroupDirectionValid[group] = true;
+		}
+		else if ( agreement < 0.99985f )
+		{
+			const float blend = VK_ClampValue(
+				static_cast<float>( elapsed ) / 350.0f, 0.02f, 0.20f );
+			VectorScale(
+				vk.shadowGroupDirections[group], 1.0f - blend,
+				vk.shadowGroupDirections[group] );
+			VectorMA(
+				vk.shadowGroupDirections[group], blend, targetDirection,
+				vk.shadowGroupDirections[group] );
+			VectorNormalize( vk.shadowGroupDirections[group] );
+		}
+		vk.shadowGroupDirectionTimes[group] = sceneTime;
+		vk.shadowGroupActive[group] = true;
+		++vk.shadowActiveGroupCount;
+	}
+}
+
+static float VK_ShadowCasterRadius( const vk_shadow_caster_t &caster )
+{
+	if ( caster.entity == nullptr || caster.model == nullptr || !caster.model->hasBounds )
+	{
+		return 96.0f;
+	}
+	float modelMatrix[16] = {};
+	VK_BuildEntityModelMatrix( *caster.entity, modelMatrix );
+	const float maximumScale = std::max( {
+		VectorLength( &modelMatrix[0] ),
+		VectorLength( &modelMatrix[4] ),
+		VectorLength( &modelMatrix[8] ),
+	} );
+	float radiusSquared = 0.0f;
+	for ( int axis = 0; axis < 3; ++axis )
+	{
+		const float extent = std::max(
+			std::abs( caster.model->mins[axis] ),
+			std::abs( caster.model->maxs[axis] ) );
+		radiusSquared += extent * extent;
+	}
+	return VK_ClampValue(
+		std::sqrt( radiusSquared ) * std::max( maximumScale, 1.0f ),
+		64.0f,
+		384.0f );
+}
+
+static void VK_BuildShadowLightMatrix(
+	const std::vector<vk_shadow_caster_t> &casters,
+	const vec3_t lightDirection,
+	float lightViewProjection[16],
+	float *halfExtent )
+{
+	const float shadowDistance = VK_ClampValue(
+		vk.shadowDistanceCvar != nullptr ? vk.shadowDistanceCvar->value : 2048.0f,
+		256.0f,
+		8192.0f );
+	vec3_t forward;
+	VectorScale( lightDirection, -1.0f, forward );
+	const vec3_t worldUp = { 0.0f, 0.0f, 1.0f };
+	vec3_t right;
+	CrossProduct( forward, worldUp, right );
+	if ( VectorNormalize( right ) == 0.0f )
+	{
+		VectorSet( right, 1.0f, 0.0f, 0.0f );
+	}
+	vec3_t up;
+	CrossProduct( right, forward, up );
+	VectorNormalize( up );
+
+	float rightMinimum = std::numeric_limits<float>::max();
+	float rightMaximum = -std::numeric_limits<float>::max();
+	float upMinimum = std::numeric_limits<float>::max();
+	float upMaximum = -std::numeric_limits<float>::max();
+	std::unordered_set<const refEntity_t *> fittedEntities;
+	for ( const vk_shadow_caster_t &caster : casters )
+	{
+		if ( caster.entity == nullptr ||
+			 !fittedEntities.insert( caster.entity ).second )
+		{
+			continue;
+		}
+		float radius = 96.0f;
+		for ( const vk_shadow_caster_t &part : casters )
+		{
+			if ( part.entity == caster.entity )
+			{
+				radius = std::max( radius, VK_ShadowCasterRadius( part ) );
+			}
+		}
+		const float rightPosition = DotProduct( caster.entity->origin, right );
+		const float upPosition = DotProduct( caster.entity->origin, up );
+		rightMinimum = std::min( rightMinimum, rightPosition - radius );
+		rightMaximum = std::max( rightMaximum, rightPosition + radius );
+		upMinimum = std::min( upMinimum, upPosition - radius );
+		upMaximum = std::max( upMaximum, upPosition + radius );
+	}
+
+	vec3_t center;
+	VectorCopy( vk.worldRefdef.vieworg, center );
+	float mapHalfExtent = shadowDistance;
+	if ( !fittedEntities.empty() )
+	{
+		const float centerRight = ( rightMinimum + rightMaximum ) * 0.5f;
+		const float centerUp = ( upMinimum + upMaximum ) * 0.5f;
+		VectorMA(
+			center, centerRight - DotProduct( center, right ), right, center );
+		VectorMA(
+			center, centerUp - DotProduct( center, up ), up, center );
+		mapHalfExtent = VK_ClampValue(
+			std::max( rightMaximum - rightMinimum, upMaximum - upMinimum ) * 0.5f +
+				48.0f,
+			192.0f,
+			shadowDistance );
+	}
+	if ( halfExtent != nullptr )
+	{
+		*halfExtent = mapHalfExtent;
+	}
+	const float unitsPerTexel =
+		( mapHalfExtent * 2.0f ) / static_cast<float>( vk.shadowMapSize );
+	const float rightPosition = DotProduct( center, right );
+	const float upPosition = DotProduct( center, up );
+	VectorMA(
+		center,
+		std::round( rightPosition / unitsPerTexel ) * unitsPerTexel - rightPosition,
+		right,
+		center );
+	VectorMA(
+		center,
+		std::round( upPosition / unitsPerTexel ) * unitsPerTexel - upPosition,
+		up,
+		center );
+
+	vec3_t lightOrigin;
+	VectorMA( center, shadowDistance * 2.0f, lightDirection, lightOrigin );
+	float view[16] = {};
+	view[0] = right[0];
+	view[4] = right[1];
+	view[8] = right[2];
+	view[12] = -DotProduct( lightOrigin, right );
+	view[1] = up[0];
+	view[5] = up[1];
+	view[9] = up[2];
+	view[13] = -DotProduct( lightOrigin, up );
+	view[2] = -forward[0];
+	view[6] = -forward[1];
+	view[10] = -forward[2];
+	view[14] = DotProduct( lightOrigin, forward );
+	view[15] = 1.0f;
+
+	const float zNear = 1.0f;
+	const float zFar = shadowDistance * 4.0f;
+	float projection[16] = {};
+	projection[0] = 1.0f / mapHalfExtent;
+	projection[5] = 1.0f / mapHalfExtent;
+	projection[10] = 1.0f / ( zNear - zFar );
+	projection[14] = zNear / ( zNear - zFar );
+	projection[15] = 1.0f;
+	VK_MatrixMultiply( projection, view, lightViewProjection );
+}
+
+static void VK_RecordShadowMap(
+	bool gpuTiming,
+	const std::vector<vk_shadow_caster_t> &casters )
+{
+	vk.shadowMapValid = false;
+	if ( !VK_ShadowMapEnabled() )
+	{
+		return;
+	}
+
+	const std::chrono::steady_clock::time_point recordBegin = VK_TimingEnabled()
+		? std::chrono::steady_clock::now()
+		: std::chrono::steady_clock::time_point{};
+	if ( gpuTiming )
+	{
+		vkCmdWriteTimestamp(
+			vk.commandBuffer,
+			VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+				vk.timingQueryPool,
+				VK_TIMING_SHADOW_MAP_BEGIN );
+	}
+	VK_UpdateShadowLightDirection( casters );
+	VK_LogShadowDirections( casters, vk.shadowLightDirection );
+	VK_UpdateShadowDirectionGroups( casters );
+	uint32_t drawCount = 0;
+	uint32_t cacheMisses = 0;
+	const int sceneTime = VK_G2API_GetTime( vk.worldRefdef.time );
+	for ( int group = 0; group < VK_SHADOW_DIRECTION_GROUP_COUNT; ++group )
+	{
+		if ( !vk.shadowGroupActive[group] )
+		{
+			continue;
+		}
+		std::vector<vk_shadow_caster_t> groupCasters;
+		for ( const vk_shadow_caster_t &caster : casters )
+		{
+			if ( caster.directionGroup == group )
+			{
+				groupCasters.push_back( caster );
+			}
+		}
+		if ( groupCasters.empty() )
+		{
+			continue;
+		}
+
+		VK_BuildShadowLightMatrix(
+			groupCasters,
+			vk.shadowGroupDirections[group],
+			vk.shadowGroupViewProjections[group],
+			&vk.shadowGroupHalfExtents[group] );
+		VkClearValue clear = {};
+		clear.depthStencil.depth = 1.0f;
+		VkRenderPassBeginInfo renderPassInfo = {};
+		renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+		renderPassInfo.renderPass = vk.shadowMapRenderPass;
+		renderPassInfo.framebuffer = vk.shadowMapFramebuffers[group];
+		renderPassInfo.renderArea.extent = { vk.shadowMapSize, vk.shadowMapSize };
+		renderPassInfo.clearValueCount = 1;
+		renderPassInfo.pClearValues = &clear;
+		vkCmdBeginRenderPass(
+			vk.commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE );
+		VkViewport viewport = {};
+		viewport.width = static_cast<float>( vk.shadowMapSize );
+		viewport.height = static_cast<float>( vk.shadowMapSize );
+		viewport.maxDepth = 1.0f;
+		vkCmdSetViewport( vk.commandBuffer, 0, 1, &viewport );
+		VkRect2D scissor = {};
+		scissor.extent = { vk.shadowMapSize, vk.shadowMapSize };
+		vkCmdSetScissor( vk.commandBuffer, 0, 1, &scissor );
+		vkCmdSetDepthBias(
+			vk.commandBuffer,
+			vk.shadowDepthBiasCvar != nullptr ? vk.shadowDepthBiasCvar->value : 1.25f,
+			0.0f,
+			vk.shadowSlopeBiasCvar != nullptr ? vk.shadowSlopeBiasCvar->value : 1.75f );
+		vkCmdBindPipeline(
+			vk.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vk.shadowMapPipeline );
+
+		for ( const vk_shadow_caster_t &caster : groupCasters )
+		{
+			float model[16] = {};
+			float lightMvp[16] = {};
+			VK_BuildEntityModelMatrix( *caster.entity, model );
+			VK_MatrixMultiply(
+				vk.shadowGroupViewProjections[group], model, lightMvp );
+			vkCmdPushConstants(
+				vk.commandBuffer, vk.shadowMapPipelineLayout,
+				VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof( lightMvp ), lightMvp );
+
+			qhandle_t skinHandle = caster.entity->customSkin;
+			if ( skinHandle <= 0 )
+			{
+				skinHandle = caster.ghoul->mSkin;
+			}
+			if ( skinHandle <= 0 )
+			{
+				skinHandle = caster.ghoul->mCustomSkin;
+			}
+			for ( const vk_model_surface_t &surface :
+				  VK_GLMSurfacesForLod( *caster.model, caster.lod ) )
+			{
+				if ( surface.indexBuffer == VK_NULL_HANDLE || surface.indexCount == 0 ||
+					 !VK_GLMShouldDrawSurface( *caster.model, surface, caster.ghoul ) )
+				{
+					continue;
+				}
+				const vk_skin_surface_t *skinSurface =
+					VK_FindSkinSurface( skinHandle, surface.name );
+				if ( skinSurface != nullptr && skinSurface->off )
+				{
+					continue;
+				}
+				const vk_ghoul2_surface_cache_key_t cacheKey = {
+					caster.ghoul, &surface, sceneTime,
+					VK_DisintegrationMode( caster.entity ),
+				};
+				const auto cached = vk.ghoul2SurfaceCache.find( cacheKey );
+				if ( cached == vk.ghoul2SurfaceCache.end() )
+				{
+					++cacheMisses;
+					continue;
+				}
+				const VkDeviceSize vertexOffset = cached->second;
+				vkCmdBindVertexBuffers(
+					vk.commandBuffer, 0, 1, &vk.skinnedVertexBuffer, &vertexOffset );
+				vkCmdBindIndexBuffer(
+					vk.commandBuffer, surface.indexBuffer, 0, VK_INDEX_TYPE_UINT32 );
+				vkCmdDrawIndexed(
+					vk.commandBuffer, surface.indexCount, 1, 0, 0, 0 );
+				++drawCount;
+			}
+		}
+		vkCmdEndRenderPass( vk.commandBuffer );
+	}
+	vk.shadowMapValid = drawCount > 0 && vk.shadowActiveGroupCount > 0;
+	if ( gpuTiming )
+	{
+		vkCmdWriteTimestamp(
+			vk.commandBuffer,
+			VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+			vk.timingQueryPool,
+			VK_TIMING_SHADOW_MAP_END );
+	}
+	if ( VK_TimingEnabled() )
+	{
+		vk.timingShadowRecordTotalMs += std::chrono::duration<double, std::milli>(
+			std::chrono::steady_clock::now() - recordBegin ).count();
+		vk.timingShadowDrawTotal += drawCount;
+		vk.timingShadowCacheMissTotal += cacheMisses;
+	}
+	if ( !vk.loggedShadowMapActive )
+	{
+		ri.Printf(
+			PRINT_ALL,
+			"rd-vulkan-shadows: stereo-shared grouped maps active size=%u "
+			"groups=%u casters=%zu draws=%u cache-misses=%u\n",
+			vk.shadowMapSize, vk.shadowActiveGroupCount,
+			casters.size(), drawCount, cacheMisses );
+		for ( int group = 0; group < VK_SHADOW_DIRECTION_GROUP_COUNT; ++group )
+		{
+			if ( !vk.shadowGroupActive[group] )
+			{
+				continue;
+			}
+			ri.Printf(
+				PRINT_ALL,
+				"rd-vulkan-shadows: group=%d light=(%.3f %.3f %.3f) "
+				"fitted-width=%.1f units-per-texel=%.3f\n",
+				group,
+				vk.shadowGroupDirections[group][0],
+				vk.shadowGroupDirections[group][1],
+				vk.shadowGroupDirections[group][2],
+				vk.shadowGroupHalfExtents[group] * 2.0f,
+				vk.shadowGroupHalfExtents[group] * 2.0f /
+					static_cast<float>( vk.shadowMapSize ) );
+		}
+		vk.loggedShadowMapActive = true;
 	}
 }
 
@@ -11532,7 +13515,12 @@ static uint32_t VK_RecordWorldDynamicLights(
 	return drawCount;
 }
 
-static void VK_RecordWorld( int eye, bool drawSky, bool drawWeather )
+static void VK_RecordWorld(
+	int eye,
+	bool drawSky,
+	bool drawWeather,
+	bool drawLateEffects,
+	bool deferWaterOverlay )
 {
 	if ( !vk.haveWorldRefdef ||
 		 vk.worldPipeline == VK_NULL_HANDLE ||
@@ -11701,6 +13689,11 @@ static void VK_RecordWorld( int eye, bool drawSky, bool drawWeather )
 			{
 				continue;
 			}
+			if ( deferWaterOverlay && pass == VK_WORLD_PASS_TRANSLUCENT &&
+				 VK_ShaderIsYavinWaterOverlay( batch.shader ) )
+			{
+				continue;
+			}
 
 			if ( pass == VK_WORLD_PASS_TRANSLUCENT &&
 				 VK_ShaderIsYavinRiver( batch.shader ) )
@@ -11837,18 +13830,21 @@ static void VK_RecordWorld( int eye, bool drawSky, bool drawWeather )
 			vk.worldLights );
 		endPhase( &vk.timingModelTotalMs );
 	}
-	// Global fog is a geometry pass. Draw non-depth-writing effects after it so
-	// distant fogged surfaces cannot composite over nearby saber glow and beams.
-	beginPhase();
-	VK_RecordDynamicEffects(
-		mvp, vk.worldRefdef, vk.worldEntities, vk.worldPolys,
-		VK_WORLD_PASS_TRANSLUCENT, true );
-	endPhase( &vk.timingEffectTotalMs );
-	if ( drawWeather )
+	if ( drawLateEffects )
 	{
+		// Global fog and receiver shadows are geometry passes. Non-depth-writing
+		// saber glow, beams, and weather belong above both.
 		beginPhase();
-		VK_RecordWeather( mvp );
-		endPhase( &vk.timingSpriteTotalMs );
+		VK_RecordDynamicEffects(
+			mvp, vk.worldRefdef, vk.worldEntities, vk.worldPolys,
+			VK_WORLD_PASS_TRANSLUCENT, true );
+		endPhase( &vk.timingEffectTotalMs );
+		if ( drawWeather )
+		{
+			beginPhase();
+			VK_RecordWeather( mvp );
+			endPhase( &vk.timingSpriteTotalMs );
+		}
 	}
 	VK_SetWorldDepthBias( false );
 
@@ -11860,6 +13856,162 @@ static void VK_RecordWorld( int eye, bool drawSky, bool drawWeather )
 			visibleSurfaces != nullptr ? "yes" : "no" );
 		vk.loggedWorldDraw = true;
 	}
+}
+
+static void VK_RecordWorldWaterOverlay( int eye )
+{
+	if ( !vk.haveWorldRefdef || vk.world.vertexBuffer == VK_NULL_HANDLE ||
+		 vk.world.indexBuffer == VK_NULL_HANDLE )
+	{
+		return;
+	}
+
+	float view[16] = {};
+	float projection[16] = {};
+	float mvp[16] = {};
+	const bool applyStereoSeparation =
+		( vk.worldRefdef.rdflags & RDF_SKYBOXPORTAL ) == 0;
+	VK_BuildViewMatrix( vk.worldRefdef, eye, view, applyStereoSeparation );
+	float tangentScaleX = 1.0f;
+	float tangentScaleY = 1.0f;
+	VK_WorldProjectionTangentScales( &tangentScaleX, &tangentScaleY );
+	VK_BuildProjectionMatrix(
+		vk.views[eye].fov, 1.0f, 65536.0f, projection,
+		tangentScaleX, tangentScaleY );
+	VK_MatrixMultiply( projection, view, mvp );
+
+	const std::vector<byte> *visibleSurfaces =
+		VK_WorldVisibleSurfaceMask( vk.worldRefdef );
+	const auto batchVisible = [&]( const vk_world_batch_t &batch )
+	{
+		if ( !VK_BatchBelongsToStaticWorld( batch ) )
+		{
+			return false;
+		}
+		return visibleSurfaces == nullptr ||
+			( batch.surfaceIndex < visibleSurfaces->size() &&
+			  ( *visibleSurfaces )[batch.surfaceIndex] != 0 );
+	};
+
+	const VkDeviceSize offsets[] = { 0 };
+	vkCmdBindVertexBuffers( vk.commandBuffer, 0, 1, &vk.world.vertexBuffer, offsets );
+	vkCmdBindIndexBuffer(
+		vk.commandBuffer, vk.world.indexBuffer, 0, VK_INDEX_TYPE_UINT32 );
+	vkCmdPushConstants(
+		vk.commandBuffer, vk.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT,
+		0, sizeof( mvp ), mvp );
+
+	VkPipeline boundPipeline = VK_NULL_HANDLE;
+	VkDescriptorSet boundTexture = VK_NULL_HANDLE;
+	std::unordered_set<qhandle_t> stageMajorShaders;
+	for ( const vk_world_batch_t &batch : vk.world.batches )
+	{
+		if ( !batchVisible( batch ) || !VK_ShaderIsYavinWaterOverlay( batch.shader ) )
+		{
+			continue;
+		}
+
+		if ( VK_ShaderIsYavinRiver( batch.shader ) )
+		{
+			if ( !stageMajorShaders.insert( batch.shader ).second )
+			{
+				continue;
+			}
+			const vk_material_t &material = vk.materials[batch.shader];
+			for ( size_t stageIndex = 0; stageIndex < material.stages.size(); ++stageIndex )
+			{
+				for ( const vk_world_batch_t &riverBatch : vk.world.batches )
+				{
+					if ( riverBatch.shader != batch.shader || !batchVisible( riverBatch ) )
+					{
+						continue;
+					}
+					VK_RecordBoundIndexedShader(
+						riverBatch.shader, riverBatch.lightmaps[0], riverBatch.vertexLit,
+						riverBatch.indexCount, riverBatch.firstIndex,
+						VK_WORLD_PASS_TRANSLUCENT,
+						&boundPipeline, &boundTexture, nullptr, false,
+						static_cast<int>( stageIndex ), false, &riverBatch );
+				}
+			}
+			for ( const vk_world_batch_t &riverBatch : vk.world.batches )
+			{
+				if ( riverBatch.shader != batch.shader || !batchVisible( riverBatch ) )
+				{
+					continue;
+				}
+				VK_RecordBoundIndexedShader(
+					riverBatch.shader, riverBatch.lightmaps[0], riverBatch.vertexLit,
+					riverBatch.indexCount, riverBatch.firstIndex,
+					VK_WORLD_PASS_TRANSLUCENT,
+					&boundPipeline, &boundTexture, nullptr, false,
+					static_cast<int>( material.stages.size() ), true, &riverBatch );
+			}
+			continue;
+		}
+
+		VK_RecordBoundIndexedShader(
+			batch.shader, batch.lightmaps[0], batch.vertexLit,
+			batch.indexCount, batch.firstIndex, VK_WORLD_PASS_TRANSLUCENT,
+			&boundPipeline, &boundTexture, nullptr, false, -1, true, &batch );
+	}
+	VK_SetWorldDepthBias( false );
+}
+
+static void VK_RecordWorldLateEffects( int eye, bool drawWeather )
+{
+	if ( !vk.haveWorldRefdef )
+	{
+		return;
+	}
+	float view[16] = {};
+	float projection[16] = {};
+	float mvp[16] = {};
+	const bool applyStereoSeparation =
+		( vk.worldRefdef.rdflags & RDF_SKYBOXPORTAL ) == 0;
+	VK_BuildViewMatrix( vk.worldRefdef, eye, view, applyStereoSeparation );
+	float tangentScaleX = 1.0f;
+	float tangentScaleY = 1.0f;
+	VK_WorldProjectionTangentScales( &tangentScaleX, &tangentScaleY );
+	VK_BuildProjectionMatrix(
+		vk.views[eye].fov, 1.0f, 65536.0f, projection,
+		tangentScaleX, tangentScaleY );
+	VK_MatrixMultiply( projection, view, mvp );
+
+	const bool timingEnabled = VK_TimingEnabled();
+	std::chrono::steady_clock::time_point begin = timingEnabled
+		? std::chrono::steady_clock::now()
+		: std::chrono::steady_clock::time_point{};
+	VK_RecordWorldWaterOverlay( eye );
+	if ( timingEnabled )
+	{
+		vk.timingBspTotalMs += std::chrono::duration<double, std::milli>(
+			std::chrono::steady_clock::now() - begin ).count();
+	}
+	begin = timingEnabled
+		? std::chrono::steady_clock::now()
+		: std::chrono::steady_clock::time_point{};
+	VK_RecordDynamicEffects(
+		mvp, vk.worldRefdef, vk.worldEntities, vk.worldPolys,
+		VK_WORLD_PASS_TRANSLUCENT, true );
+	if ( timingEnabled )
+	{
+		vk.timingEffectTotalMs += std::chrono::duration<double, std::milli>(
+			std::chrono::steady_clock::now() - begin ).count();
+	}
+	if ( drawWeather )
+	{
+		begin = timingEnabled
+			? std::chrono::steady_clock::now()
+			: std::chrono::steady_clock::time_point{};
+		VK_RecordWeather( mvp );
+		if ( timingEnabled )
+		{
+			vk.timingSpriteTotalMs += std::chrono::duration<double, std::milli>(
+				std::chrono::steady_clock::now() - begin ).count();
+		}
+	}
+	VK_SetWorldDepthBias( false );
 }
 
 static void VK_ClearWorldDepth( int eye )
@@ -11874,7 +14026,7 @@ static void VK_ClearWorldDepth( int eye )
 	vkCmdClearAttachments( vk.commandBuffer, 1, &attachment, 1, &rect );
 }
 
-static void VK_RecordSubmittedWorld( int eye )
+static void VK_RecordSubmittedWorld( int eye, bool deferLateEffects )
 {
 	if ( vk.havePortalRefdef )
 	{
@@ -11883,7 +14035,7 @@ static void VK_RecordSubmittedWorld( int eye )
 		vk.worldPolys.swap( vk.portalPolys );
 		vk.worldLights.swap( vk.portalLights );
 
-		VK_RecordWorld( eye, true, false );
+		VK_RecordWorld( eye, true, false, true, false );
 
 		vk.worldLights.swap( vk.portalLights );
 		vk.worldPolys.swap( vk.portalPolys );
@@ -11892,7 +14044,8 @@ static void VK_RecordSubmittedWorld( int eye )
 
 		// Keep the portal color, then let foreground geometry own depth.
 		VK_ClearWorldDepth( eye );
-		VK_RecordWorld( eye, false, true );
+		VK_RecordWorld(
+			eye, false, true, !deferLateEffects, deferLateEffects );
 
 		static bool loggedPortalComposition = false;
 		if ( !loggedPortalComposition )
@@ -11904,7 +14057,375 @@ static void VK_RecordSubmittedWorld( int eye )
 		return;
 	}
 
-	VK_RecordWorld( eye, true, true );
+	VK_RecordWorld(
+		eye, true, true, !deferLateEffects, deferLateEffects );
+}
+
+static bool VK_ShadowReceiverEnabled( int eye )
+{
+	return eye >= 0 && eye < VK_BACKEND_EYE_COUNT &&
+		VK_ShadowMapEnabled() && vk.shadowMapValid &&
+		vk.shadowOpacityCvar != nullptr && vk.shadowOpacityCvar->value > 0.0f &&
+		vk.shadowSceneRenderPass != VK_NULL_HANDLE &&
+		vk.shadowLoadRenderPass != VK_NULL_HANDLE &&
+		vk.shadowMaskRenderPass != VK_NULL_HANDLE &&
+		vk.shadowResponseRenderPass != VK_NULL_HANDLE &&
+		vk.shadowReceiverPipeline != VK_NULL_HANDLE &&
+		vk.shadowResponsePipeline != VK_NULL_HANDLE &&
+		vk.shadowCompositePipeline != VK_NULL_HANDLE &&
+		vk.shadowMaskFramebuffers[eye] != VK_NULL_HANDLE &&
+		vk.shadowResponseFramebuffers[eye] != VK_NULL_HANDLE &&
+		vk.shadowReceiverDescriptorSets[eye][0] != VK_NULL_HANDLE &&
+		vk.shadowCompositePipelineLayout != VK_NULL_HANDLE &&
+		vk.shadowCompositeDescriptorSets[eye] != VK_NULL_HANDLE;
+}
+
+static void VK_RecordShadowMask( int eye, bool gpuTiming )
+{
+	if ( !VK_ShadowReceiverEnabled( eye ) )
+	{
+		return;
+	}
+
+	const std::chrono::steady_clock::time_point recordBegin = VK_TimingEnabled()
+		? std::chrono::steady_clock::now()
+		: std::chrono::steady_clock::time_point{};
+	const uint32_t queryIndex =
+		VK_TIMING_SHADOW_MASK_BEGIN + static_cast<uint32_t>( eye ) * 2;
+	if ( gpuTiming )
+	{
+		vkCmdWriteTimestamp(
+			vk.commandBuffer,
+			VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+			vk.timingQueryPool,
+			queryIndex );
+	}
+
+	VkClearValue clear = {};
+	VkRenderPassBeginInfo renderPassInfo = {};
+	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+	renderPassInfo.renderPass = vk.shadowMaskRenderPass;
+	renderPassInfo.framebuffer = vk.shadowMaskFramebuffers[eye];
+	renderPassInfo.renderArea.extent = {
+		vk.shadowMaskTargets[eye].width,
+		vk.shadowMaskTargets[eye].height,
+	};
+	renderPassInfo.clearValueCount = 1;
+	renderPassInfo.pClearValues = &clear;
+	vkCmdBeginRenderPass(
+		vk.commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE );
+	VkViewport viewport = {};
+	viewport.width = static_cast<float>( vk.shadowMaskTargets[eye].width );
+	viewport.height = static_cast<float>( vk.shadowMaskTargets[eye].height );
+	viewport.maxDepth = 1.0f;
+	vkCmdSetViewport( vk.commandBuffer, 0, 1, &viewport );
+	VkRect2D scissor = {};
+	scissor.extent = {
+		vk.shadowMaskTargets[eye].width,
+		vk.shadowMaskTargets[eye].height,
+	};
+	vkCmdSetScissor( vk.commandBuffer, 0, 1, &scissor );
+	const int requestedFilter = vk.shadowFilterCvar != nullptr
+		? vk.shadowFilterCvar->integer
+		: 0;
+	VkPipeline receiverPipeline = vk.shadowReceiverPipeline;
+	const char *filterName = "raw";
+	if ( requestedFilter >= 2 && vk.shadowReceiverSoftPipeline != VK_NULL_HANDLE )
+	{
+		receiverPipeline = vk.shadowReceiverSoftPipeline;
+		filterName = "soft-poisson-32";
+	}
+	else if ( requestedFilter >= 1 &&
+		vk.shadowReceiverFilteredPipeline != VK_NULL_HANDLE )
+	{
+		receiverPipeline = vk.shadowReceiverFilteredPipeline;
+		filterName = "pcf-5x5";
+	}
+	vkCmdBindPipeline(
+		vk.commandBuffer,
+		VK_PIPELINE_BIND_POINT_GRAPHICS,
+		receiverPipeline );
+	float projection[16] = {};
+	float tangentScaleX = 1.0f;
+	float tangentScaleY = 1.0f;
+	VK_WorldProjectionTangentScales( &tangentScaleX, &tangentScaleY );
+	VK_BuildProjectionMatrix(
+		vk.views[eye].fov,
+		1.0f,
+		65536.0f,
+		projection,
+		tangentScaleX,
+		tangentScaleY );
+	const bool applyStereoSeparation =
+		( vk.worldRefdef.rdflags & RDF_SKYBOXPORTAL ) == 0;
+	vec3_t eyeOrigin;
+	VK_BuildEyeOrigin(
+		vk.worldRefdef, eye, eyeOrigin, applyStereoSeparation );
+	float pushConstants[32] = {};
+	VectorCopy( eyeOrigin, &pushConstants[16] );
+	pushConstants[19] = projection[0];
+	VectorCopy( vk.worldRefdef.viewaxis[0], &pushConstants[20] );
+	pushConstants[23] = projection[5];
+	VectorCopy( vk.worldRefdef.viewaxis[1], &pushConstants[24] );
+	pushConstants[27] = projection[8];
+	VectorCopy( vk.worldRefdef.viewaxis[2], &pushConstants[28] );
+	pushConstants[31] = projection[9];
+	for ( int group = 0; group < VK_SHADOW_DIRECTION_GROUP_COUNT; ++group )
+	{
+		if ( !vk.shadowGroupActive[group] )
+		{
+			continue;
+		}
+		vkCmdBindDescriptorSets(
+			vk.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+			vk.shadowReceiverPipelineLayout, 0, 1,
+			&vk.shadowReceiverDescriptorSets[eye][group], 0, nullptr );
+		std::memcpy(
+			pushConstants,
+			vk.shadowGroupViewProjections[group],
+			sizeof( vk.shadowGroupViewProjections[group] ) );
+		vkCmdPushConstants(
+			vk.commandBuffer, vk.shadowReceiverPipelineLayout,
+			VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+			sizeof( pushConstants ), pushConstants );
+		vkCmdDraw( vk.commandBuffer, 3, 1, 0, 0 );
+	}
+	vkCmdEndRenderPass( vk.commandBuffer );
+
+	if ( VK_TimingEnabled() )
+	{
+		vk.timingShadowMaskRecordTotalMs +=
+			std::chrono::duration<double, std::milli>(
+				std::chrono::steady_clock::now() - recordBegin ).count();
+	}
+	if ( !vk.loggedShadowReceiverActive )
+	{
+		ri.Printf(
+			PRINT_ALL,
+			"rd-vulkan-shadows: per-eye receiver mask active size=%ux%u "
+			"opacity=%.2f filter=%s groups=%u\n",
+			vk.shadowMaskTargets[eye].width,
+			vk.shadowMaskTargets[eye].height,
+			vk.shadowOpacityCvar->value,
+			filterName,
+			vk.shadowActiveGroupCount );
+		vk.loggedShadowReceiverActive = true;
+	}
+}
+
+static void VK_RecordLightShadowReceiverMask( int eye, bool gpuTiming )
+{
+	if ( !VK_ShadowReceiverEnabled( eye ) )
+	{
+		return;
+	}
+	const auto recordBegin =
+		VK_TimingEnabled() ? std::chrono::steady_clock::now()
+						   : std::chrono::steady_clock::time_point{};
+
+	VkClearValue clear = {};
+	VkRenderPassBeginInfo renderPassInfo = {};
+	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+	renderPassInfo.renderPass = vk.shadowResponseRenderPass;
+	renderPassInfo.framebuffer = vk.shadowResponseFramebuffers[eye];
+	renderPassInfo.renderArea.extent = {
+		vk.shadowResponseTargets[eye].width,
+		vk.shadowResponseTargets[eye].height,
+	};
+	renderPassInfo.clearValueCount = 1;
+	renderPassInfo.pClearValues = &clear;
+	vkCmdBeginRenderPass(
+		vk.commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE );
+	VkViewport viewport = {};
+	viewport.width = static_cast<float>( vk.shadowResponseTargets[eye].width );
+	viewport.height = static_cast<float>( vk.shadowResponseTargets[eye].height );
+	viewport.maxDepth = 1.0f;
+	vkCmdSetViewport( vk.commandBuffer, 0, 1, &viewport );
+	VkRect2D scissor = {};
+	scissor.extent = {
+		vk.shadowResponseTargets[eye].width,
+		vk.shadowResponseTargets[eye].height,
+	};
+	vkCmdSetScissor( vk.commandBuffer, 0, 1, &scissor );
+	vkCmdSetDepthBias( vk.commandBuffer, 0.0f, 0.0f, 0.0f );
+	vkCmdBindPipeline(
+		vk.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+		vk.shadowResponsePipeline );
+
+	float view[16] = {};
+	float projection[16] = {};
+	float tangentScaleX = 1.0f;
+	float tangentScaleY = 1.0f;
+	VK_WorldProjectionTangentScales( &tangentScaleX, &tangentScaleY );
+	VK_BuildViewMatrix( vk.worldRefdef, eye, view );
+	VK_BuildProjectionMatrix(
+		vk.views[eye].fov,
+		1.0f,
+		65536.0f,
+		projection,
+		tangentScaleX,
+		tangentScaleY );
+	const int sceneTime = VK_G2API_GetTime( vk.worldRefdef.time );
+	uint32_t entityCount = 0;
+	uint32_t drawCount = 0;
+	uint32_t cacheMissCount = 0;
+	for ( const refEntity_t &entity : vk.worldEntities )
+	{
+		if ( entity.reType != RT_MODEL || entity.ghoul2 == nullptr ||
+			 !entity.ghoul2->IsValid() ||
+			 ( entity.renderfx & RF_LIGHT_SHADOW_RECEIVER ) == 0 ||
+			 ( entity.renderfx & ( RF_THIRD_PERSON | RF_DEPTHHACK ) ) != 0 )
+		{
+			continue;
+		}
+
+		float model[16] = {};
+		float modelView[16] = {};
+		float mvp[16] = {};
+		VK_BuildEntityModelMatrix( entity, model );
+		VK_MatrixMultiply( view, model, modelView );
+		VK_MatrixMultiply( projection, modelView, mvp );
+		vkCmdPushConstants(
+			vk.commandBuffer,
+			vk.shadowMapPipelineLayout,
+			VK_SHADER_STAGE_VERTEX_BIT,
+			0,
+			sizeof( mvp ),
+			mvp );
+		++entityCount;
+
+		for ( int modelIndex = 0; modelIndex < entity.ghoul2->size(); ++modelIndex )
+		{
+			const CGhoul2Info &ghoul = ( *entity.ghoul2 )[modelIndex];
+			if ( ghoul.mModelindex < 0 ||
+				 ( ghoul.mFlags & ( GHOUL2_NOMODEL | GHOUL2_NORENDER ) ) != 0 )
+			{
+				continue;
+			}
+			const vk_model_t *model = VK_ModelForHandle( ghoul.mModel );
+			if ( model == nullptr || model->type != VK_MODEL_GLM )
+			{
+				continue;
+			}
+			const int lod = VK_SelectGLMLod(
+				entity, *model, &ghoul, vk.worldRefdef ).lod;
+			qhandle_t skinHandle = entity.customSkin;
+			if ( skinHandle <= 0 )
+			{
+				skinHandle = ghoul.mSkin;
+			}
+			if ( skinHandle <= 0 )
+			{
+				skinHandle = ghoul.mCustomSkin;
+			}
+			for ( const vk_model_surface_t &surface :
+				  VK_GLMSurfacesForLod( *model, lod ) )
+			{
+				if ( surface.indexBuffer == VK_NULL_HANDLE ||
+					 surface.indexCount == 0 ||
+					 !VK_GLMShouldDrawSurface( *model, surface, &ghoul ) )
+				{
+					continue;
+				}
+				const vk_skin_surface_t *skinSurface =
+					VK_FindSkinSurface( skinHandle, surface.name );
+				if ( skinSurface != nullptr && skinSurface->off )
+				{
+					continue;
+				}
+				const vk_ghoul2_surface_cache_key_t cacheKey = {
+					&ghoul, &surface, sceneTime, VK_DisintegrationMode( &entity ),
+				};
+				const auto cached = vk.ghoul2SurfaceCache.find( cacheKey );
+				if ( cached == vk.ghoul2SurfaceCache.end() )
+				{
+					++cacheMissCount;
+					continue;
+				}
+				const VkDeviceSize vertexOffset = cached->second;
+				vkCmdBindVertexBuffers(
+					vk.commandBuffer, 0, 1,
+					&vk.skinnedVertexBuffer, &vertexOffset );
+				vkCmdBindIndexBuffer(
+					vk.commandBuffer, surface.indexBuffer, 0,
+					VK_INDEX_TYPE_UINT32 );
+				vkCmdDrawIndexed(
+					vk.commandBuffer, surface.indexCount, 1, 0, 0, 0 );
+				++drawCount;
+			}
+		}
+	}
+	vkCmdEndRenderPass( vk.commandBuffer );
+	if ( gpuTiming )
+	{
+		const uint32_t queryIndex =
+			VK_TIMING_SHADOW_MASK_BEGIN + static_cast<uint32_t>( eye ) * 2;
+		vkCmdWriteTimestamp(
+			vk.commandBuffer,
+			VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+			vk.timingQueryPool,
+			queryIndex + 1 );
+	}
+	if ( VK_TimingEnabled() )
+	{
+		vk.timingShadowMaskRecordTotalMs +=
+			std::chrono::duration<double, std::milli>(
+				std::chrono::steady_clock::now() - recordBegin ).count();
+	}
+
+	static bool loggedResponse = false;
+	if ( !loggedResponse && entityCount > 0 )
+	{
+			ri.Printf(
+			PRINT_ALL,
+			"rd-vulkan-shadows: light receiver mask active "
+			"entities=%u draws=%u cache-misses=%u scale=%.2f\n",
+			entityCount,
+			drawCount,
+			cacheMissCount,
+			vk.shadowWhiteArmorScaleCvar != nullptr
+				? vk.shadowWhiteArmorScaleCvar->value : 0.1f );
+		loggedResponse = true;
+	}
+}
+
+static void VK_RecordShadowComposite( int eye )
+{
+	if ( !VK_ShadowReceiverEnabled( eye ) )
+	{
+		return;
+	}
+	vkCmdBindPipeline(
+		vk.commandBuffer,
+		VK_PIPELINE_BIND_POINT_GRAPHICS,
+		vk.shadowCompositePipeline );
+	vkCmdBindDescriptorSets(
+		vk.commandBuffer,
+		VK_PIPELINE_BIND_POINT_GRAPHICS,
+		vk.shadowCompositePipelineLayout,
+		0,
+		1,
+		&vk.shadowCompositeDescriptorSets[eye],
+		0,
+		nullptr );
+	const float pushConstants[4] = {
+		VK_ClampValue( vk.shadowOpacityCvar->value, 0.0f, 0.8f ),
+		VK_ClampValue(
+			vk.shadowWhiteArmorScaleCvar != nullptr
+				? vk.shadowWhiteArmorScaleCvar->value : 0.1f,
+			0.0f,
+			1.0f ),
+		0.0f,
+		0.0f,
+	};
+	vkCmdPushConstants(
+		vk.commandBuffer,
+		vk.shadowCompositePipelineLayout,
+		VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+		0,
+		sizeof( pushConstants ),
+		pushConstants );
+	vkCmdDraw( vk.commandBuffer, 3, 1, 0, 0 );
 }
 
 static void VK_RecordDiagnosticWorld( int eye )
@@ -12898,6 +15419,20 @@ static void VK_ResetTimingSamples()
 	vk.timingModelSkinTotalMs = 0.0;
 	vk.timingModelSubmitTotalMs = 0.0;
 	vk.timingEffectTotalMs = 0.0;
+	vk.timingShadowCollectTotalMs = 0.0;
+	vk.timingShadowPrepareTotalMs = 0.0;
+	vk.timingShadowRecordTotalMs = 0.0;
+	vk.timingShadowMaskRecordTotalMs = 0.0;
+	vk.timingShadowMapGpuTotalMs = 0.0;
+	vk.timingShadowMapGpuMaxMs = 0.0;
+	vk.timingShadowMapGpuSamples = 0;
+	vk.timingShadowMaskGpuTotalMs = 0.0;
+	vk.timingShadowMaskGpuMaxMs = 0.0;
+	vk.timingShadowMaskGpuSamples = 0;
+	vk.timingShadowCasterTotal = 0;
+	vk.timingShadowPrepareDispatchTotal = 0;
+	vk.timingShadowDrawTotal = 0;
+	vk.timingShadowCacheMissTotal = 0;
 	vk.timingBspDrawTotal = 0;
 	vk.timingSkinModels.clear();
 }
@@ -13029,6 +15564,41 @@ static void VK_RecordTimingSample(
 		static_cast<double>( vk.timingComputeSkinVertexTotal ) * sampleScale,
 		vk.timingComputeSkinRecordTotalMs * sampleScale,
 		static_cast<double>( vk.timingCpuSkinFallbackTotal ) * sampleScale );
+	if ( vk.shadowsCvar != nullptr && vk.shadowsCvar->integer != 0 )
+	{
+		const double shadowGpuAverage = vk.timingShadowMapGpuSamples > 0
+			? vk.timingShadowMapGpuTotalMs /
+				static_cast<double>( vk.timingShadowMapGpuSamples )
+			: 0.0;
+		const double shadowMaskGpuAverage = vk.timingShadowMaskGpuSamples > 0
+			? vk.timingShadowMaskGpuTotalMs /
+				static_cast<double>( vk.timingShadowMaskGpuSamples )
+			: 0.0;
+		ri.Printf( PRINT_ALL,
+			"rd-vulkan-shadow-timing: cpu-stereo collect=%.3fms prepare=%.3fms "
+			"record=%.3fms mask-record=%.3fms gpu-map=%.3f/%.3fms "
+			"gpu-mask=%.3f/%.3fms casters=%.1f "
+			"prepare-dispatches=%.1f draws=%.1f cache-misses=%.1f "
+			"filter=%s\n",
+			vk.timingShadowCollectTotalMs * sampleScale,
+			vk.timingShadowPrepareTotalMs * sampleScale,
+			vk.timingShadowRecordTotalMs * sampleScale,
+			vk.timingShadowMaskRecordTotalMs * sampleScale,
+			shadowGpuAverage,
+			vk.timingShadowMapGpuMaxMs,
+			shadowMaskGpuAverage,
+			vk.timingShadowMaskGpuMaxMs,
+			static_cast<double>( vk.timingShadowCasterTotal ) * sampleScale,
+			static_cast<double>( vk.timingShadowPrepareDispatchTotal ) * sampleScale,
+			static_cast<double>( vk.timingShadowDrawTotal ) * sampleScale,
+			static_cast<double>( vk.timingShadowCacheMissTotal ) * sampleScale,
+			vk.shadowFilterCvar != nullptr && vk.shadowFilterCvar->integer >= 2
+				? "soft-poisson-32"
+				: ( vk.shadowFilterCvar != nullptr &&
+					vk.shadowFilterCvar->integer >= 1
+						? "pcf-5x5"
+						: "raw" ) );
+	}
 	std::vector<const vk_skin_model_timing_t *> skinModels;
 	skinModels.reserve( vk.timingSkinModels.size() );
 	for ( const auto &entry : vk.timingSkinModels )
@@ -13252,10 +15822,47 @@ static bool VK_RecordTestPattern(
 		return false;
 	}
 	const bool gpuTiming = VK_TimingEnabled() && vk.timingQueryPool != VK_NULL_HANDLE;
+	if ( eye == 0 )
+	{
+		vk.shadowMapValid = false;
+	}
+	const bool recordShadowMap = eye == 0 && !clearOnly && VK_ShadowMapEnabled();
+	std::vector<vk_shadow_caster_t> shadowCasters;
+	if ( recordShadowMap )
+	{
+		const std::chrono::steady_clock::time_point collectBegin = VK_TimingEnabled()
+			? std::chrono::steady_clock::now()
+			: std::chrono::steady_clock::time_point{};
+		shadowCasters = VK_CollectShadowCasters();
+		if ( VK_TimingEnabled() )
+		{
+			vk.timingShadowCollectTotalMs +=
+				std::chrono::duration<double, std::milli>(
+					std::chrono::steady_clock::now() - collectBegin ).count();
+			vk.timingShadowCasterTotal += shadowCasters.size();
+		}
+	}
 	if ( gpuTiming )
 	{
 		vkCmdResetQueryPool(
 			vk.commandBuffer, vk.timingQueryPool, eye * 2, 2 );
+		if ( recordShadowMap )
+		{
+			vkCmdResetQueryPool(
+				vk.commandBuffer,
+				vk.timingQueryPool,
+				VK_TIMING_SHADOW_MAP_BEGIN,
+				2 );
+		}
+		if ( !clearOnly && VK_ShadowMapEnabled() )
+		{
+			vkCmdResetQueryPool(
+				vk.commandBuffer,
+				vk.timingQueryPool,
+				VK_TIMING_SHADOW_MASK_BEGIN +
+					static_cast<uint32_t>( eye ) * 2,
+				2 );
+		}
 		vkCmdWriteTimestamp(
 			vk.commandBuffer,
 			VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
@@ -13264,7 +15871,12 @@ static bool VK_RecordTestPattern(
 	}
 	if ( eye == 0 && !clearOnly )
 	{
-		VK_RecordGLMComputeSkinningPrepass();
+		VK_RecordGLMComputeSkinningPrepass(
+			recordShadowMap ? &shadowCasters : nullptr );
+		if ( recordShadowMap )
+		{
+			VK_RecordShadowMap( gpuTiming, shadowCasters );
+		}
 	}
 	vk.depthBiasStateKnown = false;
 	vk.depthBiasEnabled = false;
@@ -13285,7 +15897,6 @@ static bool VK_RecordTestPattern(
 
 	VkRenderPassBeginInfo renderPassInfo = {};
 	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-	renderPassInfo.renderPass = vk.renderPass;
 	const bool forceSpeedMotionBlur =
 		!clearOnly && vk.sceneWorldRenderedThisFrame &&
 		vk.worldRefdef.forceSpeedBlur > 0.001f &&
@@ -13297,6 +15908,11 @@ static bool VK_RecordTestPattern(
 	{
 		vk.forceSpeedHistoryValid[eye] = false;
 	}
+	const bool shadowReceiver =
+		!clearOnly && vk.sceneWorldRenderedThisFrame &&
+		VK_ShadowReceiverEnabled( eye );
+	renderPassInfo.renderPass = shadowReceiver
+		? vk.shadowSceneRenderPass : vk.renderPass;
 	renderPassInfo.framebuffer = forceSpeedMotionBlur
 		? vk.forceSpeedFramebuffers[eye]
 		: vk.framebuffers[eye][imageIndex];
@@ -13338,7 +15954,7 @@ static bool VK_RecordTestPattern(
 
 	if ( !clearOnly && vk.sceneWorldRenderedThisFrame )
 	{
-		VK_RecordSubmittedWorld( eye );
+		VK_RecordSubmittedWorld( eye, shadowReceiver );
 	}
 
 	if ( !clearOnly && vk.sceneWorldRenderedThisFrame &&
@@ -13347,7 +15963,7 @@ static bool VK_RecordTestPattern(
 		VK_RecordDiagnosticWorld( eye );
 	}
 
-	if ( !forceSpeedMotionBlur && !clearOnly &&
+	if ( !shadowReceiver && !forceSpeedMotionBlur && !clearOnly &&
 		 !vk.sceneWorldRenderedThisFrame && !vk.screenScenes.empty() )
 	{
 		size_t firstRect = 0;
@@ -13362,12 +15978,29 @@ static bool VK_RecordTestPattern(
 		}
 		VK_RecordScreenRects( eye, firstRect, vk.rects.size() );
 	}
-	else if ( !forceSpeedMotionBlur && !clearOnly )
+	else if ( !shadowReceiver && !forceSpeedMotionBlur && !clearOnly )
 	{
 		VK_RecordScreenRects( eye, 0, vk.rects.size() );
 	}
 
 	vkCmdEndRenderPass( vk.commandBuffer );
+	if ( shadowReceiver )
+	{
+		VK_RecordShadowMask( eye, gpuTiming );
+		VK_RecordLightShadowReceiverMask( eye, gpuTiming );
+		renderPassInfo.renderPass = vk.shadowLoadRenderPass;
+		vkCmdBeginRenderPass(
+			vk.commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE );
+		vkCmdSetViewport( vk.commandBuffer, 0, 1, &viewport );
+		vkCmdSetScissor( vk.commandBuffer, 0, 1, &scissor );
+		VK_RecordShadowComposite( eye );
+		VK_RecordWorldLateEffects( eye, true );
+		if ( !forceSpeedMotionBlur )
+		{
+			VK_RecordScreenRects( eye, 0, vk.rects.size() );
+		}
+		vkCmdEndRenderPass( vk.commandBuffer );
+	}
 	if ( forceSpeedMotionBlur )
 	{
 		VkImageMemoryBarrier toShaderRead = {};
@@ -13392,6 +16025,7 @@ static bool VK_RecordTestPattern(
 			1, &toShaderRead );
 
 		renderPassInfo.framebuffer = vk.framebuffers[eye][imageIndex];
+		renderPassInfo.renderPass = vk.renderPass;
 		vkCmdBeginRenderPass(
 			vk.commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE );
 		vkCmdSetViewport( vk.commandBuffer, 0, 1, &viewport );
@@ -13423,6 +16057,7 @@ static bool VK_RenderEyes(
 	const bool clearOnly[VK_BACKEND_EYE_COUNT] )
 {
 	const bool timingEnabled = VK_TimingEnabled();
+	const bool shadowMapExpected = !clearOnly[0] && VK_ShadowMapEnabled();
 	if ( timingEnabled && !vk.timingWasEnabled )
 	{
 		VK_ResetTimingSamples();
@@ -13491,6 +16126,10 @@ static bool VK_RenderEyes(
 	double waitMs = 0.0;
 	bool haveGpuSample = false;
 	double gpuMs = 0.0;
+	bool haveShadowMapGpuSample = false;
+	double shadowMapGpuMs = 0.0;
+	bool haveShadowMaskGpuSample = false;
+	double shadowMaskGpuMs = 0.0;
 	if ( ready )
 	{
 		VkSubmitInfo submitInfo = {};
@@ -13511,12 +16150,12 @@ static bool VK_RenderEyes(
 
 		if ( ready && timingEnabled && vk.timingQueryPool != VK_NULL_HANDLE )
 		{
-			uint64_t timestamps[VK_BACKEND_EYE_COUNT * 2] = {};
+			uint64_t timestamps[VK_TIMING_EYE_QUERY_COUNT] = {};
 			const VkResult queryResult = vkGetQueryPoolResults(
 				vk.device,
 				vk.timingQueryPool,
 				0,
-				ARRAY_LEN( timestamps ),
+				VK_TIMING_EYE_QUERY_COUNT,
 				sizeof( timestamps ),
 				timestamps,
 				sizeof( timestamps[0] ),
@@ -13524,7 +16163,7 @@ static bool VK_RenderEyes(
 			if ( queryResult == VK_SUCCESS )
 			{
 				const uint64_t ticks = VK_TimestampDelta(
-					timestamps[0], timestamps[ARRAY_LEN( timestamps ) - 1] );
+					timestamps[0], timestamps[VK_TIMING_EYE_QUERY_COUNT - 1] );
 				gpuMs = static_cast<double>( ticks ) *
 					static_cast<double>( vk.timestampPeriodNanoseconds ) / 1000000.0;
 				haveGpuSample = true;
@@ -13537,10 +16176,77 @@ static bool VK_RenderEyes(
 					queryResult );
 				vk.loggedTimingNoGpu = true;
 			}
+
+			if ( queryResult == VK_SUCCESS && shadowMapExpected )
+			{
+				uint64_t shadowTimestamps[2] = {};
+				const VkResult shadowQueryResult = vkGetQueryPoolResults(
+					vk.device,
+					vk.timingQueryPool,
+					VK_TIMING_SHADOW_MAP_BEGIN,
+					ARRAY_LEN( shadowTimestamps ),
+					sizeof( shadowTimestamps ),
+					shadowTimestamps,
+					sizeof( shadowTimestamps[0] ),
+					VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT );
+				if ( shadowQueryResult == VK_SUCCESS )
+				{
+					const uint64_t shadowTicks = VK_TimestampDelta(
+						shadowTimestamps[0], shadowTimestamps[1] );
+					shadowMapGpuMs = static_cast<double>( shadowTicks ) *
+						static_cast<double>( vk.timestampPeriodNanoseconds ) / 1000000.0;
+					haveShadowMapGpuSample = true;
+				}
+			}
+
+			const bool shadowMaskExpected = shadowMapExpected &&
+				vk.shadowMapValid && vk.shadowOpacityCvar != nullptr &&
+				vk.shadowOpacityCvar->value > 0.0f;
+			if ( queryResult == VK_SUCCESS && shadowMaskExpected )
+			{
+				uint64_t shadowTimestamps[VK_BACKEND_EYE_COUNT * 2] = {};
+				const VkResult shadowQueryResult = vkGetQueryPoolResults(
+					vk.device,
+					vk.timingQueryPool,
+					VK_TIMING_SHADOW_MASK_BEGIN,
+					ARRAY_LEN( shadowTimestamps ),
+					sizeof( shadowTimestamps ),
+					shadowTimestamps,
+					sizeof( shadowTimestamps[0] ),
+					VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT );
+				if ( shadowQueryResult == VK_SUCCESS )
+				{
+					uint64_t shadowTicks = 0;
+					for ( int eye = 0; eye < VK_BACKEND_EYE_COUNT; ++eye )
+					{
+						shadowTicks += VK_TimestampDelta(
+							shadowTimestamps[eye * 2],
+							shadowTimestamps[eye * 2 + 1] );
+					}
+					shadowMaskGpuMs = static_cast<double>( shadowTicks ) *
+						static_cast<double>( vk.timestampPeriodNanoseconds ) /
+						1000000.0;
+					haveShadowMaskGpuSample = true;
+				}
+			}
 		}
 
 		if ( ready && timingEnabled )
 		{
+			if ( haveShadowMapGpuSample )
+			{
+				++vk.timingShadowMapGpuSamples;
+				vk.timingShadowMapGpuTotalMs += shadowMapGpuMs;
+				vk.timingShadowMapGpuMaxMs = std::max(
+					vk.timingShadowMapGpuMaxMs, shadowMapGpuMs );
+			}
+			if ( haveShadowMaskGpuSample )
+			{
+				++vk.timingShadowMaskGpuSamples;
+				vk.timingShadowMaskGpuTotalMs += shadowMaskGpuMs;
+				vk.timingShadowMaskGpuMaxMs = std::max(
+					vk.timingShadowMaskGpuMaxMs, shadowMaskGpuMs );
+			}
 			VK_RecordTimingSample(
 				VK_TimingMilliseconds( recordBegin, recordEnd ),
 				waitMs,
@@ -13635,6 +16341,26 @@ bool VK_Backend_Init()
 		ri.Cvar_Get( "r_vulkanComputeSkinning", "1", CVAR_ARCHIVE );
 	vk.forceSpeedBlurStrengthCvar =
 		ri.Cvar_Get( "r_vulkanForceSpeedBlurStrength", "1.0", CVAR_ARCHIVE );
+	vk.shadowsCvar = ri.Cvar_Get( "r_vulkanShadows", "0", CVAR_ARCHIVE );
+	vk.cgShadowsCvar = ri.Cvar_Get( "cg_shadows", "1", CVAR_ARCHIVE );
+	vk.shadowMapSizeCvar =
+		ri.Cvar_Get( "r_vulkanShadowMapSize", "2048", CVAR_ARCHIVE | CVAR_LATCH );
+	vk.shadowCasterLimitCvar =
+		ri.Cvar_Get( "r_vulkanShadowCasterLimit", "24", CVAR_ARCHIVE );
+	vk.shadowDistanceCvar =
+		ri.Cvar_Get( "r_vulkanShadowDistance", "2048", CVAR_ARCHIVE );
+	vk.shadowDepthBiasCvar =
+		ri.Cvar_Get( "r_vulkanShadowDepthBias", "1.25", CVAR_ARCHIVE );
+	vk.shadowSlopeBiasCvar =
+		ri.Cvar_Get( "r_vulkanShadowSlopeBias", "1.75", CVAR_ARCHIVE );
+	vk.shadowOpacityCvar =
+		ri.Cvar_Get( "r_vulkanShadowOpacity", "0.32", CVAR_ARCHIVE );
+	vk.shadowFilterCvar =
+		ri.Cvar_Get( "r_vulkanShadowFilter", "1", CVAR_ARCHIVE );
+	vk.shadowWhiteArmorScaleCvar =
+		ri.Cvar_Get( "r_vulkanShadowWhiteArmorScale", "0.1", CVAR_ARCHIVE );
+	vk.shadowAuditCvar =
+		ri.Cvar_Get( "r_vulkanShadowAudit", "0", 0 );
 	vk.timingCvar = ri.Cvar_Get( "r_vulkanTiming", "0", 0 );
 
 	if ( !VK_CreateXrInstance() ||
@@ -13745,6 +16471,7 @@ void VK_Backend_SoftShutdown()
 	vk.ghoul2SurfaceCache.clear();
 	vk.glmLodFrameCache.clear();
 	vk.surfaceSpriteStreamCache.clear();
+	vk.shadowMapValid = false;
 	vk.ghoul2SkinnedAudits.clear();
 	vk.loggedCinematicGhouls.clear();
 	vk.loggedGhoul2RenderAudits.clear();
@@ -13791,6 +16518,8 @@ void VK_Backend_Shutdown()
 
 	for ( int eye = 0; eye < VK_BACKEND_EYE_COUNT; ++eye )
 	{
+		VK_DestroyShadowResponseTarget( eye );
+		VK_DestroyShadowMaskTarget( eye );
 		VK_DestroyForceSpeedTarget( eye );
 		for ( uint32_t i = 0; i < vk.colorImageCount[eye]; ++i )
 		{
@@ -13816,6 +16545,57 @@ void VK_Backend_Shutdown()
 		}
 		std::free( vk.colorImages[eye] );
 		vk.colorImages[eye] = nullptr;
+	}
+
+	if ( vk.shadowMapPipeline != VK_NULL_HANDLE )
+	{
+		vkDestroyPipeline( vk.device, vk.shadowMapPipeline, nullptr );
+		vk.shadowMapPipeline = VK_NULL_HANDLE;
+	}
+	if ( vk.shadowMapPipelineLayout != VK_NULL_HANDLE )
+	{
+		vkDestroyPipelineLayout( vk.device, vk.shadowMapPipelineLayout, nullptr );
+		vk.shadowMapPipelineLayout = VK_NULL_HANDLE;
+	}
+	VK_DestroyShadowMapResources();
+	if ( vk.shadowReceiverPipeline != VK_NULL_HANDLE )
+	{
+		vkDestroyPipeline( vk.device, vk.shadowReceiverPipeline, nullptr );
+		vk.shadowReceiverPipeline = VK_NULL_HANDLE;
+	}
+	if ( vk.shadowReceiverFilteredPipeline != VK_NULL_HANDLE )
+	{
+		vkDestroyPipeline(
+			vk.device, vk.shadowReceiverFilteredPipeline, nullptr );
+		vk.shadowReceiverFilteredPipeline = VK_NULL_HANDLE;
+	}
+	if ( vk.shadowReceiverSoftPipeline != VK_NULL_HANDLE )
+	{
+		vkDestroyPipeline(
+			vk.device, vk.shadowReceiverSoftPipeline, nullptr );
+		vk.shadowReceiverSoftPipeline = VK_NULL_HANDLE;
+	}
+	if ( vk.shadowResponsePipeline != VK_NULL_HANDLE )
+	{
+		vkDestroyPipeline( vk.device, vk.shadowResponsePipeline, nullptr );
+		vk.shadowResponsePipeline = VK_NULL_HANDLE;
+	}
+	if ( vk.shadowCompositePipeline != VK_NULL_HANDLE )
+	{
+		vkDestroyPipeline( vk.device, vk.shadowCompositePipeline, nullptr );
+		vk.shadowCompositePipeline = VK_NULL_HANDLE;
+	}
+	if ( vk.shadowReceiverPipelineLayout != VK_NULL_HANDLE )
+	{
+		vkDestroyPipelineLayout(
+			vk.device, vk.shadowReceiverPipelineLayout, nullptr );
+		vk.shadowReceiverPipelineLayout = VK_NULL_HANDLE;
+	}
+	if ( vk.shadowCompositePipelineLayout != VK_NULL_HANDLE )
+	{
+		vkDestroyPipelineLayout(
+			vk.device, vk.shadowCompositePipelineLayout, nullptr );
+		vk.shadowCompositePipelineLayout = VK_NULL_HANDLE;
 	}
 
 	if ( vk.pipeline != VK_NULL_HANDLE )
@@ -13954,6 +16734,26 @@ void VK_Backend_Shutdown()
 	{
 		vkDestroyRenderPass( vk.device, vk.renderPass, nullptr );
 	}
+	if ( vk.shadowSceneRenderPass != VK_NULL_HANDLE )
+	{
+		vkDestroyRenderPass( vk.device, vk.shadowSceneRenderPass, nullptr );
+	}
+	if ( vk.shadowLoadRenderPass != VK_NULL_HANDLE )
+	{
+		vkDestroyRenderPass( vk.device, vk.shadowLoadRenderPass, nullptr );
+	}
+	if ( vk.shadowMaskRenderPass != VK_NULL_HANDLE )
+	{
+		vkDestroyRenderPass( vk.device, vk.shadowMaskRenderPass, nullptr );
+	}
+	if ( vk.shadowResponseRenderPass != VK_NULL_HANDLE )
+	{
+		vkDestroyRenderPass( vk.device, vk.shadowResponseRenderPass, nullptr );
+	}
+	if ( vk.shadowDepthSampler != VK_NULL_HANDLE )
+	{
+		vkDestroySampler( vk.device, vk.shadowDepthSampler, nullptr );
+	}
 	if ( vk.textureSampler != VK_NULL_HANDLE )
 	{
 		vkDestroySampler( vk.device, vk.textureSampler, nullptr );
@@ -13973,6 +16773,11 @@ void VK_Backend_Shutdown()
 	if ( vk.textureSetLayout != VK_NULL_HANDLE )
 	{
 		vkDestroyDescriptorSetLayout( vk.device, vk.textureSetLayout, nullptr );
+	}
+	if ( vk.shadowReceiverSetLayout != VK_NULL_HANDLE )
+	{
+		vkDestroyDescriptorSetLayout(
+			vk.device, vk.shadowReceiverSetLayout, nullptr );
 	}
 	if ( vk.glmSkinSetLayout != VK_NULL_HANDLE )
 	{
@@ -15988,6 +18793,9 @@ static void VK_WorldConfigureSky(
 	size_t shaderCount,
 	vk_world_geometry_t *world )
 {
+	VectorSet( world->sunDirection, 0.45f, 0.30f, 0.90f );
+	VectorNormalize( world->sunDirection );
+	world->hasAuthoredSunDirection = false;
 	static const char *suffixes[6] = { "rt", "lf", "bk", "ft", "up", "dn" };
 	for ( size_t surfaceIndex = 0; surfaceIndex < surfaceCount; ++surfaceIndex )
 	{
@@ -16036,9 +18844,17 @@ static void VK_WorldConfigureSky(
 		std::memcpy( world->skyTextures, loadedFaces, sizeof( loadedFaces ) );
 		world->skyName = definition->skyOuterbox;
 		world->hasSky = true;
+		if ( definition->hasSunDirection )
+		{
+			VectorCopy( definition->sunDirection, world->sunDirection );
+			world->hasAuthoredSunDirection = true;
+		}
 		ri.Printf( PRINT_ALL,
-			"rd-vulkan-sky: shader=%s outerbox=%s cloudHeight=%.1f faces=%d,%d,%d,%d,%d,%d\n",
+			"rd-vulkan-sky: shader=%s outerbox=%s cloudHeight=%.1f "
+			"sun=(%.3f %.3f %.3f) source=%s faces=%d,%d,%d,%d,%d,%d\n",
 			shaderName, world->skyName.c_str(), definition->skyCloudHeight,
+			world->sunDirection[0], world->sunDirection[1], world->sunDirection[2],
+			world->hasAuthoredSunDirection ? "authored" : "fallback",
 			world->skyTextures[0], world->skyTextures[1], world->skyTextures[2],
 			world->skyTextures[3], world->skyTextures[4], world->skyTextures[5] );
 		return;
@@ -17109,6 +19925,19 @@ static void VK_WorldLoadInlineModels(
 void VK_Backend_LoadWorld( const char *name )
 {
 	++vk.worldLoadCount;
+	vk.shadowLightDirectionValid = false;
+	vk.shadowLightDirectionTime = 0;
+	vk.shadowActiveGroupCount = 0;
+	for ( int group = 0; group < VK_SHADOW_DIRECTION_GROUP_COUNT; ++group )
+	{
+		vk.shadowGroupDirectionValid[group] = false;
+		vk.shadowGroupDirectionTimes[group] = 0;
+		vk.shadowGroupHalfExtents[group] = 0.0f;
+		vk.shadowGroupActive[group] = false;
+	}
+	vk.loggedShadowMapActive = false;
+	vk.loggedShadowDirectionAudit = false;
+	vk.loggedShadowReceiverActive = false;
 	vk.loggedDiagnosticDraw = false;
 	vk.loggedWorldDraw = false;
 	vk.loggedVisibleWorldMaterials = false;

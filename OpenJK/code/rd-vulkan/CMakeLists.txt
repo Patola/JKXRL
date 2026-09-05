@@ -29,6 +29,12 @@ if(BuildSPRdVulkan OR BuildJK2SPRdVulkan)
 		"${CMAKE_CURRENT_BINARY_DIR}/diagnostic3d.frag.inc"
 		"${CMAKE_CURRENT_BINARY_DIR}/world.vert.inc"
 		"${CMAKE_CURRENT_BINARY_DIR}/world.frag.inc"
+		"${CMAKE_CURRENT_BINARY_DIR}/shadow_map.vert.inc"
+		"${CMAKE_CURRENT_BINARY_DIR}/shadow_map.frag.inc"
+		"${CMAKE_CURRENT_BINARY_DIR}/shadow_receiver.vert.inc"
+		"${CMAKE_CURRENT_BINARY_DIR}/shadow_receiver.frag.inc"
+		"${CMAKE_CURRENT_BINARY_DIR}/shadow_response.frag.inc"
+		"${CMAKE_CURRENT_BINARY_DIR}/shadow_composite.frag.inc"
 		"${CMAKE_CURRENT_BINARY_DIR}/glm_skin.comp.inc"
 		)
 
@@ -129,6 +135,54 @@ if(BuildSPRdVulkan OR BuildJK2SPRdVulkan)
 		VERBATIM)
 
 	add_custom_command(
+		OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/shadow_map.vert.inc"
+		COMMAND "${Vulkan_GLSLC_EXECUTABLE}" --target-env=vulkan1.3 -fshader-stage=vert -mfmt=c
+			-o "${CMAKE_CURRENT_BINARY_DIR}/shadow_map.vert.inc"
+			"${SPDir}/rd-vulkan/shaders/shadow_map.vert"
+		DEPENDS "${SPDir}/rd-vulkan/shaders/shadow_map.vert"
+		VERBATIM)
+
+	add_custom_command(
+		OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/shadow_map.frag.inc"
+		COMMAND "${Vulkan_GLSLC_EXECUTABLE}" --target-env=vulkan1.3 -fshader-stage=frag -mfmt=c
+			-o "${CMAKE_CURRENT_BINARY_DIR}/shadow_map.frag.inc"
+			"${SPDir}/rd-vulkan/shaders/shadow_map.frag"
+		DEPENDS "${SPDir}/rd-vulkan/shaders/shadow_map.frag"
+		VERBATIM)
+
+	add_custom_command(
+		OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/shadow_receiver.vert.inc"
+		COMMAND "${Vulkan_GLSLC_EXECUTABLE}" --target-env=vulkan1.3 -fshader-stage=vert -mfmt=c
+			-o "${CMAKE_CURRENT_BINARY_DIR}/shadow_receiver.vert.inc"
+			"${SPDir}/rd-vulkan/shaders/shadow_receiver.vert"
+		DEPENDS "${SPDir}/rd-vulkan/shaders/shadow_receiver.vert"
+		VERBATIM)
+
+	add_custom_command(
+		OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/shadow_receiver.frag.inc"
+		COMMAND "${Vulkan_GLSLC_EXECUTABLE}" --target-env=vulkan1.3 -fshader-stage=frag -mfmt=c
+			-o "${CMAKE_CURRENT_BINARY_DIR}/shadow_receiver.frag.inc"
+			"${SPDir}/rd-vulkan/shaders/shadow_receiver.frag"
+		DEPENDS "${SPDir}/rd-vulkan/shaders/shadow_receiver.frag"
+		VERBATIM)
+
+	add_custom_command(
+		OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/shadow_composite.frag.inc"
+		COMMAND "${Vulkan_GLSLC_EXECUTABLE}" --target-env=vulkan1.3 -fshader-stage=frag -mfmt=c
+			-o "${CMAKE_CURRENT_BINARY_DIR}/shadow_composite.frag.inc"
+			"${SPDir}/rd-vulkan/shaders/shadow_composite.frag"
+		DEPENDS "${SPDir}/rd-vulkan/shaders/shadow_composite.frag"
+		VERBATIM)
+
+	add_custom_command(
+		OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/shadow_response.frag.inc"
+		COMMAND "${Vulkan_GLSLC_EXECUTABLE}" --target-env=vulkan1.3 -fshader-stage=frag -mfmt=c
+			-o "${CMAKE_CURRENT_BINARY_DIR}/shadow_response.frag.inc"
+			"${SPDir}/rd-vulkan/shaders/shadow_response.frag"
+		DEPENDS "${SPDir}/rd-vulkan/shaders/shadow_response.frag"
+		VERBATIM)
+
+	add_custom_command(
 		OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/glm_skin.comp.inc"
 		COMMAND "${Vulkan_GLSLC_EXECUTABLE}" --target-env=vulkan1.3 -fshader-stage=comp -mfmt=c
 			-o "${CMAKE_CURRENT_BINARY_DIR}/glm_skin.comp.inc"
@@ -159,6 +213,12 @@ if(BuildSPRdVulkan OR BuildJK2SPRdVulkan)
 		"${SPDir}/rd-vulkan/shaders/diagnostic3d.frag"
 		"${SPDir}/rd-vulkan/shaders/world.vert"
 		"${SPDir}/rd-vulkan/shaders/world.frag"
+		"${SPDir}/rd-vulkan/shaders/shadow_map.vert"
+		"${SPDir}/rd-vulkan/shaders/shadow_map.frag"
+		"${SPDir}/rd-vulkan/shaders/shadow_receiver.vert"
+		"${SPDir}/rd-vulkan/shaders/shadow_receiver.frag"
+		"${SPDir}/rd-vulkan/shaders/shadow_response.frag"
+		"${SPDir}/rd-vulkan/shaders/shadow_composite.frag"
 		"${SPDir}/rd-vulkan/shaders/glm_skin.comp"
 		${SPRDVulkanShaderHeaders}
 		)

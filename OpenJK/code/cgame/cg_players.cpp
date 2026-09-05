@@ -7246,6 +7246,10 @@ Ghoul2 Insert Start
 		{
 			ent.renderfx |= RF_SHADOW_PLANE;
 		}
+		if ( cent->gent->client->NPC_class == CLASS_STORMTROOPER )
+		{
+			ent.renderfx |= RF_LIGHT_SHADOW_RECEIVER;
+		}
 		ent.shadowPlane = shadowPlane;
 		ent.renderfx |= RF_LIGHTING_ORIGIN;			// use the same origin for all
 		if ( cent->gent->NPC && cent->gent->NPC->scriptFlags & SCF_MORELIGHT )
@@ -8357,6 +8361,10 @@ Ghoul2 Insert End
 		renderfx |= RF_SHADOW_PLANE;
 	}
 	renderfx |= RF_LIGHTING_ORIGIN;			// use the same origin for all
+	if ( cent->gent->client->NPC_class == CLASS_STORMTROOPER )
+	{
+		renderfx |= RF_LIGHT_SHADOW_RECEIVER;
+	}
 	if ( cent->gent->NPC && cent->gent->NPC->scriptFlags & SCF_MORELIGHT )
 	{
 		renderfx |= RF_MORELIGHT;			//bigger than normal min light

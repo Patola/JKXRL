@@ -77,6 +77,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #define RF_FORCE_ENT_ALPHA	0x800000 // override shader alpha settings
 
 #define RF_VRVIEWMODEL     0x1000000 // specifically drawing a VR hand/weapon model
+#define RF_LIGHT_SHADOW_RECEIVER 0x2000000 // attenuate added renderer shadows on bright armor
 
 // refdef flags
 #define RDF_NOWORLDMODEL	1		// used for player configuration screen

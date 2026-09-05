@@ -392,11 +392,162 @@ Shadow implementation is subject to these gates:
 - At the initial quality level, shadow CPU recording may add at most 0.35 ms on
   average and 0.75 ms to a 120-frame report maximum. Stereo GPU time may add at
   most 1.5 ms on average and 2.0 ms to a report maximum in `t1_rail`.
-- Shadow timing is reported as dedicated CPU collection/recording and GPU-map,
-  mask, and blur phases so regressions cannot hide inside general model time.
-- Resolution, caster/light limits, blur quality, and a complete off switch are
+- Shadow timing is reported as dedicated CPU collection/recording and GPU-map
+  and filtered-mask phases so regressions cannot hide inside general model time.
+- Resolution, caster/light limits, filtering, and a complete off switch are
   runtime cvars. Allocation and pipeline creation happen outside ordinary
   frame recording.
+
+The OpenGL Ultra implementation is a visual reference, not the Vulkan design.
+It constructs silhouette edges on the CPU, extrudes stencil volumes, copies the
+eye color, and builds a blurred screen-space mask through a mip chain. Vulkan
+instead uses a programmable, stereo-shared light-space depth map. Animated
+caster draws bind the same skinned vertex ranges already prepared for ordinary
+model rendering; no silhouette topology and no second deformation are built.
+Each eye reconstructs receivers from its depth buffer into a reduced-size
+mask. Softness is applied while sampling the light-space depth map, before the
+translucent composite. This avoids blurring shadows across unrelated receiver
+surfaces while keeping filter cost independent of caster count.
+
+The first gated increment implements only map creation and submission. It is
+off by default through `r_vulkanShadows 0`; enabling it with `cg_shadows 2` or
+higher records the shared map but deliberately does not alter scene color yet.
+`r_vulkanShadowMapSize`, `r_vulkanShadowCasterLimit`, and
+`r_vulkanShadowDistance` bound its memory and work. The
+`rd-vulkan-shadow-timing` report must show near-zero cache misses before the
+receiver-mask stage is allowed to land.
+
+The Quest 3/WiVRn map-only acceptance run reached zero cache misses in every
+reported sample after adding the selected-caster compute preparation pass. The
+crowded JKA ship recorded 12 casters and about 185 draws with roughly 0.30 ms
+CPU preparation, 0.30 ms CPU map recording, and 0.07 ms GPU map time. Its
+largest sampled crowd used 18 casters and 297 draws at comparable cost. This
+passes the cache and recording gates and permits work on the visible receiver
+mask without changing the established map architecture.
+
+The first visible receiver increment preserves eye depth only while shadows are
+enabled, reconstructs world positions into one half-resolution `R8_UNORM` mask
+per eye, and composites black at a restrained default opacity of `0.32` before
+HUD, subtitles, scopes, menus, and other screen-space rectangles. The
+`r_vulkanShadowOpacity` cvar permits live tuning from zero through `0.8`.
+Filtering is deliberately disabled for this gate so projection, depth bias,
+stereo stability, and raw mask cost can be judged before softness can hide an
+error. `rd-vulkan-shadow-timing` reports the combined GPU mask cost for both
+eyes separately from the stereo-shared map cost.
+
+The first stable-light experiment used shader `sun`, `q3map_sun`, and
+`q3map_sunExt` directives, with the normalized legacy renderer default
+`(0.45, 0.30, 0.90)` as fallback. Anchoring that direction independently of
+the HMD removed the severe cinematic flicker, but broader testing rejected it
+as the final lighting model: indoor actor shadows did not follow their local
+authored lights. The legacy renderer already samples that information from the
+BSP light grid for each entity.
+
+Quest 3/WiVRn acceptance confirmed that the fixed light basis keeps direction
+consistent through the crowded JKA ship cinematic and remains stable under
+HMD motion, scripted camera movement, and turn-stick yaw. Animated shadows
+track their casters, ordinary rendering and performance remain intact, and the
+only observed defect in the raw mask was minor hard-edge aliasing.
+
+The next quality pass retains each caster's world-space light-grid direction
+before model lighting converts it to local space. A temporally stabilized
+consensus of nearby unique actors drives the shared map; map sun remains only
+the no-caster fallback. Dynamic lights are deliberately excluded from this
+direction consensus so a moving saber or projectile cannot rotate every
+character shadow. As in the legacy projection, only each sample's horizontal
+bearing is retained: it is normalized and combined with a fixed vertical
+component at a `0.3:1.0` ratio. Feeding raw light-grid elevation into a
+directional map was rejected because near-horizontal indoor samples produced
+implausibly long shadows. The orthographic footprint is fitted around the
+selected casters and snapped to shadow texels instead of always spanning the
+full collection distance. This preserves the bounded, stereo-shared
+architecture while materially increasing effective map resolution in ordinary
+rooms and cinematics.
+
+The first filtered quality step specializes the receiver pipeline at creation:
+mode `0` retains the accepted single depth comparison, while mode `1` initially
+used a stable 3x3, 1-2-1 tent PCF in light space. After the fitted-map pass,
+mode `1` uses a 5x5, 1-4-6-4-1 tent to suppress the remaining staircase edges
+without adding another render target. `r_vulkanShadowFilter` selects the
+mode and defaults to `1`; setting it to `0` provides an immediate raw-mask A/B
+without rebuilding resources. The existing `gpu-mask` timing includes the PCF
+cost. Quest 3/WiVRn acceptance confirmed visibly softer edges, stable direction
+and projection, attached animated shadows, no cross-surface dark halos, and no
+perceptible performance regression. At 3096x3243 per eye, the filtered mask
+typically measured about 0.13-0.15 ms for both eyes, compared with roughly
+0.08 ms for the raw mask; the shared map remained around 0.03-0.07 ms.
+
+Receiver shadowing must finish before late non-depth-writing dynamic effects
+and weather. In particular, saber glow, beams, flares, and particles are light
+sources or emissive effects and must never be darkened by the shadow composite.
+HUD, subtitles, scopes, menus, and other screen-space rectangles remain later
+still.
+
+Authored Yavin water is also a late receiver overlay. Its translucent stages
+are withheld from the scene-depth pass and replayed after shadow composition,
+before emissive dynamic effects. Character shadows therefore darken the solid
+pool floor and are then covered by the water layer, matching the legacy visual
+ordering without moving unrelated model or world material stages.
+
+A single light-grid consensus cannot reproduce the legacy renderer's distinct
+per-actor shadow bearings when nearby samples point in opposing directions;
+their horizontal components can cancel into an almost vertical shared map.
+`r_vulkanShadowAudit 1` records each unique caster's model, origin, raw sample,
+bounded projection direction, direction group, and the resulting consensus
+once per loaded map. The `academy1` audit demonstrated the failure directly:
+Luke's useful `(0.010, -0.287, 0.958)` bounded direction was averaged with 17
+surrounding actors into the nearly vertical `(-0.007, -0.038, 0.999)` result.
+
+The grouped quality increment assigns actors to four stable world-space bearing
+sectors and averages only compatible directions. Each occupied sector renders
+to one layer of a stereo-shared depth image using its own fitted, texel-snapped
+matrix. Per-eye receiver draws accumulate those layers into one mask with a
+maximum blend, so overlaps do not multiply shadow opacity. Group identity never
+depends on either eye or the camera, animated casters still reuse the single
+compute preparation pass, and no actor/model-name special cases are involved.
+
+Quest 3/WiVRn acceptance confirmed distinct, plausible bearings for Luke and
+the surrounding Padawans, stable animated shadows, maximum-blended group
+overlaps, correct pool-water and saber-glow ordering, and no perceptible
+performance regression. The next isolated quality mode is selected with
+`r_vulkanShadowFilter 2`. It samples a deterministic 32-point Vogel disk in
+light space and derives its radius from the fitted orthographic matrix, keeping
+the penumbra near two world units rather than making softness depend on map
+footprint. Modes `0` and `1` retain the accepted raw and 5x5 paths for A/B
+diagnosis. The disk is camera-independent and runs before composition, so its
+result must remain binocularly stable and cannot blur across unrelated receiver
+surfaces.
+
+Quest 3/WiVRn acceptance of mode `2` found the softened edges clean, stable,
+free of visible sampling rings or grain, correctly ordered with Yavin water and
+saber glow, and without a perceptible performance loss. Direction groups and
+their maximum-blended overlaps remained correct. White-armored character
+response is deliberately evaluated after this baseline; no model-specific
+attenuation belongs in the filter itself.
+
+Stormtroopers and snowtroopers intentionally retain their normal geometry in
+the shared shadow maps, so their cast silhouettes and ground shadows are
+identical to other actors. Their cgame submissions instead carry the semantic
+`RF_LIGHT_SHADOW_RECEIVER` flag. After scene depth is complete, Vulkan reuses
+the frame's cached skinned vertices to mark visible flagged pixels in a
+full-resolution one-channel receiver-response target. The final composite
+attenuates only the added projected shadow at those pixels; it does not replace
+authored model lighting, inspect texture names, or brighten unrelated pale
+materials. `r_vulkanShadowWhiteArmorScale` controls the remaining projected
+shadow response and defaults to the headset-tested `0.1`; `1.0` is the exact
+unattenuated A/B.
+The response pass is included in the existing `gpu-mask` timing interval.
+
+Final Quest 3/WiVRn JKO acceptance covered the Mon Mothma cinematic,
+`kejim_post`, `ns_streets`, and the Desann encounter. Shadows remained stable
+and binocularly consistent, white armor retained its intended response, and
+holograms, saber glow, cinematics, and other effects preserved their ordering.
+Across 398 timing reports, animated shadow submissions had zero skinned-cache
+misses. The largest reported CPU mask-record cost was `0.082 ms`; GPU map and
+stereo mask peaks were `0.124 ms` and `1.196 ms`, respectively. A matching
+`r_vulkanShadows 0` control emitted no shadow-map, mask, or semantic-response
+work. These results close the initial Vulkan soft-shadow milestone for both
+games.
 
 The first shadow acceptance loop must repeat the crowded JKA ship, all three
 `t1_rail` view directions, `t1_fatal`, the JKO Mon Mothma cinematic,
@@ -931,6 +1082,15 @@ world when the console closes.
 Headset acceptance confirmed the 56% by 35% panel is comfortable and usable,
 preserves stereo world rendering behind it, and should remain at this size.
 
+Live immersive cinematics retain the scripted camera pose while allowing the
+ordinary turn stick to add yaw. The compositor snapshots `snapTurn` at
+cinematic entry and applies only its subsequent delta to the scripted camera
+basis before composing the HMD's local 6DOF rotation. This preserves entry
+recentering and the level-horizon roll contract without causing a first-frame
+yaw jump. Pre-rendered screen-layer cinematics are unaffected. Quest 3/WiVRn
+headset acceptance confirmed responsive turn-stick yaw, correct HMD 6DOF and
+horizon behavior, and no entry jump or eye disagreement.
+
 The active renderer owns the OpenXR session and therefore must also own its
 vibration output action. Vulkan adds that action to the same `jkxr_gameplay`
 action set used for tracked input, binds it to both controller haptic paths, and
@@ -948,6 +1108,15 @@ With `vr_controller_debug 1`, every accepted Vulkan submission records its
 hand, duration, and amplitude, while OpenXR failures report their result code.
 Quest 3/WiVRn headset acceptance confirmed independent left/right diagnostic
 pulses, successful Force Push/Pull feedback, and right-hand saber feedback.
+
+Saber activation and surface-contact events are intentionally much lighter
+than firearm recoil or Force feedback because the weapon remains continuously
+in hand. `vr_saber_haptic_intensity` scales only saber `chainsaw_fire` events,
+defaults to `0.20`, and uses a short 50 ms pulse. Melee events sharing the
+legacy event name retain their original duration and amplitude.
+Quest 3/WiVRn headset acceptance confirmed that the default `0.20` setting is
+present but unobtrusive during normal saber use and leaves the other haptic
+classes unchanged.
 
 The fallback haptic queue stores durations in milliseconds, while `ToXrTime`
 accepts seconds. It converts milliseconds to seconds before constructing the

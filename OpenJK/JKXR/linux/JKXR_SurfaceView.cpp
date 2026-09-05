@@ -269,6 +269,7 @@ static void VR_InitGameStateAndCvars()
 	vr_irl_crouch_to_stand_ratio = Cvar_Get( "vr_irl_crouch_to_stand_ratio", "0.65", CVAR_ARCHIVE );
 	vr_saber_block_debounce_time = Cvar_Get( "vr_saber_block_debounce_time", "200", CVAR_ARCHIVE );
 	vr_haptic_intensity = Cvar_Get( "vr_haptic_intensity", "1.0", CVAR_ARCHIVE );
+	vr_saber_haptic_intensity = Cvar_Get( "vr_saber_haptic_intensity", "0.20", CVAR_ARCHIVE );
 	vr_comfort_vignette = Cvar_Get( "vr_comfort_vignette", "0.0", CVAR_ARCHIVE );
 	vr_saber_3rdperson_mode = Cvar_Get( "vr_saber_3rdperson_mode", "1", CVAR_ARCHIVE );
 	vr_vehicle_use_hmd_direction = Cvar_Get( "vr_vehicle_use_hmd_direction", "0", CVAR_ARCHIVE );
@@ -542,7 +543,16 @@ void VR_HapticEvent(const char* event, int position, int flags, int intensity, f
 			}
 		}
 
-		TBXR_Vibrate(300, weaponFireChannel, fIntensity);
+		if (cl.frame.ps.weapon == WP_SABER)
+		{
+			const float saberScale = vr_saber_haptic_intensity != NULL
+				? Com_Clamp(0.0f, 1.0f, vr_saber_haptic_intensity->value) : 0.20f;
+			TBXR_Vibrate(50, weaponFireChannel, fIntensity * saberScale);
+		}
+		else
+		{
+			TBXR_Vibrate(300, weaponFireChannel, fIntensity);
+		}
 	}
 	else if (strcmp(event, "RTCWQuest:fire_tesla") == 0) // Weapon power build up
 	{

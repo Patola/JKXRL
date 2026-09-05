@@ -80,6 +80,7 @@ typedef struct {
     bool cinematic_pose_valid;
     vec3_t cinematic_hmdposition_snap;
     vec3_t cinematic_hmdorientation_snap;
+    float cinematic_snapTurn_snap;
 
     vec3_t clientviewangles; //orientation in the client - we use this in the cgame
     float snapTurn; // how much turn has been applied to the yaw by joystick
