@@ -261,16 +261,33 @@ PVS plus surface AABB/radius tests reject unrelated draws. The fragment pass
 preserves an opaque stage's alpha mask, attenuates by radius and surface facing,
 and does not alter translucent material ordering.
 
-Model materials using `rgbGen lightingDiffuse` combine the BSP lightgrid with
-the scene's dynamic lights. Static MD3 surfaces retain per-vertex diffuse
-lighting. Applying weighted, bone-transformed normals to every Ghoul2 vertex
-raised CPU command-recording time to 40-70 ms in populated scenes while GPU
-stereo work remained 2-5 ms, and produced no visible benefit in the reference
-scenes. Animated Ghoul2 surfaces therefore retain the verified position-only
-skin stream and receive a per-entity hemispherical diffuse tint. This preserves
-scene and dynamic-light color at negligible vertex cost; full pose-dependent
-Ghoul2 diffuse lighting requires a later GPU skinning/lighting path rather than
-returning that work to the render thread.
+Model materials using `rgbGen lightingDiffuse` sample the BSP lightgrid for
+their base ambient and directed lighting. Opaque MD3 and GLM surfaces then
+receive the same spatial additive dynamic-light response as BSP geometry. Each
+scene light is transformed into model space, culled against the complete model
+bounds (with the submitted Ghoul2 radius as an animated fallback), and evaluated
+against the rendered position and normal. This lets a saber illuminate the near
+face of a large boulder or tree even when the model origin lies outside the
+light radius. Opaque `lightingDiffuse` stages preserve the legacy default depth
+write, then model light is replayed as a texture-free, exact-depth contribution.
+Fully opaque surfaces use the same direct additive response as BSP, while
+alpha-cutout receivers use destination-color modulation. This restricts light
+to material pixels that survived alpha testing, prevents foliage cards or model
+UVs from appearing in the glow, and keeps solid props at a brightness consistent
+with adjacent BSP. The old coarse dynamic tint is omitted while this pass is
+active so a light is not counted twice;
+`r_vulkanModelDynamicLights 0` restores that fallback.
+
+Applying weighted, bone-transformed base lighting to every Ghoul2 vertex raised
+CPU command-recording time to 40-70 ms in populated scenes while GPU stereo work
+remained 2-5 ms, and produced no visible benefit in the reference scenes.
+Animated Ghoul2 surfaces therefore retain the verified position-only skin
+stream and a per-entity hemispherical lightgrid tint, while the additive pass
+uses their already-skinned position and normal stream. Disintegrating entities
+temporarily retain the legacy dynamic tint because their vertex visibility
+changes during the effect. `r_vulkanModelDynamicLightAudit 1` logs each bounded
+model receiver once per level, and `r_vulkanTiming 1` reports the resulting
+`model-dlight-draws` separately.
 
 Animated BSP lighting may author up to four independent lightmap or vertex
 color styles per surface. Vulkan retains their handles and style metadata and
@@ -290,9 +307,11 @@ dedicated stream.
 Acceptance test:
 
 1. A saber, projectile, explosion, or other submitted light produces a smooth
-   colored radial contribution on nearby BSP and tints `lightingDiffuse`
-   models, without duplicating the material texture or becoming an eye-filling
-   quad.
+   colored radial contribution on nearby BSP and `lightingDiffuse` models,
+   without duplicating the material texture or becoming an eye-filling quad.
+   In `yavin1`, verify the large dark boulder behind the gameplay spawn and the
+   nearby tree trunks and alpha-tested leaves respond locally as the saber
+   approaches them; distant parts of each model must remain unchanged.
 2. Verify primary light-style updates do not alter unrelated surfaces. Once the
    BSP-only secondary stream lands, load `kor1`, `kor2`, or `t1_fatal` and
    verify the authored effects animate identically in both eyes.
@@ -1139,8 +1158,10 @@ copying is insufficient for local builds and package replacements.
   needed. A recognized gesture that cannot run because energy is insufficient
   should produce an
   audible rejection cue and controller haptic instead of failing silently.
-- Legacy-style glow/blur target or bloom buffer for sabers and authored glow
-  effects.
+- Replace the default-off single-scale Vulkan glow prototype with a profiled
+  multi-scale bloom pyramid for sabers and authored glow effects. The prototype
+  is retained only as implementation scaffolding and is not part of the
+  accepted visual baseline.
 - Deliberately improve beyond original/Quest behavior by extending and tuning
   `surfaceSprites` vegetation draw/fade distance after profiling its CPU,
   geometry, and fill-rate cost. Preserve world anchoring, stereo stability,

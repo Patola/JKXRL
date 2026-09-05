@@ -37,22 +37,27 @@ void main()
 		}
 		vec3 lightOrigin = vec3(pc.uvOffset, pc.alpha);
 		vec3 toLight = lightOrigin - vPosition;
-		float distanceSquared = dot(toLight, toLight);
+		vec3 axisScale = max(abs(pc.stageFlags.xyz), vec3(1.0e-6));
+		vec3 scaledToLight = toLight * axisScale;
+		float distanceSquared = dot(scaledToLight, scaledToLight);
 		float radiusSquared = pc.useLightmap * pc.useLightmap;
 		if (distanceSquared >= radiusSquared || radiusSquared <= 0.0)
 		{
 			discard;
 		}
 		float normalLengthSquared = dot(vNormal, vNormal);
+		vec3 scaledNormal = vNormal / axisScale;
+		normalLengthSquared = dot(scaledNormal, scaledNormal);
 		vec3 normal = normalLengthSquared > 1.0e-8
-			? vNormal * inversesqrt(normalLengthSquared)
+			? scaledNormal * inversesqrt(normalLengthSquared)
 			: vec3(0.0, 0.0, 1.0);
-		float facing = max(dot(normal, toLight * inversesqrt(max(distanceSquared, 1.0e-8))), 0.0);
+		float facing = max(dot(normal,
+			scaledToLight * inversesqrt(max(distanceSquared, 1.0e-8))), 0.0);
 		float radial = max(1.0 - distanceSquared / radiusSquared, 0.0);
 		float attenuation = radial * radial * smoothstep(0.0, 0.2, facing);
-		// The material sample is only an alpha-test mask here. Re-emitting its
-		// RGB turns a moving light into a bright duplicate of the wall texture;
-		// the light contribution itself must remain a smooth radial field.
+		// Material coverage comes from the completed opaque depth buffer. The
+		// model receiver pipeline uses destination-color modulation, so this
+		// remains a texture-free light field and cannot expose model UVs.
 		outColor = vec4(pc.stageColor.rgb * attenuation, attenuation);
 		return;
 	}

@@ -25,6 +25,8 @@ if(BuildSPRdVulkan OR BuildJK2SPRdVulkan)
 		"${CMAKE_CURRENT_BINARY_DIR}/textured_rect.frag.inc"
 		"${CMAKE_CURRENT_BINARY_DIR}/force_speed_motion_blur.vert.inc"
 		"${CMAKE_CURRENT_BINARY_DIR}/force_speed_motion_blur.frag.inc"
+		"${CMAKE_CURRENT_BINARY_DIR}/glow_blur.frag.inc"
+		"${CMAKE_CURRENT_BINARY_DIR}/glow_composite.frag.inc"
 		"${CMAKE_CURRENT_BINARY_DIR}/diagnostic3d.vert.inc"
 		"${CMAKE_CURRENT_BINARY_DIR}/diagnostic3d.frag.inc"
 		"${CMAKE_CURRENT_BINARY_DIR}/world.vert.inc"
@@ -100,6 +102,22 @@ if(BuildSPRdVulkan OR BuildJK2SPRdVulkan)
 			-o "${CMAKE_CURRENT_BINARY_DIR}/force_speed_motion_blur.frag.inc"
 			"${SPDir}/rd-vulkan/shaders/force_speed_motion_blur.frag"
 		DEPENDS "${SPDir}/rd-vulkan/shaders/force_speed_motion_blur.frag"
+		VERBATIM)
+
+	add_custom_command(
+		OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/glow_blur.frag.inc"
+		COMMAND "${Vulkan_GLSLC_EXECUTABLE}" --target-env=vulkan1.3 -fshader-stage=frag -mfmt=c
+			-o "${CMAKE_CURRENT_BINARY_DIR}/glow_blur.frag.inc"
+			"${SPDir}/rd-vulkan/shaders/glow_blur.frag"
+		DEPENDS "${SPDir}/rd-vulkan/shaders/glow_blur.frag"
+		VERBATIM)
+
+	add_custom_command(
+		OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/glow_composite.frag.inc"
+		COMMAND "${Vulkan_GLSLC_EXECUTABLE}" --target-env=vulkan1.3 -fshader-stage=frag -mfmt=c
+			-o "${CMAKE_CURRENT_BINARY_DIR}/glow_composite.frag.inc"
+			"${SPDir}/rd-vulkan/shaders/glow_composite.frag"
+		DEPENDS "${SPDir}/rd-vulkan/shaders/glow_composite.frag"
 		VERBATIM)
 
 	add_custom_command(
@@ -209,6 +227,8 @@ if(BuildSPRdVulkan OR BuildJK2SPRdVulkan)
 		"${SPDir}/rd-vulkan/shaders/textured_rect.frag"
 		"${SPDir}/rd-vulkan/shaders/force_speed_motion_blur.vert"
 		"${SPDir}/rd-vulkan/shaders/force_speed_motion_blur.frag"
+		"${SPDir}/rd-vulkan/shaders/glow_blur.frag"
+		"${SPDir}/rd-vulkan/shaders/glow_composite.frag"
 		"${SPDir}/rd-vulkan/shaders/diagnostic3d.vert"
 		"${SPDir}/rd-vulkan/shaders/diagnostic3d.frag"
 		"${SPDir}/rd-vulkan/shaders/world.vert"
