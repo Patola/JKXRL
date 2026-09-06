@@ -1697,8 +1697,67 @@
 
 			mouseexit
 			{ 
-				hide			button_glow
-			}
+					hide			button_glow
+				}
+		}
+
+		itemDef
+		{
+			name				none
+			group				comfortcontrols
+			type				ITEM_TYPE_MULTI
+			text				@MENUS_VR_CONSOLE_BUTTON_ITEM
+			cvar				"vr_console_button"
+			cvarFloatList		{ @MENUS_VR_CONSOLE_BUTTON_Y 0 @MENUS_VR_CONSOLE_BUTTON_B 1 @MENUS_VR_CONSOLE_BUTTON_DATAPAD 2 }
+			rect				260 360 340 14
+			textalign			ITEM_ALIGN_RIGHT
+			textalignx			174
+			font				4
+			textscale			1
+			forecolor			.615 .615 .956 0.0
+			visible			0
+			descText			@MENUS_VR_CONSOLE_BUTTON_DESC
+			mouseenter			{ show button_glow setitemrect button_glow 260 360 340 20 }
+			mouseexit			{ hide button_glow }
+		}
+
+		itemDef
+		{
+			name				none
+			group				comfortcontrols
+			type				ITEM_TYPE_MULTI
+			text				@MENUS_VR_CONSOLE_HOLD_ITEM
+			cvar				"vr_console_hold_ms"
+			cvarFloatList		{ "400 ms" 400 "500 ms" 500 "600 ms" 600 "700 ms" 700 "800 ms" 800 }
+			rect				260 380 340 14
+			textalign			ITEM_ALIGN_RIGHT
+			textalignx			174
+			font				4
+			textscale			1
+			forecolor			.615 .615 .956 0.0
+			visible			0
+			descText			@MENUS_VR_CONSOLE_HOLD_DESC
+			mouseenter			{ show button_glow setitemrect button_glow 260 380 340 20 }
+			mouseexit			{ hide button_glow }
+		}
+
+		itemDef
+		{
+			name				none
+			group				comfortcontrols
+			type				ITEM_TYPE_YESNO
+			text				@MENUS_VR_CONSOLE_ANIMATION_ITEM
+			cvar				"vr_console_animation"
+			rect				260 400 340 14
+			textalign			ITEM_ALIGN_RIGHT
+			textalignx			174
+			font				4
+			textscale			1
+			forecolor			.615 .615 .956 0.0
+			visible			0
+			descText			@MENUS_VR_CONSOLE_ANIMATION_DESC
+			mouseenter			{ show button_glow setitemrect button_glow 260 400 340 20 }
+			mouseexit			{ hide button_glow }
 		}
 
 //----------------------------------------------------------------------------------------------

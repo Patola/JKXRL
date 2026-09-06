@@ -899,3 +899,58 @@ INDEX 178
    REFERENCE FORCE_SPEED_MOTION_BLUR_DESC
    TEXT_LANGUAGE1 "Applies a radial motion blur while Force Speed is active."
 }
+INDEX 179
+{
+   REFERENCE ENERGY_BLOOM_ITEM
+   TEXT_LANGUAGE1 "Energy Bloom:"
+}
+INDEX 180
+{
+   REFERENCE ENERGY_BLOOM_DESC
+   TEXT_LANGUAGE1 "Adds wide halos to lightsabers, energy beams, and other bright effects."
+}
+INDEX 181
+{
+   REFERENCE CONSOLE_BUTTON_ITEM
+   TEXT_LANGUAGE1 "Console Button:"
+}
+INDEX 182
+{
+   REFERENCE CONSOLE_BUTTON_DESC
+   TEXT_LANGUAGE1 "Select the button whose long press opens the spatial console. A short press opens the datapad."
+}
+INDEX 183
+{
+   REFERENCE CONSOLE_BUTTON_Y
+   TEXT_LANGUAGE1 "Y"
+}
+INDEX 184
+{
+   REFERENCE CONSOLE_BUTTON_B
+   TEXT_LANGUAGE1 "B"
+}
+INDEX 185
+{
+   REFERENCE CONSOLE_BUTTON_DATAPAD
+   TEXT_LANGUAGE1 "Datapad Button"
+}
+INDEX 186
+{
+   REFERENCE CONSOLE_HOLD_ITEM
+   TEXT_LANGUAGE1 "Console Hold Time:"
+}
+INDEX 187
+{
+   REFERENCE CONSOLE_HOLD_DESC
+   TEXT_LANGUAGE1 "Select how long the console button must be held."
+}
+INDEX 188
+{
+   REFERENCE CONSOLE_ANIMATION_ITEM
+   TEXT_LANGUAGE1 "Console Animation:"
+}
+INDEX 189
+{
+   REFERENCE CONSOLE_ANIMATION_DESC
+   TEXT_LANGUAGE1 "Animate the spatial console and keyboard when opening and closing."
+}

@@ -43,6 +43,7 @@ published by the Free Software Foundation.
 enum
 {
 	VK_BACKEND_EYE_COUNT = 2,
+	VK_GLOW_PYRAMID_LEVEL_COUNT = 3,
 	VK_SHADOW_DIRECTION_GROUP_COUNT = 4,
 	VK_TIMING_EYE_QUERY_COUNT = VK_BACKEND_EYE_COUNT * 2,
 	VK_TIMING_SHADOW_MAP_BEGIN = VK_TIMING_EYE_QUERY_COUNT,
@@ -838,9 +839,11 @@ struct vk_backend_state_t
 	vk_texture_t forceSpeedHistoryTargets[VK_BACKEND_EYE_COUNT];
 	VkFramebuffer forceSpeedFramebuffers[VK_BACKEND_EYE_COUNT];
 	vk_texture_t glowSourceTargets[VK_BACKEND_EYE_COUNT];
-	vk_texture_t glowBlurTargets[VK_BACKEND_EYE_COUNT][2];
+	vk_texture_t glowBlurTargets
+		[VK_BACKEND_EYE_COUNT][VK_GLOW_PYRAMID_LEVEL_COUNT][2];
 	VkFramebuffer glowSourceFramebuffers[VK_BACKEND_EYE_COUNT];
-	VkFramebuffer glowBlurFramebuffers[VK_BACKEND_EYE_COUNT][2];
+	VkFramebuffer glowBlurFramebuffers
+		[VK_BACKEND_EYE_COUNT][VK_GLOW_PYRAMID_LEVEL_COUNT][2];
 	bool forceSpeedHistoryInitialized[VK_BACKEND_EYE_COUNT];
 	bool forceSpeedHistoryValid[VK_BACKEND_EYE_COUNT];
 	XrPosef forceSpeedLastViewPose[VK_BACKEND_EYE_COUNT];
@@ -1037,6 +1040,28 @@ struct vk_backend_state_t
 	bool screenLayerContentValid;
 	bool screenLayerTransitionHeld;
 	bool consoleDrawActive;
+	bool spatialConsoleActive;
+	bool spatialConsolePoseValid;
+	float spatialConsoleScaleX;
+	float spatialConsoleScaleY;
+	float spatialConsoleOpacity;
+	float spatialConsoleTanHalfWidth;
+	float spatialConsoleTanHalfHeight;
+	XrVector3f spatialConsoleRenderCenter;
+	XrVector3f spatialConsoleRenderRight;
+	XrVector3f spatialConsoleRenderUp;
+	XrVector3f spatialConsoleRenderForward;
+	bool spatialConsoleGamePoseValid;
+	float spatialConsoleGameDistance;
+	vec3_t spatialConsoleGameCenter;
+	vec3_t spatialConsoleGameRight;
+	vec3_t spatialConsoleGameUp;
+	vec3_t spatialConsoleGameForward;
+	XrVector3f spatialConsoleHitCenter;
+	XrVector3f spatialConsoleHitRight;
+	XrVector3f spatialConsoleHitUp;
+	XrVector3f spatialConsoleHitForward;
+	vrControllerState_t controllerStates[VK_BACKEND_EYE_COUNT];
 	XrPosef screenLayerPose;
 	bool projectionLayerContentValid;
 	XrView retainedProjectionViews[VK_BACKEND_EYE_COUNT];
@@ -1206,7 +1231,17 @@ static bool VK_ModelBufferRangeValid( size_t offset, size_t byteCount, size_t li
 static bool VK_PrepareXrFrame();
 static void VK_UpdateJkxrHmdPose( XrTime displayTime );
 static void VK_UpdateJkxrControllers( XrTime displayTime );
+static bool VK_CheckXr( XrResult result, const char *what );
 static bool VK_TimingEnabled();
+static void VK_BuildViewMatrix(
+	const refdef_t &refdef, int eye, float matrix[16], bool applyStereoSeparation );
+static void VK_BuildProjectionMatrix(
+	const XrFovf &fov,
+	float zNear,
+	float zFar,
+	float matrix[16],
+	float tangentScaleX,
+	float tangentScaleY );
 
 template<typename T>
 static T VK_ClampValue( T value, T minimum, T maximum )
@@ -1267,10 +1302,13 @@ static void VK_Backend_Clear()
 		vk.forceSpeedFramebuffers[eye] = VK_NULL_HANDLE;
 		vk.glowSourceTargets[eye] = {};
 		vk.glowSourceFramebuffers[eye] = VK_NULL_HANDLE;
-		for ( int pass = 0; pass < 2; ++pass )
+		for ( int level = 0; level < VK_GLOW_PYRAMID_LEVEL_COUNT; ++level )
 		{
-			vk.glowBlurTargets[eye][pass] = {};
-			vk.glowBlurFramebuffers[eye][pass] = VK_NULL_HANDLE;
+			for ( int pass = 0; pass < 2; ++pass )
+			{
+				vk.glowBlurTargets[eye][level][pass] = {};
+				vk.glowBlurFramebuffers[eye][level][pass] = VK_NULL_HANDLE;
+			}
 		}
 		vk.forceSpeedHistoryInitialized[eye] = false;
 		vk.forceSpeedHistoryValid[eye] = false;
@@ -1492,6 +1530,28 @@ static void VK_Backend_Clear()
 	vk.screenLayerContentValid = false;
 	vk.screenLayerTransitionHeld = false;
 	vk.consoleDrawActive = false;
+	vk.spatialConsoleActive = false;
+	vk.spatialConsolePoseValid = false;
+	vk.spatialConsoleScaleX = 1.0f;
+	vk.spatialConsoleScaleY = 1.0f;
+	vk.spatialConsoleOpacity = 1.0f;
+	vk.spatialConsoleTanHalfWidth = 1.0f;
+	vk.spatialConsoleTanHalfHeight = 1.0f;
+	vk.spatialConsoleRenderCenter = {};
+	vk.spatialConsoleRenderRight = { 1.0f, 0.0f, 0.0f };
+	vk.spatialConsoleRenderUp = { 0.0f, 1.0f, 0.0f };
+	vk.spatialConsoleRenderForward = { 0.0f, 0.0f, -1.0f };
+	vk.spatialConsoleGamePoseValid = false;
+	vk.spatialConsoleGameDistance = 0.0f;
+	VectorClear( vk.spatialConsoleGameCenter );
+	VectorClear( vk.spatialConsoleGameRight );
+	VectorClear( vk.spatialConsoleGameUp );
+	VectorClear( vk.spatialConsoleGameForward );
+	vk.spatialConsoleHitCenter = {};
+	vk.spatialConsoleHitRight = { 1.0f, 0.0f, 0.0f };
+	vk.spatialConsoleHitUp = { 0.0f, 1.0f, 0.0f };
+	vk.spatialConsoleHitForward = { 0.0f, 0.0f, -1.0f };
+	std::memset( vk.controllerStates, 0, sizeof( vk.controllerStates ) );
 	vk.screenLayerPose.orientation.w = 1.0f;
 	vk.projectionLayerContentValid = false;
 	vk.retainedFrameSubmissions = 0;
@@ -1731,6 +1791,266 @@ static bool VK_Backend_AppendScreenRect(
 void VK_Backend_SetConsoleMode( bool active )
 {
 	vk.consoleDrawActive = active;
+}
+
+static XrVector3f VK_SpatialConsoleRotate(
+	const XrQuaternionf &orientation, const XrVector3f &value )
+{
+	const XrVector3f cross = {
+		orientation.y * value.z - orientation.z * value.y,
+		orientation.z * value.x - orientation.x * value.z,
+		orientation.x * value.y - orientation.y * value.x,
+	};
+	const XrVector3f nestedCross = {
+		orientation.y * cross.z - orientation.z * cross.y,
+		orientation.z * cross.x - orientation.x * cross.z,
+		orientation.x * cross.y - orientation.y * cross.x,
+	};
+	return {
+		value.x + 2.0f * ( orientation.w * cross.x + nestedCross.x ),
+		value.y + 2.0f * ( orientation.w * cross.y + nestedCross.y ),
+		value.z + 2.0f * ( orientation.w * cross.z + nestedCross.z ),
+	};
+}
+
+static float VK_SpatialConsoleDot( const XrVector3f &a, const XrVector3f &b )
+{
+	return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+static XrVector3f VK_SpatialConsoleYawForward( const XrQuaternionf &orientation )
+{
+	XrVector3f forward = VK_SpatialConsoleRotate(
+		orientation, { 0.0f, 0.0f, -1.0f } );
+	forward.y = 0.0f;
+	const float length = std::sqrt( forward.x * forward.x + forward.z * forward.z );
+	if ( length <= 0.0001f )
+	{
+		return { 0.0f, 0.0f, -1.0f };
+	}
+	forward.x /= length;
+	forward.z /= length;
+	return forward;
+}
+
+static void VK_SpatialConsoleBuildPose(
+	const XrPosef &headPose,
+	XrVector3f *center,
+	XrVector3f *right,
+	XrVector3f *up,
+	XrVector3f *forward )
+{
+	constexpr float distance = 6.0f;
+	*forward = VK_SpatialConsoleYawForward( headPose.orientation );
+	*right = { -forward->z, 0.0f, forward->x };
+	*up = { 0.0f, 1.0f, 0.0f };
+	*center = {
+		headPose.position.x + forward->x * distance,
+		headPose.position.y,
+		headPose.position.z + forward->z * distance,
+	};
+}
+
+static float VK_RefdefWorldScale( const refdef_t &refdef )
+{
+	float worldScale = refdef.worldscale > 0.0f ? refdef.worldscale : 33.5f;
+	if ( refdef.worldscale <= 0.0f )
+	{
+		const cvar_t *worldScaleCvar = ri.Cvar_Get( "cg_worldScale", "33.5", 0 );
+		if ( worldScaleCvar != nullptr && worldScaleCvar->value > 0.0f )
+		{
+			worldScale = worldScaleCvar->value;
+		}
+	}
+	return worldScale;
+}
+
+static void VK_CaptureSpatialConsoleGamePose()
+{
+	vk.spatialConsoleGamePoseValid = false;
+	if ( !vk.sceneWorldRenderedThisFrame || !vk.haveWorldRefdef )
+	{
+		return;
+	}
+
+	VectorCopy( vk.worldRefdef.viewaxis[0], vk.spatialConsoleGameForward );
+	vk.spatialConsoleGameForward[2] = 0.0f;
+	if ( VectorNormalize( vk.spatialConsoleGameForward ) <= 0.0001f )
+	{
+		VectorSet( vk.spatialConsoleGameForward, 1.0f, 0.0f, 0.0f );
+	}
+	VectorSet( vk.spatialConsoleGameUp, 0.0f, 0.0f, 1.0f );
+	CrossProduct(
+		vk.spatialConsoleGameForward,
+		vk.spatialConsoleGameUp,
+		vk.spatialConsoleGameRight );
+	VectorNormalize( vk.spatialConsoleGameRight );
+	vk.spatialConsoleGameDistance = 6.0f * VK_RefdefWorldScale( vk.worldRefdef );
+	VectorMA(
+		vk.worldRefdef.vieworg,
+		vk.spatialConsoleGameDistance,
+		vk.spatialConsoleGameForward,
+		vk.spatialConsoleGameCenter );
+	vk.spatialConsoleGamePoseValid = true;
+}
+
+static bool VK_CaptureSpatialConsolePose()
+{
+	if ( vk.xrSession == XR_NULL_HANDLE || vk.localSpace == XR_NULL_HANDLE )
+	{
+		return false;
+	}
+
+	const XrTime displayTime = vk.frameState.predictedDisplayTime;
+	const XrSpace controllerSpace =
+		vk.stageSpace != XR_NULL_HANDLE ? vk.stageSpace : vk.localSpace;
+	XrSpaceLocation renderHead = {};
+	renderHead.type = XR_TYPE_SPACE_LOCATION;
+	XrSpaceLocation hitHead = {};
+	hitHead.type = XR_TYPE_SPACE_LOCATION;
+	const XrSpaceLocationFlags required =
+		XR_SPACE_LOCATION_POSITION_VALID_BIT |
+		XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
+	if ( !VK_CheckXr(
+		xrLocateSpace( vk.viewSpace, vk.localSpace, displayTime, &renderHead ),
+		"xrLocateSpace(spatial console render pose)" ) ||
+		( renderHead.locationFlags & required ) != required ||
+		!VK_CheckXr(
+		xrLocateSpace( vk.viewSpace, controllerSpace, displayTime, &hitHead ),
+		"xrLocateSpace(spatial console hit pose)" ) ||
+		( hitHead.locationFlags & required ) != required )
+	{
+		return false;
+	}
+
+	VK_SpatialConsoleBuildPose(
+		renderHead.pose,
+		&vk.spatialConsoleRenderCenter,
+		&vk.spatialConsoleRenderRight,
+		&vk.spatialConsoleRenderUp,
+		&vk.spatialConsoleRenderForward );
+	VK_SpatialConsoleBuildPose(
+		hitHead.pose,
+		&vk.spatialConsoleHitCenter,
+		&vk.spatialConsoleHitRight,
+		&vk.spatialConsoleHitUp,
+		&vk.spatialConsoleHitForward );
+
+	float tanLeft = -1.0f;
+	float tanRight = 1.0f;
+	float tanDown = -1.0f;
+	float tanUp = 1.0f;
+	if ( vk.viewsValid )
+	{
+		tanLeft = std::min(
+			std::tan( vk.views[0].fov.angleLeft ),
+			std::tan( vk.views[1].fov.angleLeft ) );
+		tanRight = std::max(
+			std::tan( vk.views[0].fov.angleRight ),
+			std::tan( vk.views[1].fov.angleRight ) );
+		tanDown = std::min(
+			std::tan( vk.views[0].fov.angleDown ),
+			std::tan( vk.views[1].fov.angleDown ) );
+		tanUp = std::max(
+			std::tan( vk.views[0].fov.angleUp ),
+			std::tan( vk.views[1].fov.angleUp ) );
+	}
+	vk.spatialConsoleTanHalfWidth = std::max( 0.1f, ( tanRight - tanLeft ) * 0.5f );
+	vk.spatialConsoleTanHalfHeight = std::max( 0.1f, ( tanUp - tanDown ) * 0.5f );
+	VK_CaptureSpatialConsoleGamePose();
+	vk.spatialConsolePoseValid = true;
+	ri.Printf(
+		PRINT_ALL,
+		"rd-vulkan-console: captured yaw-level spatial plane 6.0m ahead at "
+		"(%.3f %.3f %.3f), game anchor=%d\n",
+		vk.spatialConsoleRenderCenter.x,
+		vk.spatialConsoleRenderCenter.y,
+		vk.spatialConsoleRenderCenter.z,
+		vk.spatialConsoleGamePoseValid ? 1 : 0 );
+	return true;
+}
+
+void VK_Backend_SetSpatialConsoleState(
+	bool active, float scaleX, float scaleY, float opacity )
+{
+	const bool opening = active && !vk.spatialConsoleActive;
+	vk.spatialConsoleActive = active;
+	vk.spatialConsoleScaleX = VK_ClampValue( scaleX, 0.0f, 1.0f );
+	vk.spatialConsoleScaleY = VK_ClampValue( scaleY, 0.0f, 1.0f );
+	vk.spatialConsoleOpacity = VK_ClampValue( opacity, 0.0f, 1.0f );
+	if ( !active )
+	{
+		vk.spatialConsolePoseValid = false;
+		vk.spatialConsoleGamePoseValid = false;
+		return;
+	}
+	if ( opening || !vk.spatialConsolePoseValid )
+	{
+		VK_CaptureSpatialConsolePose();
+	}
+}
+
+qboolean VK_Backend_GetSpatialConsolePointer(
+	int hand, float *x, float *y, float *distance )
+{
+	if ( hand < 0 || hand >= VK_BACKEND_EYE_COUNT ||
+		 x == nullptr || y == nullptr || distance == nullptr ||
+		 !vk.spatialConsoleActive || !vk.spatialConsolePoseValid ||
+		 !vk.controllerStates[hand].active )
+	{
+		return qfalse;
+	}
+
+	const vrControllerState_t &controller = vk.controllerStates[hand];
+	const XrVector3f origin = {
+		controller.aimPosition[0],
+		controller.aimPosition[1],
+		controller.aimPosition[2],
+	};
+	const XrQuaternionf orientation = {
+		controller.aimOrientation[0],
+		controller.aimOrientation[1],
+		controller.aimOrientation[2],
+		controller.aimOrientation[3],
+	};
+	const XrVector3f direction = VK_SpatialConsoleRotate(
+		orientation, { 0.0f, 0.0f, -1.0f } );
+	const XrVector3f toPlane = {
+		vk.spatialConsoleHitCenter.x - origin.x,
+		vk.spatialConsoleHitCenter.y - origin.y,
+		vk.spatialConsoleHitCenter.z - origin.z,
+	};
+	const float denominator = VK_SpatialConsoleDot(
+		direction, vk.spatialConsoleHitForward );
+	if ( std::fabs( denominator ) < 0.0001f )
+	{
+		return qfalse;
+	}
+	const float rayDistance = VK_SpatialConsoleDot(
+		toPlane, vk.spatialConsoleHitForward ) / denominator;
+	if ( rayDistance <= 0.0f || rayDistance > 20.0f )
+	{
+		return qfalse;
+	}
+
+	const XrVector3f hitOffset = {
+		origin.x + direction.x * rayDistance - vk.spatialConsoleHitCenter.x,
+		origin.y + direction.y * rayDistance - vk.spatialConsoleHitCenter.y,
+		origin.z + direction.z * rayDistance - vk.spatialConsoleHitCenter.z,
+	};
+	constexpr float consoleDistance = 6.0f;
+	constexpr float acceptedWidthScale = 0.56f;
+	constexpr float acceptedHeightScale = 0.35f;
+	const float scaledX = VK_SpatialConsoleDot(
+		hitOffset, vk.spatialConsoleHitRight ) /
+		( vk.spatialConsoleTanHalfWidth * consoleDistance );
+	const float scaledY = -VK_SpatialConsoleDot(
+		hitOffset, vk.spatialConsoleHitUp ) /
+		( vk.spatialConsoleTanHalfHeight * consoleDistance );
+	*x = ( scaledX / acceptedWidthScale + 1.0f ) * 320.0f;
+	*y = ( scaledY / acceptedHeightScale + 1.0f ) * 240.0f;
+	*distance = rayDistance;
+	return qtrue;
 }
 
 static void VK_LogXrFailure( const char *what, XrResult result )
@@ -5959,15 +6279,19 @@ static void VK_DestroyGlowTarget( int eye )
 		vk.glowSourceFramebuffers[eye] = VK_NULL_HANDLE;
 	}
 	VK_DestroyTexture( vk.glowSourceTargets[eye] );
-	for ( int pass = 0; pass < 2; ++pass )
+	for ( int level = 0; level < VK_GLOW_PYRAMID_LEVEL_COUNT; ++level )
 	{
-		if ( vk.glowBlurFramebuffers[eye][pass] != VK_NULL_HANDLE )
+		for ( int pass = 0; pass < 2; ++pass )
 		{
-			vkDestroyFramebuffer(
-				vk.device, vk.glowBlurFramebuffers[eye][pass], nullptr );
-			vk.glowBlurFramebuffers[eye][pass] = VK_NULL_HANDLE;
+			if ( vk.glowBlurFramebuffers[eye][level][pass] != VK_NULL_HANDLE )
+			{
+				vkDestroyFramebuffer(
+					vk.device,
+					vk.glowBlurFramebuffers[eye][level][pass], nullptr );
+				vk.glowBlurFramebuffers[eye][level][pass] = VK_NULL_HANDLE;
+			}
+			VK_DestroyTexture( vk.glowBlurTargets[eye][level][pass] );
 		}
-		VK_DestroyTexture( vk.glowBlurTargets[eye][pass] );
 	}
 }
 
@@ -5978,8 +6302,6 @@ static bool VK_CreateGlowTarget( int eye )
 		vk.viewConfiguration[eye].recommendedImageRectWidth;
 	const uint32_t fullHeight =
 		vk.viewConfiguration[eye].recommendedImageRectHeight;
-	const uint32_t blurWidth = std::max<uint32_t>( 1, ( fullWidth + 1 ) / 2 );
-	const uint32_t blurHeight = std::max<uint32_t>( 1, ( fullHeight + 1 ) / 2 );
 	const VkImageUsageFlags usage =
 		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 	if ( !VK_CreateRenderTexture(
@@ -5989,14 +6311,21 @@ static bool VK_CreateGlowTarget( int eye )
 		VK_DestroyGlowTarget( eye );
 		return false;
 	}
-	for ( int pass = 0; pass < 2; ++pass )
+	uint32_t levelWidth = fullWidth;
+	uint32_t levelHeight = fullHeight;
+	for ( int level = 0; level < VK_GLOW_PYRAMID_LEVEL_COUNT; ++level )
 	{
-		if ( !VK_CreateRenderTexture(
-			vk.glowBlurTargets[eye][pass], blurWidth, blurHeight,
-			vk.glowFormat, usage, "glow blur texture" ) )
+		levelWidth = std::max<uint32_t>( 1, ( levelWidth + 1 ) / 2 );
+		levelHeight = std::max<uint32_t>( 1, ( levelHeight + 1 ) / 2 );
+		for ( int pass = 0; pass < 2; ++pass )
 		{
-			VK_DestroyGlowTarget( eye );
-			return false;
+			if ( !VK_CreateRenderTexture(
+				vk.glowBlurTargets[eye][level][pass], levelWidth, levelHeight,
+				vk.glowFormat, usage, "glow pyramid texture" ) )
+			{
+				VK_DestroyGlowTarget( eye );
+				return false;
+			}
 		}
 	}
 
@@ -6024,19 +6353,23 @@ static bool VK_CreateGlowTarget( int eye )
 
 	framebufferInfo.renderPass = vk.glowBlurRenderPass;
 	framebufferInfo.attachmentCount = 1;
-	framebufferInfo.width = blurWidth;
-	framebufferInfo.height = blurHeight;
-	for ( int pass = 0; pass < 2; ++pass )
+	for ( int level = 0; level < VK_GLOW_PYRAMID_LEVEL_COUNT; ++level )
 	{
-		framebufferInfo.pAttachments = &vk.glowBlurTargets[eye][pass].view;
-		if ( !VK_CheckVk(
-			vkCreateFramebuffer(
-				vk.device, &framebufferInfo, nullptr,
-				&vk.glowBlurFramebuffers[eye][pass] ),
-			"vkCreateFramebuffer(glow blur)" ) )
+		framebufferInfo.width = vk.glowBlurTargets[eye][level][0].width;
+		framebufferInfo.height = vk.glowBlurTargets[eye][level][0].height;
+		for ( int pass = 0; pass < 2; ++pass )
 		{
-			VK_DestroyGlowTarget( eye );
-			return false;
+			framebufferInfo.pAttachments =
+				&vk.glowBlurTargets[eye][level][pass].view;
+			if ( !VK_CheckVk(
+				vkCreateFramebuffer(
+					vk.device, &framebufferInfo, nullptr,
+					&vk.glowBlurFramebuffers[eye][level][pass] ),
+				"vkCreateFramebuffer(glow pyramid)" ) )
+			{
+				VK_DestroyGlowTarget( eye );
+				return false;
+			}
 		}
 	}
 	return true;
@@ -6593,15 +6926,7 @@ static void VK_BuildEyeOrigin(
 {
 	VectorCopy( refdef.vieworg, eyeOrigin );
 
-	float worldScale = refdef.worldscale > 0.0f ? refdef.worldscale : 33.5f;
-	if ( refdef.worldscale <= 0.0f )
-	{
-		cvar_t *worldScaleCvar = ri.Cvar_Get( "cg_worldScale", "33.5", 0 );
-		if ( worldScaleCvar != nullptr && worldScaleCvar->value > 0.0f )
-		{
-			worldScale = worldScaleCvar->value;
-		}
-	}
+	const float worldScale = VK_RefdefWorldScale( refdef );
 
 	float separation = 0.0f;
 	if ( applyStereoSeparation && ri.TBXR_GetEyeStereoSeparation != nullptr )
@@ -12651,6 +12976,15 @@ static bool VK_MaterialIsBloomSource( qhandle_t shader )
 		VK_IsNamedTexture( shader, "gfx/effects/sabers/orange_line" );
 }
 
+static bool VK_BloomEnabled()
+{
+	return vk.bloomCvar != nullptr && vk.bloomCvar->integer != 0 &&
+		vk.bloomIntensityCvar != nullptr && vk.bloomIntensityCvar->value > 0.0f &&
+		vk.glowSourcePipeline != VK_NULL_HANDLE &&
+		vk.glowBlurPipeline != VK_NULL_HANDLE &&
+		vk.glowCompositePipeline != VK_NULL_HANDLE;
+}
+
 static void VK_BuildDynamicEffectBatches(
 	const refdef_t &refdef,
 	const std::vector<refEntity_t> &entities,
@@ -12661,6 +12995,8 @@ static void VK_BuildDynamicEffectBatches(
 	std::vector<vk_dynamic_effect_batch_t> *batches,
 	uint32_t typeCounts[RT_MAX_REF_ENTITY_TYPE] )
 {
+	const float noBloomRadiusCompensation =
+		!bloomOnly && !VK_BloomEnabled() ? 1.18f : 1.0f;
 	for ( const refEntity_t &entity : entities )
 	{
 		if ( suppressThirdPerson && ( entity.renderfx & RF_THIRD_PERSON ) != 0 )
@@ -12720,10 +13056,10 @@ static void VK_BuildDynamicEffectBatches(
 		}
 		vk_dynamic_effect_batch_t *batch = VK_DynamicEffectBatchForShader( batches, shader );
 		++typeCounts[entity.reType];
-		const float authoredGlowRadiusScale = VK_MaterialHasGlow( shader )
+		const float authoredGlowRadiusScale = VK_MaterialIsBloomSource( shader )
 			? ( vk.glowRadiusCvar != nullptr
 				? std::max( 1.0f, std::min( 2.0f, vk.glowRadiusCvar->value ) )
-				: 1.12f )
+				: 1.12f ) * noBloomRadiusCompensation
 			: 1.0f;
 
 		if ( entity.reType == RT_SPRITE || entity.reType == RT_SABER_GLOW )
@@ -13117,15 +13453,6 @@ static bool VK_IsDynamicEffectType( refEntityType_t type )
 	return type == RT_SPRITE || type == RT_SABER_GLOW ||
 		type == RT_ORIENTED_QUAD || type == RT_LINE ||
 		type == RT_ELECTRICITY || type == RT_BEAM || type == RT_CYLINDER;
-}
-
-static bool VK_BloomEnabled()
-{
-	return vk.bloomCvar != nullptr && vk.bloomCvar->integer != 0 &&
-		vk.bloomIntensityCvar != nullptr && vk.bloomIntensityCvar->value > 0.0f &&
-		vk.glowSourcePipeline != VK_NULL_HANDLE &&
-		vk.glowBlurPipeline != VK_NULL_HANDLE &&
-		vk.glowCompositePipeline != VK_NULL_HANDLE;
 }
 
 static bool VK_SceneHasDynamicBloomSources()
@@ -14651,11 +14978,19 @@ static void VK_RecordWorldLateEffects( int eye, bool drawWeather )
 static bool VK_RecordGlowSourceAndBlur( int eye )
 {
 	if ( !VK_SceneHasDynamicBloomSources() ||
-		 vk.glowSourceFramebuffers[eye] == VK_NULL_HANDLE ||
-		 vk.glowBlurFramebuffers[eye][0] == VK_NULL_HANDLE ||
-		 vk.glowBlurFramebuffers[eye][1] == VK_NULL_HANDLE )
+		 vk.glowSourceFramebuffers[eye] == VK_NULL_HANDLE )
 	{
 		return false;
+	}
+	for ( int level = 0; level < VK_GLOW_PYRAMID_LEVEL_COUNT; ++level )
+	{
+		for ( int pass = 0; pass < 2; ++pass )
+		{
+			if ( vk.glowBlurFramebuffers[eye][level][pass] == VK_NULL_HANDLE )
+			{
+				return false;
+			}
+		}
 	}
 
 	float view[16] = {};
@@ -14706,13 +15041,18 @@ static bool VK_RecordGlowSourceAndBlur( int eye )
 	const float radius = vk.bloomRadiusCvar != nullptr
 		? VK_ClampValue( vk.bloomRadiusCvar->value, 0.25f, 12.0f )
 		: 3.0f;
+	static constexpr float radiusScales[VK_GLOW_PYRAMID_LEVEL_COUNT] = {
+		0.75f, 1.0f, 1.25f,
+	};
 	const auto recordBlurPass = [&](
-		int targetIndex, const vk_texture_t &source, float x, float y )
+		int level, int pass, const vk_texture_t &source,
+		float x, float y, float passRadius )
 	{
+		const vk_texture_t &target = vk.glowBlurTargets[eye][level][pass];
 		passInfo.renderPass = vk.glowBlurRenderPass;
-		passInfo.framebuffer = vk.glowBlurFramebuffers[eye][targetIndex];
-		passInfo.renderArea.extent.width = vk.glowBlurTargets[eye][targetIndex].width;
-		passInfo.renderArea.extent.height = vk.glowBlurTargets[eye][targetIndex].height;
+		passInfo.framebuffer = vk.glowBlurFramebuffers[eye][level][pass];
+		passInfo.renderArea.extent.width = target.width;
+		passInfo.renderArea.extent.height = target.height;
 		viewport.width = static_cast<float>( passInfo.renderArea.extent.width );
 		viewport.height = static_cast<float>( passInfo.renderArea.extent.height );
 		scissor.extent = passInfo.renderArea.extent;
@@ -14726,7 +15066,7 @@ static bool VK_RecordGlowSourceAndBlur( int eye )
 		vkCmdBindDescriptorSets(
 			vk.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
 			vk.pipelineLayout, 0, 1, &source.descriptorSet, 0, nullptr );
-		const float push[4] = { x, y, radius, 0.0f };
+		const float push[4] = { x, y, passRadius, 0.0f };
 		vkCmdPushConstants(
 			vk.commandBuffer, vk.pipelineLayout,
 			VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
@@ -14734,22 +15074,36 @@ static bool VK_RecordGlowSourceAndBlur( int eye )
 		vkCmdDraw( vk.commandBuffer, 3, 1, 0, 0 );
 		vkCmdEndRenderPass( vk.commandBuffer );
 	};
-	recordBlurPass(
-		0, vk.glowSourceTargets[eye],
-		1.0f / static_cast<float>( vk.glowBlurTargets[eye][0].width ), 0.0f );
-	recordBlurPass(
-		1, vk.glowBlurTargets[eye][0],
-		0.0f, 1.0f / static_cast<float>( vk.glowBlurTargets[eye][0].height ) );
+	const vk_texture_t *levelSource = &vk.glowSourceTargets[eye];
+	for ( int level = 0; level < VK_GLOW_PYRAMID_LEVEL_COUNT; ++level )
+	{
+		const vk_texture_t &horizontalTarget =
+			vk.glowBlurTargets[eye][level][0];
+		const float levelRadius = radius * radiusScales[level];
+		recordBlurPass(
+			level, 0, *levelSource,
+			1.0f / static_cast<float>( horizontalTarget.width ), 0.0f,
+			levelRadius );
+		recordBlurPass(
+			level, 1, horizontalTarget,
+			0.0f, 1.0f / static_cast<float>( horizontalTarget.height ),
+			levelRadius );
+		levelSource = &vk.glowBlurTargets[eye][level][1];
+	}
 
 	if ( !vk.loggedGlowActive )
 	{
 		ri.Printf( PRINT_ALL,
-			"rd-vulkan-glow: dynamic bloom active source=%ux%u blur=%ux%u "
-			"format=%d draws=%u\n",
+			"rd-vulkan-glow: multi-scale bloom active source=%ux%u "
+			"levels=%ux%u,%ux%u,%ux%u format=%d draws=%u\n",
 			vk.glowSourceTargets[eye].width,
 			vk.glowSourceTargets[eye].height,
-			vk.glowBlurTargets[eye][1].width,
-			vk.glowBlurTargets[eye][1].height,
+			vk.glowBlurTargets[eye][0][1].width,
+			vk.glowBlurTargets[eye][0][1].height,
+			vk.glowBlurTargets[eye][1][1].width,
+			vk.glowBlurTargets[eye][1][1].height,
+			vk.glowBlurTargets[eye][2][1].width,
+			vk.glowBlurTargets[eye][2][1].height,
 			static_cast<int>( vk.glowFormat ), sourceDraws );
 		vk.loggedGlowActive = true;
 	}
@@ -14758,23 +15112,31 @@ static bool VK_RecordGlowSourceAndBlur( int eye )
 
 static void VK_RecordGlowComposite( int eye )
 {
+	static constexpr float bandWeights[VK_GLOW_PYRAMID_LEVEL_COUNT] = {
+		1.0f, 0.65f, 0.35f,
+	};
 	vkCmdBindPipeline(
 		vk.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
 		vk.glowCompositePipeline );
-	const VkDescriptorSet descriptorSet =
-		vk.glowBlurTargets[eye][1].descriptorSet;
-	vkCmdBindDescriptorSets(
-		vk.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-		vk.pipelineLayout, 0, 1, &descriptorSet, 0, nullptr );
 	const float intensity = vk.bloomIntensityCvar != nullptr
 		? VK_ClampValue( vk.bloomIntensityCvar->value, 0.0f, 4.0f )
 		: 1.0f;
-	const float push[4] = { intensity, 0.0f, 0.0f, 0.0f };
-	vkCmdPushConstants(
-		vk.commandBuffer, vk.pipelineLayout,
-		VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-		0, sizeof( push ), push );
-	vkCmdDraw( vk.commandBuffer, 3, 1, 0, 0 );
+	for ( int level = 0; level < VK_GLOW_PYRAMID_LEVEL_COUNT; ++level )
+	{
+		const VkDescriptorSet descriptorSet =
+			vk.glowBlurTargets[eye][level][1].descriptorSet;
+		vkCmdBindDescriptorSets(
+			vk.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+			vk.pipelineLayout, 0, 1, &descriptorSet, 0, nullptr );
+		const float push[4] = {
+			intensity * bandWeights[level], 0.0f, 0.0f, 0.0f,
+		};
+		vkCmdPushConstants(
+			vk.commandBuffer, vk.pipelineLayout,
+			VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+			0, sizeof( push ), push );
+		vkCmdDraw( vk.commandBuffer, 3, 1, 0, 0 );
+	}
 }
 
 static void VK_ClearWorldDepth( int eye )
@@ -15689,6 +16051,7 @@ static void VK_UpdateJkxrControllers( XrTime displayTime )
 			state.touches |= VR_CONTROLLER_TOUCH_THUMBREST;
 		}
 	}
+	std::memcpy( vk.controllerStates, controllers, sizeof( controllers ) );
 
 	static uint32_t controllerDebugFrame = 0;
 	if ( ri.Cvar_VariableIntegerValue( "vr_controller_debug" ) &&
@@ -15957,6 +16320,147 @@ static void VK_GetHeadLockedUvTransform( int eye, float transform[4] )
 	}
 }
 
+static bool VK_ProjectSpatialConsolePoint(
+	int eye, const XrVector3f &point, float projected[2] )
+{
+	if ( eye < 0 || eye >= VK_BACKEND_EYE_COUNT || !vk.viewsValid )
+	{
+		return false;
+	}
+	const XrPosef &eyePose = vk.views[eye].pose;
+	const XrVector3f relative = {
+		point.x - eyePose.position.x,
+		point.y - eyePose.position.y,
+		point.z - eyePose.position.z,
+	};
+	const XrQuaternionf inverseOrientation = {
+		-eyePose.orientation.x,
+		-eyePose.orientation.y,
+		-eyePose.orientation.z,
+		eyePose.orientation.w,
+	};
+	const XrVector3f viewPoint = VK_SpatialConsoleRotate(
+		inverseOrientation, relative );
+	if ( viewPoint.z >= -0.01f )
+	{
+		return false;
+	}
+
+	const XrFovf &fov = vk.views[eye].fov;
+	const float tanLeft = std::tan( fov.angleLeft );
+	const float tanRight = std::tan( fov.angleRight );
+	const float tanDown = std::tan( fov.angleDown );
+	const float tanUp = std::tan( fov.angleUp );
+	const float tanWidth = tanRight - tanLeft;
+	const float tanHeight = tanUp - tanDown;
+	if ( tanWidth <= 0.0001f || tanHeight <= 0.0001f )
+	{
+		return false;
+	}
+	const float tangentX = viewPoint.x / -viewPoint.z;
+	const float tangentY = viewPoint.y / -viewPoint.z;
+	projected[0] = 2.0f * ( tangentX - tanLeft ) / tanWidth - 1.0f;
+	// Vulkan's positive viewport height maps negative NDC Y to the top.
+	projected[1] = 1.0f - 2.0f * ( tangentY - tanDown ) / tanHeight;
+	return true;
+}
+
+static bool VK_ProjectSpatialConsoleGamePoint(
+	const float viewProjection[16], const vec3_t point, float projected[2] )
+{
+	const float clipX =
+		viewProjection[0] * point[0] + viewProjection[4] * point[1] +
+		viewProjection[8] * point[2] + viewProjection[12];
+	const float clipY =
+		viewProjection[1] * point[0] + viewProjection[5] * point[1] +
+		viewProjection[9] * point[2] + viewProjection[13];
+	const float clipW =
+		viewProjection[3] * point[0] + viewProjection[7] * point[1] +
+		viewProjection[11] * point[2] + viewProjection[15];
+	if ( clipW <= 0.01f )
+	{
+		return false;
+	}
+	projected[0] = clipX / clipW;
+	projected[1] = clipY / clipW;
+	return std::isfinite( projected[0] ) && std::isfinite( projected[1] );
+}
+
+static bool VK_GetSpatialConsoleCorners(
+	int eye,
+	const vk_rect_t &rect,
+	const float *gameViewProjection,
+	float projected[8] )
+{
+	if ( !rect.consoleOverlay || !vk.spatialConsoleActive ||
+		 !vk.spatialConsolePoseValid )
+	{
+		return false;
+	}
+
+	constexpr float acceptedWidthScale = 0.56f;
+	constexpr float acceptedHeightScale = 0.35f;
+	const float rawCorners[8] = {
+		rect.rect[0], rect.rect[1],
+		rect.rect[2], rect.rect[1],
+		rect.rect[0], rect.rect[3],
+		rect.rect[2], rect.rect[3],
+	};
+	const bool useGamePose =
+		vk.spatialConsoleGamePoseValid && gameViewProjection != nullptr;
+	for ( int corner = 0; corner < 4; ++corner )
+	{
+		if ( useGamePose )
+		{
+			const float horizontal =
+				rawCorners[corner * 2] * acceptedWidthScale *
+				vk.spatialConsoleScaleX * vk.spatialConsoleTanHalfWidth *
+				vk.spatialConsoleGameDistance;
+			const float vertical =
+				-rawCorners[corner * 2 + 1] * acceptedHeightScale *
+				vk.spatialConsoleScaleY * vk.spatialConsoleTanHalfHeight *
+				vk.spatialConsoleGameDistance;
+			vec3_t point;
+			VectorCopy( vk.spatialConsoleGameCenter, point );
+			VectorMA( point, horizontal, vk.spatialConsoleGameRight, point );
+			VectorMA( point, vertical, vk.spatialConsoleGameUp, point );
+			if ( !VK_ProjectSpatialConsoleGamePoint(
+				gameViewProjection, point, &projected[corner * 2] ) )
+			{
+				return false;
+			}
+			continue;
+		}
+
+		constexpr float consoleDistance = 6.0f;
+		const float horizontal =
+			rawCorners[corner * 2] * acceptedWidthScale *
+			vk.spatialConsoleScaleX * vk.spatialConsoleTanHalfWidth *
+			consoleDistance;
+		const float vertical =
+			-rawCorners[corner * 2 + 1] * acceptedHeightScale *
+			vk.spatialConsoleScaleY * vk.spatialConsoleTanHalfHeight *
+			consoleDistance;
+		const XrVector3f point = {
+			vk.spatialConsoleRenderCenter.x +
+				vk.spatialConsoleRenderRight.x * horizontal +
+				vk.spatialConsoleRenderUp.x * vertical,
+			vk.spatialConsoleRenderCenter.y +
+				vk.spatialConsoleRenderRight.y * horizontal +
+				vk.spatialConsoleRenderUp.y * vertical,
+			vk.spatialConsoleRenderCenter.z +
+				vk.spatialConsoleRenderRight.z * horizontal +
+				vk.spatialConsoleRenderUp.z * vertical,
+		};
+		if ( !VK_ProjectSpatialConsolePoint(
+			eye, point, &projected[corner * 2] ) )
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
 static void VK_RecordScreenRects( int eye, size_t firstRect, size_t endRect )
 {
 	if ( firstRect >= vk.rects.size() || firstRect >= endRect )
@@ -15977,8 +16481,6 @@ static void VK_RecordScreenRects( int eye, size_t firstRect, size_t endRect )
 
 	float hudXOffset = 0.0f;
 	float hudYOffset = 0.0f;
-	float consoleXOffset = 0.0f;
-	float consoleYOffset = 0.0f;
 	if ( vk.sceneWorldRenderedThisFrame )
 	{
 		if ( VK_ScopeHudActive( firstRect, endRect ) )
@@ -15988,12 +16490,27 @@ static void VK_RecordScreenRects( int eye, size_t firstRect, size_t endRect )
 		else
 		{
 			VK_GetHudNdcOffset( eye, &hudXOffset, &hudYOffset );
-			// The console is a head-locked stereoscopic plane, not part of the
-			// HUD. Half the normal disparity gives the calibrated four-metre
-			// reading distance while retaining asymmetric-FOV correction.
-			VK_GetHudNdcOffset(
-				eye, &consoleXOffset, &consoleYOffset, 0.5f );
 		}
+	}
+
+	float spatialConsoleViewProjection[16] = {};
+	const float *spatialConsoleViewProjectionPtr = nullptr;
+	if ( vk.spatialConsoleActive && vk.spatialConsoleGamePoseValid &&
+		 vk.haveWorldRefdef && vk.viewsValid )
+	{
+		float view[16] = {};
+		float projection[16] = {};
+		VK_BuildViewMatrix( vk.worldRefdef, eye, view, true );
+		VK_BuildProjectionMatrix(
+			vk.views[eye].fov,
+			1.0f,
+			65536.0f,
+			projection,
+			1.0f,
+			1.0f );
+		VK_MatrixMultiply(
+			projection, view, spatialConsoleViewProjection );
+		spatialConsoleViewProjectionPtr = spatialConsoleViewProjection;
 	}
 
 	VkPipeline boundPipeline = VK_NULL_HANDLE;
@@ -16067,28 +16584,28 @@ static void VK_RecordScreenRects( int eye, size_t firstRect, size_t endRect )
 		const bool fullScreen = rect.rect[0] <= -0.996f && rect.rect[1] <= -0.996f &&
 			rect.rect[2] >= 0.996f && rect.rect[3] >= 0.996f;
 		const bool stereoOffset = !fullScreen || rect.forceHudStereo;
-		const float rectXOffset = stereoOffset
-			? ( rect.consoleOverlay ? consoleXOffset : hudXOffset ) : 0.0f;
-		const float rectYOffset = stereoOffset
-			? ( rect.consoleOverlay ? consoleYOffset : hudYOffset ) : 0.0f;
+		const float rectXOffset = stereoOffset && !rect.consoleOverlay
+			? hudXOffset : 0.0f;
+		const float rectYOffset = stereoOffset && !rect.consoleOverlay
+			? hudYOffset : 0.0f;
 		float drawRect[4];
 		float rotationPivot[2] = { rect.rotation[2], rect.rotation[3] };
-		if ( rect.consoleOverlay )
+		float spatialCorners[8] = {};
+		const bool spatialConsole = textured &&
+			VK_GetSpatialConsoleCorners(
+				eye, rect, spatialConsoleViewProjectionPtr, spatialCorners );
+		if ( rect.consoleOverlay && !spatialConsole )
 		{
-			// Scale the complete 120x40 console about the optical center. This
-			// changes its apparent dimensions without reducing its text capacity.
+			// Keep a readable fallback for the first frame if pose capture has not
+			// completed yet. Normal rendering uses the world-locked plane above.
 			constexpr float consoleWidthScale = 0.56f;
 			constexpr float consoleHeightScale = 0.35f;
-			// Retain the previously accepted center position while shrinking the
-			// panel around it.
-			constexpr float consoleYOffset = 0.18f;
 			drawRect[0] = rect.rect[0] * consoleWidthScale;
-			drawRect[1] = rect.rect[1] * consoleHeightScale + consoleYOffset;
+			drawRect[1] = rect.rect[1] * consoleHeightScale;
 			drawRect[2] = rect.rect[2] * consoleWidthScale;
-			drawRect[3] = rect.rect[3] * consoleHeightScale + consoleYOffset;
+			drawRect[3] = rect.rect[3] * consoleHeightScale;
 			rotationPivot[0] *= consoleWidthScale;
-			rotationPivot[1] =
-				rotationPivot[1] * consoleHeightScale + consoleYOffset;
+			rotationPivot[1] *= consoleHeightScale;
 		}
 		else
 		{
@@ -16116,7 +16633,8 @@ static void VK_RecordScreenRects( int eye, size_t firstRect, size_t endRect )
 		float pushConstants[28] = {
 			drawRect[0], drawRect[1], drawRect[2], drawRect[3],
 			rect.uv[0], rect.uv[1], rect.uv[2], rect.uv[3],
-			rect.color[0], rect.color[1], rect.color[2], rect.color[3],
+			rect.color[0], rect.color[1], rect.color[2],
+			rect.color[3] * ( rect.consoleOverlay ? vk.spatialConsoleOpacity : 1.0f ),
 			rect.rotation[0], rect.rotation[1],
 			rotationPivot[0], rotationPivot[1],
 			rect.uvRotation[0], rect.uvRotation[1], forceSenseRayScale, 0.0f,
@@ -16125,6 +16643,14 @@ static void VK_RecordScreenRects( int eye, size_t firstRect, size_t endRect )
 			scopeAspectScale, rectXOffset, rectYOffset,
 			rect.forceSenseVignette ? 1.0f : ( rect.forceSenseRays ? 2.0f : 0.0f ),
 		};
+		if ( spatialConsole )
+		{
+			std::memcpy( &pushConstants[12], spatialCorners, sizeof( spatialCorners ) );
+			pushConstants[24] = 1.0f;
+			pushConstants[25] = 0.0f;
+			pushConstants[26] = 0.0f;
+			pushConstants[27] = 3.0f;
+		}
 		vkCmdPushConstants(
 			vk.commandBuffer,
 			vk.pipelineLayout,

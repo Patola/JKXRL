@@ -340,6 +340,11 @@ void Con_CheckResize (void);
 void Con_Init (void);
 void Con_Clear_f (void);
 void Con_ToggleConsole_f (void);
+void Con_VrFilterControllerInput(
+	const vrControllerState_t *left,
+	const vrControllerState_t *right,
+	vrControllerState_t *filteredLeft,
+	vrControllerState_t *filteredRight );
 void Con_DrawNotify (void);
 void Con_ClearNotify (void);
 void Con_RunConsole (void);

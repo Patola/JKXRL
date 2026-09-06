@@ -257,6 +257,11 @@ extern "C" Q_EXPORT refexport_t* QDECL GetRefAPI( int apiVersion, refimport_t *r
 	re.VR_SetConsoleMode = []( qboolean active ) {
 		VK_Backend_SetConsoleMode( active != qfalse );
 	};
+	re.VR_SetSpatialConsoleState = []( qboolean active, float scaleX, float scaleY, float opacity ) {
+		VK_Backend_SetSpatialConsoleState(
+			active != qfalse, scaleX, scaleY, opacity );
+	};
+	re.VR_GetSpatialConsolePointer = VK_Backend_GetSpatialConsolePointer;
 	re.VR_ApplyHaptic = VK_Backend_ApplyHaptic;
 
 	re.ProcessDissolve = []() -> qboolean { return qfalse; };

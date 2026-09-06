@@ -2371,11 +2371,11 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 		cgi_HapticEvent("heartbeat", 0, 0, cg.predicted_player_state.stats[STAT_HEALTH], 0, 0);
 	}
 
-	if (vr->item_selector)
+	if (vr->item_selector && !vr->spatial_console_visible)
 	{
 		CG_DrawItemSelector();
 	}
-	else
+	else if (!vr->spatial_console_visible)
 	{
 		// Don't draw the in-view weapon when in camera mode
 		if ( !in_camera

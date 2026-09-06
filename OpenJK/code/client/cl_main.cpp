@@ -136,10 +136,14 @@ static void CL_TBXR_UpdateControllers(
 
 	static bool leftGripEngaged = false;
 	static bool rightGripEngaged = false;
+	vrControllerState_t filteredLeft = *left;
+	vrControllerState_t filteredRight = *right;
+	Con_VrFilterControllerInput(
+		left, right, &filteredLeft, &filteredRight );
 	CL_CopyControllerState(
-		left, &leftTrackedRemoteState_new, &leftRemoteTracking_new, &leftGripEngaged );
+		&filteredLeft, &leftTrackedRemoteState_new, &leftRemoteTracking_new, &leftGripEngaged );
 	CL_CopyControllerState(
-		right, &rightTrackedRemoteState_new, &rightRemoteTracking_new, &rightGripEngaged );
+		&filteredRight, &rightTrackedRemoteState_new, &rightRemoteTracking_new, &rightGripEngaged );
 	gAppState.controllersPresent = static_cast<int>( controllerType );
 	VR_ProcessControllerInput();
 

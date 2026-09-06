@@ -37,6 +37,7 @@ typedef struct {
 
     int eye;
     bool using_screen_layer;
+    bool spatial_console_visible;
     bool third_person;
     bool fov_valid;
     float fov_x;

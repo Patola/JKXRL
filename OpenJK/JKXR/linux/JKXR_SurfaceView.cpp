@@ -283,6 +283,9 @@ static void VR_InitGameStateAndCvars()
 	vr_release_trigger = Cvar_Get( "vr_release_trigger", "0.7", CVAR_ARCHIVE );
 	vr_engage_trigger_index = Cvar_Get( "vr_engage_trigger_index", "0.7", CVAR_ARCHIVE );
 	vr_release_trigger_index = Cvar_Get( "vr_release_trigger_index", "0.05", CVAR_ARCHIVE );
+	Cvar_Get( "vr_console_button", "0", CVAR_ARCHIVE );
+	Cvar_Get( "vr_console_hold_ms", "600", CVAR_ARCHIVE );
+	Cvar_Get( "vr_console_animation", "1", CVAR_ARCHIVE );
 
 	vr.menu_right_handed = vr_control_scheme->integer == 0;
 	srand( time( nullptr ) );

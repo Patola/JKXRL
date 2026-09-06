@@ -28,6 +28,23 @@ const vec2 corners[6] = vec2[](
 void main()
 {
 	vec2 corner = corners[gl_VertexIndex];
+	if (pc.screenTransform.w > 2.5)
+	{
+		vec2 projectedCorners[4] = vec2[](
+			pc.rotation.xy,
+			pc.rotation.zw,
+			pc.uvRotation.xy,
+			pc.uvRotation.zw);
+		int cornerIndex = gl_VertexIndex == 0 ? 0 :
+			(gl_VertexIndex == 1 || gl_VertexIndex == 4 ? 1 :
+			(gl_VertexIndex == 2 || gl_VertexIndex == 3 ? 2 : 3));
+		vOverlayUv = corner;
+		vOverlayMode = pc.screenTransform.w;
+		vUv = mix(pc.uv.xy, pc.uv.zw, corner);
+		vColor = pc.color;
+		gl_Position = vec4(projectedCorners[cornerIndex], 0.0, 1.0);
+		return;
+	}
 	vec2 overlayCorner = corner * pc.overlayUvTransform.xy + pc.overlayUvTransform.zw;
 	if (pc.screenTransform.w > 1.5)
 	{

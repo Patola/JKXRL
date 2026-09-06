@@ -352,8 +352,6 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
     bool primaryButton2New;
     bool primaryButton2Old;
     int secondaryButton1;
-    bool secondaryButton2New;
-    bool secondaryButton2Old;
     bool secondaryButton1New;
     bool secondaryButton1Old;
     int primaryThumb;
@@ -405,8 +403,6 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
     //Don't switch B/Y buttons even if switched sticks
     primaryButton2New = domButton2 & pDominantTrackedRemoteNew->Buttons;
     primaryButton2Old = domButton2 & pDominantTrackedRemoteOld->Buttons;
-    secondaryButton2New = offButton2 & pOffTrackedRemoteNew->Buttons;
-    secondaryButton2Old = offButton2 & pOffTrackedRemoteOld->Buttons;
     secondaryButton1New = offButton1 & pOffTrackedRemoteNew->Buttons;
     secondaryButton1Old = offButton1 & pOffTrackedRemoteOld->Buttons;
 
@@ -592,11 +588,6 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
             if ((pOffTrackedRemoteNew->Buttons & xrButton_Trigger) != (pOffTrackedRemoteOld->Buttons & xrButton_Trigger) && (pOffTrackedRemoteNew->Buttons & xrButton_Trigger)) {
                 vr.menu_right_handed = !vr.menu_right_handed;
             }
-        }
-
-        //Close the datapad
-        if (secondaryButton2New && !secondaryButton2Old) {
-                Sys_QueEvent(0, SE_KEY, A_TAB, true, 0, NULL);
         }
 
         //Close the menu
@@ -1353,11 +1344,6 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
                 !(secondaryButtonsOld & secondaryButton1))
             {
                 Sys_QueEvent(0, SE_KEY, A_ESCAPE, true, 0, NULL);
-            }
-
-            //Open the datapad
-            if (secondaryButton2New && !secondaryButton2Old) {
-                Sys_QueEvent(0, SE_KEY, A_TAB, true, 0, NULL);
             }
 
             //Use Force - off hand trigger

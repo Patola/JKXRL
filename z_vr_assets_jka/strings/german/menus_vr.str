@@ -789,4 +789,48 @@ REFERENCE           FORCE_SPEED_MOTION_BLUR_DESC
 LANG_ENGLISH        "Applies a radial motion blur while Force Speed is active."
 LANG_GERMAN         "#same"
 
+REFERENCE           ENERGY_BLOOM_ITEM
+LANG_ENGLISH        "Energy Bloom:"
+LANG_GERMAN         "#same"
+
+REFERENCE           ENERGY_BLOOM_DESC
+LANG_ENGLISH        "Adds wide halos to lightsabers, energy beams, and other bright effects."
+LANG_GERMAN         "#same"
+
+REFERENCE           CONSOLE_BUTTON_ITEM
+LANG_ENGLISH        "Console Button:"
+LANG_GERMAN         "#same"
+
+REFERENCE           CONSOLE_BUTTON_DESC
+LANG_ENGLISH        "Select the button whose long press opens the spatial console. A short press opens the datapad."
+LANG_GERMAN         "#same"
+
+REFERENCE           CONSOLE_BUTTON_Y
+LANG_ENGLISH        "Y"
+LANG_GERMAN         "#same"
+
+REFERENCE           CONSOLE_BUTTON_B
+LANG_ENGLISH        "B"
+LANG_GERMAN         "#same"
+
+REFERENCE           CONSOLE_BUTTON_DATAPAD
+LANG_ENGLISH        "Datapad Button"
+LANG_GERMAN         "#same"
+
+REFERENCE           CONSOLE_HOLD_ITEM
+LANG_ENGLISH        "Console Hold Time:"
+LANG_GERMAN         "#same"
+
+REFERENCE           CONSOLE_HOLD_DESC
+LANG_ENGLISH        "Select how long the console button must be held."
+LANG_GERMAN         "#same"
+
+REFERENCE           CONSOLE_ANIMATION_ITEM
+LANG_ENGLISH        "Console Animation:"
+LANG_GERMAN         "#same"
+
+REFERENCE           CONSOLE_ANIMATION_DESC
+LANG_ENGLISH        "Animate the spatial console and keyboard when opening and closing."
+LANG_GERMAN         "#same"
+
 ENDMARKER

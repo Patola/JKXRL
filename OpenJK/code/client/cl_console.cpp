@@ -30,6 +30,12 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "qcommon/stringed_ingame.h"
 #include "qcommon/stv_version.h"
 
+#include <VrCommon.h>
+
+void Sys_QueEvent(
+	int time, sysEventType_t type, int value, int value2,
+	int ptrLength, void *ptr );
+
 int g_console_field_width = 78;
 
 console_t	con;
@@ -64,6 +70,578 @@ static qboolean Con_UseVrLayout()
 	const qboolean jkoVulkan = ( !Q_stricmpn( renderer, "rdjosp-vulkan", 13 ) &&
 		( renderer[13] == '\0' || renderer[13] == '-' ) ) ? qtrue : qfalse;
 	return ( jkaVulkan || jkoVulkan ) ? qtrue : qfalse;
+}
+
+enum vrConsolePhase_t
+{
+	VR_CONSOLE_CLOSED,
+	VR_CONSOLE_OPENING,
+	VR_CONSOLE_OPEN,
+	VR_CONSOLE_CLOSING,
+};
+
+enum vrConsoleKeyType_t
+{
+	VR_CONSOLE_KEY_CHARACTER,
+	VR_CONSOLE_KEY_CONTROL,
+	VR_CONSOLE_KEY_SHIFT,
+	VR_CONSOLE_KEY_CAPS,
+	VR_CONSOLE_KEY_SPACER,
+};
+
+struct vrConsoleKey_t
+{
+	const char *label;
+	int normalCharacter;
+	int shiftedCharacter;
+	int keyCode;
+	float widthUnits;
+	vrConsoleKeyType_t type;
+	qboolean repeat;
+};
+
+struct vrConsoleKeyRow_t
+{
+	const vrConsoleKey_t *keys;
+	int count;
+};
+
+struct vrConsolePointer_t
+{
+	qboolean valid;
+	float x;
+	float y;
+	float distance;
+};
+
+#define VR_CHAR_KEY(label, normal, shifted) \
+	{ label, normal, shifted, A_NULL, 1.0f, VR_CONSOLE_KEY_CHARACTER, qtrue }
+#define VR_WIDE_CHAR_KEY(label, normal, shifted, width) \
+	{ label, normal, shifted, A_NULL, width, VR_CONSOLE_KEY_CHARACTER, qtrue }
+#define VR_CONTROL_KEY(label, key, width, repeats) \
+	{ label, 0, 0, key, width, VR_CONSOLE_KEY_CONTROL, repeats }
+#define VR_SPACER(width) \
+	{ "", 0, 0, A_NULL, width, VR_CONSOLE_KEY_SPACER, qfalse }
+
+static const vrConsoleKey_t vrConsoleNumberKeys[] = {
+	VR_CONTROL_KEY( "ESC", A_ESCAPE, 1.4f, qfalse ),
+	VR_CHAR_KEY( "` ~", '`', '~' ),
+	VR_CHAR_KEY( "1 !", '1', '!' ),
+	VR_CHAR_KEY( "2 @", '2', '@' ),
+	VR_CHAR_KEY( "3 #", '3', '#' ),
+	VR_CHAR_KEY( "4 $", '4', '$' ),
+	VR_CHAR_KEY( "5 %", '5', '%' ),
+	VR_CHAR_KEY( "6 ^", '6', '^' ),
+	VR_CHAR_KEY( "7 &", '7', '&' ),
+	VR_CHAR_KEY( "8 *", '8', '*' ),
+	VR_CHAR_KEY( "9 (", '9', '(' ),
+	VR_CHAR_KEY( "0 )", '0', ')' ),
+	VR_CHAR_KEY( "- _", '-', '_' ),
+	VR_CHAR_KEY( "= +", '=', '+' ),
+	VR_CONTROL_KEY( "BKSP", A_BACKSPACE, 1.8f, qtrue ),
+};
+
+static const vrConsoleKey_t vrConsoleTopKeys[] = {
+	VR_CONTROL_KEY( "TAB", A_TAB, 1.5f, qfalse ),
+	VR_CHAR_KEY( "Q", 'q', 'Q' ), VR_CHAR_KEY( "W", 'w', 'W' ),
+	VR_CHAR_KEY( "E", 'e', 'E' ), VR_CHAR_KEY( "R", 'r', 'R' ),
+	VR_CHAR_KEY( "T", 't', 'T' ), VR_CHAR_KEY( "Y", 'y', 'Y' ),
+	VR_CHAR_KEY( "U", 'u', 'U' ), VR_CHAR_KEY( "I", 'i', 'I' ),
+	VR_CHAR_KEY( "O", 'o', 'O' ), VR_CHAR_KEY( "P", 'p', 'P' ),
+	VR_CHAR_KEY( "[ {", '[', '{' ), VR_CHAR_KEY( "] }", ']', '}' ),
+	VR_CHAR_KEY( "\\ |", '\\', '|' ),
+};
+
+static const vrConsoleKey_t vrConsoleHomeKeys[] = {
+	{ "CAPS", 0, 0, A_CAPSLOCK, 1.8f, VR_CONSOLE_KEY_CAPS, qfalse },
+	VR_CHAR_KEY( "A", 'a', 'A' ), VR_CHAR_KEY( "S", 's', 'S' ),
+	VR_CHAR_KEY( "D", 'd', 'D' ), VR_CHAR_KEY( "F", 'f', 'F' ),
+	VR_CHAR_KEY( "G", 'g', 'G' ), VR_CHAR_KEY( "H", 'h', 'H' ),
+	VR_CHAR_KEY( "J", 'j', 'J' ), VR_CHAR_KEY( "K", 'k', 'K' ),
+	VR_CHAR_KEY( "L", 'l', 'L' ), VR_CHAR_KEY( "; :", ';', ':' ),
+	VR_CHAR_KEY( "' \"", '\'', '"' ),
+	VR_CONTROL_KEY( "ENTER", A_ENTER, 2.2f, qfalse ),
+};
+
+static const vrConsoleKey_t vrConsoleBottomKeys[] = {
+	{ "SHIFT", 0, 0, A_SHIFT, 2.3f, VR_CONSOLE_KEY_SHIFT, qfalse },
+	VR_CHAR_KEY( "Z", 'z', 'Z' ), VR_CHAR_KEY( "X", 'x', 'X' ),
+	VR_CHAR_KEY( "C", 'c', 'C' ), VR_CHAR_KEY( "V", 'v', 'V' ),
+	VR_CHAR_KEY( "B", 'b', 'B' ), VR_CHAR_KEY( "N", 'n', 'N' ),
+	VR_CHAR_KEY( "M", 'm', 'M' ), VR_CHAR_KEY( ", <", ',', '<' ),
+	VR_CHAR_KEY( ". >", '.', '>' ), VR_CHAR_KEY( "/ ?", '/', '?' ),
+	VR_WIDE_CHAR_KEY( "_", '_', '_', 1.2f ),
+	VR_SPACER( 2.3f ),
+	VR_CONTROL_KEY( "", A_CURSOR_UP, 1.2f, qtrue ),
+	VR_CONTROL_KEY( "DEL", A_DELETE, 1.4f, qtrue ),
+};
+
+static const vrConsoleKey_t vrConsoleNavigationKeys[] = {
+	VR_CONTROL_KEY( "INS", A_INSERT, 1.2f, qfalse ),
+	VR_CONTROL_KEY( "HOME", A_HOME, 1.4f, qtrue ),
+	VR_CONTROL_KEY( "PGUP", A_PAGE_UP, 1.4f, qtrue ),
+	VR_CONTROL_KEY( "DEL", A_DELETE, 1.2f, qtrue ),
+	VR_SPACER( 1.2f ),
+	VR_WIDE_CHAR_KEY( "SPACE", ' ', ' ', 6.0f ),
+	VR_CONTROL_KEY( "END", A_END, 1.2f, qtrue ),
+	VR_CONTROL_KEY( "PGDN", A_PAGE_DOWN, 1.4f, qtrue ),
+	VR_CONTROL_KEY( "", A_CURSOR_LEFT, 1.2f, qtrue ),
+	VR_CONTROL_KEY( "", A_CURSOR_DOWN, 1.2f, qtrue ),
+	VR_CONTROL_KEY( "", A_CURSOR_RIGHT, 1.2f, qtrue ),
+};
+
+static const vrConsoleKeyRow_t vrConsoleKeyRows[] = {
+	{ vrConsoleNumberKeys, ARRAY_LEN( vrConsoleNumberKeys ) },
+	{ vrConsoleTopKeys, ARRAY_LEN( vrConsoleTopKeys ) },
+	{ vrConsoleHomeKeys, ARRAY_LEN( vrConsoleHomeKeys ) },
+	{ vrConsoleBottomKeys, ARRAY_LEN( vrConsoleBottomKeys ) },
+	{ vrConsoleNavigationKeys, ARRAY_LEN( vrConsoleNavigationKeys ) },
+};
+static constexpr int VR_CONSOLE_KEY_ROW_COUNT =
+	static_cast<int>( ARRAY_LEN( vrConsoleKeyRows ) );
+
+#undef VR_CHAR_KEY
+#undef VR_WIDE_CHAR_KEY
+#undef VR_CONTROL_KEY
+#undef VR_SPACER
+
+static constexpr float VR_CONSOLE_KEYBOARD_TOP = 472.0f;
+static constexpr float VR_CONSOLE_KEYBOARD_ROW_HEIGHT = 32.0f;
+static constexpr float VR_CONSOLE_KEYBOARD_ROW_GAP = 4.0f;
+static constexpr float VR_CONSOLE_KEY_GAP = 3.0f;
+static constexpr int VR_CONSOLE_OPEN_MILLISECONDS = 180;
+static constexpr int VR_CONSOLE_CLOSE_MILLISECONDS = 120;
+static constexpr int VR_CONSOLE_REPEAT_DELAY = 430;
+static constexpr int VR_CONSOLE_REPEAT_INTERVAL = 65;
+
+static vrConsolePhase_t vrConsolePhase = VR_CONSOLE_CLOSED;
+static int vrConsolePhaseStart = 0;
+static qboolean vrConsoleShift = qfalse;
+static qboolean vrConsoleCaps = qfalse;
+static qboolean vrConsoleBindingWasDown = qfalse;
+static qboolean vrConsoleBindingLongPress = qfalse;
+static int vrConsoleBindingPressStart = 0;
+static vrConsolePointer_t vrConsolePointers[2] = {};
+static qboolean vrConsoleTriggerWasDown[2] = {};
+static int vrConsoleHeldKey[2] = { -1, -1 };
+static int vrConsoleNextRepeat[2] = {};
+static uint32_t vrConsoleConsumedButtons[2] = {};
+static qboolean vrConsoleConsumedIndexTrigger[2] = {};
+static qboolean vrConsoleConsumedGripTrigger[2] = {};
+static cvar_t *vrConsoleButtonCvar = nullptr;
+static cvar_t *vrConsoleHoldCvar = nullptr;
+static cvar_t *vrConsoleAnimationCvar = nullptr;
+
+static void Con_VrInitCvars()
+{
+	if ( vrConsoleButtonCvar == nullptr )
+	{
+		vrConsoleButtonCvar = Cvar_Get( "vr_console_button", "0", CVAR_ARCHIVE );
+		vrConsoleHoldCvar = Cvar_Get( "vr_console_hold_ms", "600", CVAR_ARCHIVE );
+		vrConsoleAnimationCvar = Cvar_Get( "vr_console_animation", "1", CVAR_ARCHIVE );
+		Cvar_CheckRange( vrConsoleButtonCvar, 0.0f, 2.0f, qtrue );
+		Cvar_CheckRange( vrConsoleHoldCvar, 300.0f, 1200.0f, qtrue );
+		Cvar_CheckRange( vrConsoleAnimationCvar, 0.0f, 1.0f, qtrue );
+	}
+}
+
+static qboolean Con_VrPhaseVisible()
+{
+	return vrConsolePhase != VR_CONSOLE_CLOSED ? qtrue : qfalse;
+}
+
+static qboolean Con_VrPhaseInteractive()
+{
+	return ( vrConsolePhase == VR_CONSOLE_OPENING ||
+		vrConsolePhase == VR_CONSOLE_OPEN ) ? qtrue : qfalse;
+}
+
+static void Con_VrFeedback( int hand, qboolean opening )
+{
+	static sfxHandle_t openSound = 0;
+	static sfxHandle_t closeSound = 0;
+	sfxHandle_t *sound = opening ? &openSound : &closeSound;
+	if ( *sound == 0 )
+	{
+		*sound = S_RegisterSound( "sound/interface/button1.mp3" );
+	}
+	if ( *sound > 0 )
+	{
+		S_StartLocalSound( *sound, CHAN_LOCAL_SOUND );
+	}
+	if ( hand >= 0 && hand < 2 && re.VR_ApplyHaptic != nullptr )
+	{
+		re.VR_ApplyHaptic( hand, opening ? 42 : 28, opening ? 0.26f : 0.18f );
+	}
+}
+
+static void Con_VrSetOpen( qboolean open, int hand )
+{
+	Con_VrInitCvars();
+	if ( open )
+	{
+		if ( Con_VrPhaseInteractive() )
+		{
+			return;
+		}
+		if ( con_autoclear->integer )
+		{
+			Field_Clear( &g_consoleField );
+		}
+		g_consoleField.widthInChars = g_console_field_width;
+		Con_ClearNotify();
+		Key_SetCatcher( Key_GetCatcher() | KEYCATCH_CONSOLE );
+		vrConsolePhase = vrConsoleAnimationCvar->integer
+			? VR_CONSOLE_OPENING : VR_CONSOLE_OPEN;
+		vrConsolePhaseStart = Sys_Milliseconds();
+		for ( int pointer = 0; pointer < 2; ++pointer )
+		{
+			vrConsoleHeldKey[pointer] = -1;
+			vrConsoleNextRepeat[pointer] = 0;
+		}
+		Con_VrFeedback( hand, qtrue );
+	}
+	else
+	{
+		if ( vrConsolePhase == VR_CONSOLE_CLOSED ||
+			 vrConsolePhase == VR_CONSOLE_CLOSING )
+		{
+			return;
+		}
+		Key_SetCatcher( Key_GetCatcher() & ~KEYCATCH_CONSOLE );
+		vrConsolePhase = vrConsoleAnimationCvar->integer
+			? VR_CONSOLE_CLOSING : VR_CONSOLE_CLOSED;
+		vrConsolePhaseStart = Sys_Milliseconds();
+		vrConsoleShift = qfalse;
+		for ( int pointer = 0; pointer < 2; ++pointer )
+		{
+			vrConsoleHeldKey[pointer] = -1;
+		}
+		Con_VrFeedback( hand, qfalse );
+	}
+}
+
+static void Con_VrUpdatePhase()
+{
+	Con_VrInitCvars();
+	if ( !vrConsoleAnimationCvar->integer )
+	{
+		if ( vrConsolePhase == VR_CONSOLE_OPENING )
+		{
+			vrConsolePhase = VR_CONSOLE_OPEN;
+		}
+		else if ( vrConsolePhase == VR_CONSOLE_CLOSING )
+		{
+			vrConsolePhase = VR_CONSOLE_CLOSED;
+		}
+		return;
+	}
+	const int elapsed = Sys_Milliseconds() - vrConsolePhaseStart;
+	if ( vrConsolePhase == VR_CONSOLE_OPENING &&
+		 elapsed >= VR_CONSOLE_OPEN_MILLISECONDS )
+	{
+		vrConsolePhase = VR_CONSOLE_OPEN;
+	}
+	else if ( vrConsolePhase == VR_CONSOLE_CLOSING &&
+		 elapsed >= VR_CONSOLE_CLOSE_MILLISECONDS )
+	{
+		vrConsolePhase = VR_CONSOLE_CLOSED;
+	}
+}
+
+static qboolean Con_VrKeyRect(
+	int rowIndex, int keyIndex, float *x, float *y, float *width, float *height )
+{
+	if ( rowIndex < 0 || rowIndex >= VR_CONSOLE_KEY_ROW_COUNT )
+	{
+		return qfalse;
+	}
+	const vrConsoleKeyRow_t &row = vrConsoleKeyRows[rowIndex];
+	if ( keyIndex < 0 || keyIndex >= row.count )
+	{
+		return qfalse;
+	}
+	float totalUnits = 0.0f;
+	for ( int key = 0; key < row.count; ++key )
+	{
+		totalUnits += row.keys[key].widthUnits;
+	}
+	const float availableWidth = VR_CONSOLE_WIDTH -
+		VR_CONSOLE_KEY_GAP * static_cast<float>( row.count - 1 );
+	const float unitWidth = availableWidth / totalUnits;
+	*x = static_cast<float>( VR_CONSOLE_LEFT );
+	for ( int key = 0; key < keyIndex; ++key )
+	{
+		*x += row.keys[key].widthUnits * unitWidth + VR_CONSOLE_KEY_GAP;
+	}
+	*y = VR_CONSOLE_KEYBOARD_TOP + rowIndex *
+		( VR_CONSOLE_KEYBOARD_ROW_HEIGHT + VR_CONSOLE_KEYBOARD_ROW_GAP );
+	*width = row.keys[keyIndex].widthUnits * unitWidth;
+	*height = VR_CONSOLE_KEYBOARD_ROW_HEIGHT;
+	return qtrue;
+}
+
+static int Con_VrFindKey( float x, float y )
+{
+	for ( int row = 0; row < VR_CONSOLE_KEY_ROW_COUNT; ++row )
+	{
+		for ( int key = 0; key < vrConsoleKeyRows[row].count; ++key )
+		{
+			if ( vrConsoleKeyRows[row].keys[key].type == VR_CONSOLE_KEY_SPACER )
+			{
+				continue;
+			}
+			float keyX, keyY, keyWidth, keyHeight;
+			Con_VrKeyRect( row, key, &keyX, &keyY, &keyWidth, &keyHeight );
+			if ( x >= keyX && x <= keyX + keyWidth &&
+				 y >= keyY && y <= keyY + keyHeight )
+			{
+				return row * 32 + key;
+			}
+		}
+	}
+	return -1;
+}
+
+static const vrConsoleKey_t *Con_VrGetKey( int id )
+{
+	const int row = id / 32;
+	const int key = id % 32;
+	if ( row < 0 || row >= VR_CONSOLE_KEY_ROW_COUNT ||
+		 key < 0 || key >= vrConsoleKeyRows[row].count )
+	{
+		return nullptr;
+	}
+	return &vrConsoleKeyRows[row].keys[key];
+}
+
+static void Con_VrQueueControlKey( int key )
+{
+	Sys_QueEvent( 0, SE_KEY, key, qtrue, 0, nullptr );
+	Sys_QueEvent( 0, SE_KEY, key, qfalse, 0, nullptr );
+}
+
+static void Con_VrActivateKey( int id, int hand )
+{
+	const vrConsoleKey_t *key = Con_VrGetKey( id );
+	if ( key == nullptr )
+	{
+		return;
+	}
+	if ( key->type == VR_CONSOLE_KEY_SPACER )
+	{
+		return;
+	}
+	if ( key->type == VR_CONSOLE_KEY_SHIFT )
+	{
+		vrConsoleShift = vrConsoleShift ? qfalse : qtrue;
+	}
+	else if ( key->type == VR_CONSOLE_KEY_CAPS )
+	{
+		vrConsoleCaps = vrConsoleCaps ? qfalse : qtrue;
+	}
+	else if ( key->type == VR_CONSOLE_KEY_CONTROL )
+	{
+		Con_VrQueueControlKey( key->keyCode );
+	}
+	else
+	{
+		int character = key->normalCharacter;
+		if ( character >= 'a' && character <= 'z' )
+		{
+			if ( ( vrConsoleShift != qfalse ) != ( vrConsoleCaps != qfalse ) )
+			{
+				character = key->shiftedCharacter;
+			}
+		}
+		else if ( vrConsoleShift )
+		{
+			character = key->shiftedCharacter;
+		}
+		Sys_QueEvent( 0, SE_CHAR, character, 0, 0, nullptr );
+		vrConsoleShift = qfalse;
+	}
+	if ( hand >= 0 && hand < 2 && re.VR_ApplyHaptic != nullptr )
+	{
+		re.VR_ApplyHaptic( hand, 24, 0.16f );
+	}
+}
+
+static void Con_VrUpdatePointersAndKeyboard(
+	const vrControllerState_t *left, const vrControllerState_t *right )
+{
+	const vrControllerState_t *controllers[2] = { left, right };
+	const int now = Sys_Milliseconds();
+	for ( int hand = 0; hand < 2; ++hand )
+	{
+		vrConsolePointers[hand] = {};
+		if ( Con_VrPhaseVisible() && re.VR_GetSpatialConsolePointer != nullptr )
+		{
+			vrConsolePointers[hand].valid = re.VR_GetSpatialConsolePointer(
+				hand,
+				&vrConsolePointers[hand].x,
+				&vrConsolePointers[hand].y,
+				&vrConsolePointers[hand].distance );
+		}
+		const qboolean triggerDown =
+			( controllers[hand]->buttons & VR_CONTROLLER_BUTTON_TRIGGER ) ||
+			controllers[hand]->indexTrigger > 0.5f ? qtrue : qfalse;
+		const qboolean triggerPressed =
+			triggerDown && !vrConsoleTriggerWasDown[hand] ? qtrue : qfalse;
+		const int hoveredKey = vrConsolePointers[hand].valid
+			? Con_VrFindKey( vrConsolePointers[hand].x, vrConsolePointers[hand].y )
+			: -1;
+		if ( vrConsolePhase == VR_CONSOLE_OPEN && triggerPressed && hoveredKey >= 0 )
+		{
+			Con_VrActivateKey( hoveredKey, hand );
+			const vrConsoleKey_t *key = Con_VrGetKey( hoveredKey );
+			vrConsoleHeldKey[hand] = key != nullptr && key->repeat
+				? hoveredKey : -1;
+			vrConsoleNextRepeat[hand] = now + VR_CONSOLE_REPEAT_DELAY;
+		}
+		else if ( vrConsolePhase == VR_CONSOLE_OPEN && triggerDown &&
+			 vrConsoleHeldKey[hand] >= 0 && hoveredKey == vrConsoleHeldKey[hand] &&
+			 now >= vrConsoleNextRepeat[hand] )
+		{
+			Con_VrActivateKey( vrConsoleHeldKey[hand], hand );
+			vrConsoleNextRepeat[hand] = now + VR_CONSOLE_REPEAT_INTERVAL;
+		}
+		if ( !triggerDown || hoveredKey != vrConsoleHeldKey[hand] )
+		{
+			vrConsoleHeldKey[hand] = -1;
+		}
+		vrConsoleTriggerWasDown[hand] = triggerDown;
+	}
+}
+
+static void Con_VrClearGameplayInput( vrControllerState_t *state )
+{
+	state->buttons = 0;
+	state->touches = 0;
+	state->indexTrigger = 0.0f;
+	state->gripTrigger = 0.0f;
+	state->joystick[0] = 0.0f;
+	state->joystick[1] = 0.0f;
+	state->joystickActive = qfalse;
+	state->velocityFlags = 0;
+	memset( state->linearVelocity, 0, sizeof( state->linearVelocity ) );
+	memset( state->angularVelocity, 0, sizeof( state->angularVelocity ) );
+}
+
+static void Con_VrLatchConsumedInput(
+	int hand,
+	const vrControllerState_t *raw,
+	vrControllerState_t *filtered,
+	qboolean consoleVisible )
+{
+	if ( consoleVisible )
+	{
+		vrConsoleConsumedButtons[hand] |= raw->buttons;
+		if ( raw->indexTrigger > 0.05f )
+		{
+			vrConsoleConsumedIndexTrigger[hand] = qtrue;
+		}
+		if ( raw->gripTrigger > 0.05f )
+		{
+			vrConsoleConsumedGripTrigger[hand] = qtrue;
+		}
+		Con_VrClearGameplayInput( filtered );
+		return;
+	}
+
+	vrConsoleConsumedButtons[hand] &= raw->buttons;
+	filtered->buttons &= ~vrConsoleConsumedButtons[hand];
+	if ( vrConsoleConsumedIndexTrigger[hand] )
+	{
+		if ( raw->indexTrigger > 0.05f )
+		{
+			filtered->indexTrigger = 0.0f;
+			filtered->buttons &= ~VR_CONTROLLER_BUTTON_TRIGGER;
+		}
+		else
+		{
+			vrConsoleConsumedIndexTrigger[hand] = qfalse;
+		}
+	}
+	if ( vrConsoleConsumedGripTrigger[hand] )
+	{
+		if ( raw->gripTrigger > 0.05f )
+		{
+			filtered->gripTrigger = 0.0f;
+			filtered->buttons &= ~VR_CONTROLLER_BUTTON_GRIP;
+		}
+		else
+		{
+			vrConsoleConsumedGripTrigger[hand] = qfalse;
+		}
+	}
+}
+
+void Con_VrFilterControllerInput(
+	const vrControllerState_t *left,
+	const vrControllerState_t *right,
+	vrControllerState_t *filteredLeft,
+	vrControllerState_t *filteredRight )
+{
+	if ( left == nullptr || right == nullptr ||
+		 filteredLeft == nullptr || filteredRight == nullptr )
+	{
+		return;
+	}
+	Con_VrInitCvars();
+	Con_VrUpdatePhase();
+	*filteredLeft = *left;
+	*filteredRight = *right;
+
+	int bindingHand = 0;
+	uint32_t bindingMask = VR_CONTROLLER_BUTTON_Y;
+	if ( vrConsoleButtonCvar->integer == 1 )
+	{
+		bindingHand = 1;
+		bindingMask = VR_CONTROLLER_BUTTON_B;
+	}
+	else if ( vrConsoleButtonCvar->integer == 2 &&
+		 Cvar_VariableIntegerValue( "vr_control_scheme" ) >= 10 )
+	{
+		bindingHand = 1;
+		bindingMask = VR_CONTROLLER_BUTTON_B;
+	}
+	const vrControllerState_t *bindingController = bindingHand == 0 ? left : right;
+	const qboolean bindingDown =
+		( bindingController->buttons & bindingMask ) != 0 ? qtrue : qfalse;
+	const int now = Sys_Milliseconds();
+	if ( bindingDown && !vrConsoleBindingWasDown )
+	{
+		vrConsoleBindingPressStart = now;
+		vrConsoleBindingLongPress = qfalse;
+	}
+	if ( bindingDown && !vrConsoleBindingLongPress &&
+		 now - vrConsoleBindingPressStart >= vrConsoleHoldCvar->integer )
+	{
+		vrConsoleBindingLongPress = qtrue;
+		Con_VrSetOpen( Con_VrPhaseInteractive() ? qfalse : qtrue, bindingHand );
+	}
+	if ( !bindingDown && vrConsoleBindingWasDown )
+	{
+		if ( !vrConsoleBindingLongPress )
+		{
+			Con_VrQueueControlKey( A_TAB );
+		}
+		vrConsoleBindingLongPress = qfalse;
+	}
+	vrConsoleBindingWasDown = bindingDown;
+
+	Con_VrUpdatePointersAndKeyboard( left, right );
+	const qboolean consoleVisible = Con_VrPhaseVisible();
+	vr.spatial_console_visible = consoleVisible != qfalse;
+	Con_VrLatchConsumedInput( 0, left, filteredLeft, consoleVisible );
+	Con_VrLatchConsumedInput( 1, right, filteredRight, consoleVisible );
+	if ( !consoleVisible )
+	{
+		vrControllerState_t *bindingFiltered =
+			bindingHand == 0 ? filteredLeft : filteredRight;
+		bindingFiltered->buttons &= ~bindingMask;
+	}
 }
 
 static void Con_DrawVrChar( int x, int y, int ch )
@@ -153,6 +731,13 @@ Con_ToggleConsole_f
 ================
 */
 void Con_ToggleConsole_f (void) {
+	if ( Con_UseVrLayout() )
+	{
+		Con_VrUpdatePhase();
+		Con_VrSetOpen( Con_VrPhaseInteractive() ? qfalse : qtrue, -1 );
+		return;
+	}
+
 	// closing a full screen console restarts the demo loop
 	if ( cls.state == CA_DISCONNECTED && Key_GetCatcher( ) == KEYCATCH_CONSOLE ) {
 //		CL_StartDemoLoop();
@@ -791,24 +1376,267 @@ void Con_DrawSolidConsole( float frac )
 	re.SetColor( NULL );
 }
 
+struct vrConsoleAnimation_t
+{
+	float openAmount;
+	float scaleX;
+	float scaleY;
+	float opacity;
+	float textAlpha;
+	float keyboardReveal;
+};
+
+static float Con_VrEaseOut( float value )
+{
+	value = Com_Clamp( 0.0f, 1.0f, value );
+	const float inverse = 1.0f - value;
+	return 1.0f - inverse * inverse * inverse;
+}
+
+static vrConsoleAnimation_t Con_VrAnimation()
+{
+	Con_VrUpdatePhase();
+	float openAmount = 1.0f;
+	if ( vrConsolePhase == VR_CONSOLE_OPENING )
+	{
+		openAmount = Com_Clamp(
+			0.0f, 1.0f,
+			static_cast<float>( Sys_Milliseconds() - vrConsolePhaseStart ) /
+				VR_CONSOLE_OPEN_MILLISECONDS );
+	}
+	else if ( vrConsolePhase == VR_CONSOLE_CLOSING )
+	{
+		openAmount = 1.0f - Com_Clamp(
+			0.0f, 1.0f,
+			static_cast<float>( Sys_Milliseconds() - vrConsolePhaseStart ) /
+				VR_CONSOLE_CLOSE_MILLISECONDS );
+	}
+	else if ( vrConsolePhase == VR_CONSOLE_CLOSED )
+	{
+		openAmount = 0.0f;
+	}
+
+	vrConsoleAnimation_t animation = {};
+	animation.openAmount = openAmount;
+	animation.scaleX = std::max(
+		0.025f, Con_VrEaseOut( openAmount / 0.72f ) );
+	animation.scaleY = std::max(
+		0.004f, Con_VrEaseOut( ( openAmount - 0.08f ) / 0.92f ) );
+	animation.opacity = vrConsolePhase == VR_CONSOLE_CLOSING
+		? Con_VrEaseOut( openAmount ) : 1.0f;
+	animation.textAlpha = Con_VrEaseOut(
+		( openAmount - 0.45f ) / 0.55f );
+	animation.keyboardReveal = Con_VrEaseOut(
+		( openAmount - 0.58f ) / 0.42f );
+	return animation;
+}
+
+static void Con_VrSetColorWithAlpha( const float color[4], float alpha )
+{
+	vec4_t faded = {
+		color[0], color[1], color[2],
+		color[3] * Com_Clamp( 0.0f, 1.0f, alpha ),
+	};
+	re.SetColor( faded );
+}
+
+static float Con_VrKeyboardRowProgress( float reveal, int row )
+{
+	const float staggered = reveal *
+		( static_cast<float>( VR_CONSOLE_KEY_ROW_COUNT ) + 0.75f ) -
+		static_cast<float>( row ) * 0.88f;
+	return Con_VrEaseOut( staggered );
+}
+
+static void Con_DrawVrArrow( int keyCode, float x, float y, float width, float height )
+{
+	const float centerX = x + width * 0.5f;
+	const float centerY = y + height * 0.5f;
+	const float stroke = 2.0f;
+
+	if ( keyCode == A_CURSOR_UP || keyCode == A_CURSOR_DOWN )
+	{
+		const qboolean up = keyCode == A_CURSOR_UP ? qtrue : qfalse;
+		const float direction = up ? -1.0f : 1.0f;
+		const float stemY = up ? centerY - 3.0f : centerY - 8.0f;
+		re.DrawStretchPic( centerX - 1.0f, stemY, stroke, 11.0f,
+			0, 0, 0, 0, cls.whiteShader );
+		for ( int step = 0; step < 3; ++step )
+		{
+			const float barWidth = stroke + static_cast<float>( step ) * 4.0f;
+			const float barY = centerY + direction *
+				( 9.0f - static_cast<float>( step ) * 2.0f );
+			re.DrawStretchPic(
+				centerX - barWidth * 0.5f,
+				barY - stroke * 0.5f,
+				barWidth,
+				stroke,
+				0, 0, 0, 0, cls.whiteShader );
+		}
+		return;
+	}
+
+	const qboolean left = keyCode == A_CURSOR_LEFT ? qtrue : qfalse;
+	const float direction = left ? -1.0f : 1.0f;
+	const float stemX = left ? centerX - 3.0f : centerX - 8.0f;
+	re.DrawStretchPic( stemX, centerY - 1.0f, 11.0f, stroke,
+		0, 0, 0, 0, cls.whiteShader );
+	for ( int step = 0; step < 3; ++step )
+	{
+		const float barHeight = stroke + static_cast<float>( step ) * 4.0f;
+		const float barX = centerX + direction *
+			( 9.0f - static_cast<float>( step ) * 2.0f );
+		re.DrawStretchPic(
+			barX - stroke * 0.5f,
+			centerY - barHeight * 0.5f,
+			stroke,
+			barHeight,
+			0, 0, 0, 0, cls.whiteShader );
+	}
+}
+
+static void Con_DrawVrKeyboard( const vrConsoleAnimation_t &animation )
+{
+	for ( int row = 0; row < VR_CONSOLE_KEY_ROW_COUNT; ++row )
+	{
+		const float rowProgress = Con_VrKeyboardRowProgress(
+			animation.keyboardReveal, row );
+		if ( rowProgress <= 0.001f )
+		{
+			continue;
+		}
+		for ( int keyIndex = 0;
+			 keyIndex < vrConsoleKeyRows[row].count; ++keyIndex )
+		{
+			const vrConsoleKey_t &key = vrConsoleKeyRows[row].keys[keyIndex];
+			if ( key.type == VR_CONSOLE_KEY_SPACER )
+			{
+				continue;
+			}
+			float x, y, width, height;
+			Con_VrKeyRect( row, keyIndex, &x, &y, &width, &height );
+			height *= rowProgress;
+			const int keyId = row * 32 + keyIndex;
+			qboolean hovered = qfalse;
+			for ( int hand = 0; hand < 2; ++hand )
+			{
+				if ( vrConsolePointers[hand].valid &&
+					 Con_VrFindKey(
+						vrConsolePointers[hand].x,
+						vrConsolePointers[hand].y ) == keyId )
+				{
+					hovered = qtrue;
+				}
+			}
+			const qboolean latched = (
+				( key.type == VR_CONSOLE_KEY_SHIFT && vrConsoleShift ) ||
+				( key.type == VR_CONSOLE_KEY_CAPS && vrConsoleCaps ) )
+				? qtrue : qfalse;
+			vec4_t keyColor = {
+				hovered ? 0.10f : 0.035f,
+				hovered ? 0.34f : 0.095f,
+				hovered ? 0.45f : 0.14f,
+				0.90f * rowProgress,
+			};
+			if ( latched )
+			{
+				keyColor[0] = 0.42f;
+				keyColor[1] = 0.31f;
+				keyColor[2] = 0.06f;
+			}
+			re.SetColor( keyColor );
+			re.DrawStretchPic(
+				x, y, width, height, 0, 0, 0, 0, cls.whiteShader );
+
+			vec4_t borderColor = {
+				hovered ? 0.45f : 0.18f,
+				hovered ? 0.95f : 0.52f,
+				hovered ? 1.0f : 0.68f,
+				rowProgress,
+			};
+			re.SetColor( borderColor );
+			re.DrawStretchPic( x, y, width, 1, 0, 0, 0, 0, cls.whiteShader );
+			re.DrawStretchPic( x, y + height - 1, width, 1, 0, 0, 0, 0, cls.whiteShader );
+			re.DrawStretchPic( x, y, 1, height, 0, 0, 0, 0, cls.whiteShader );
+			re.DrawStretchPic( x + width - 1, y, 1, height, 0, 0, 0, 0, cls.whiteShader );
+
+			const float labelAlpha = Com_Clamp(
+				0.0f, 1.0f, ( rowProgress - 0.55f ) / 0.45f );
+			if ( labelAlpha > 0.0f )
+			{
+				vec4_t labelColor = { 0.82f, 0.94f, 1.0f, labelAlpha };
+				re.SetColor( labelColor );
+				if ( key.keyCode == A_CURSOR_UP || key.keyCode == A_CURSOR_DOWN ||
+					 key.keyCode == A_CURSOR_LEFT || key.keyCode == A_CURSOR_RIGHT )
+				{
+					Con_DrawVrArrow( key.keyCode, x, y, width, height );
+				}
+				else
+				{
+					const int labelWidth = static_cast<int>( strlen( key.label ) ) *
+						VR_CONSOLE_CHAR_WIDTH;
+					Con_DrawVrString(
+						static_cast<int>( x + ( width - labelWidth ) * 0.5f ),
+						static_cast<int>( y + ( height - VR_CONSOLE_CHAR_HEIGHT ) * 0.5f ),
+						key.label );
+				}
+			}
+		}
+	}
+}
+
+static void Con_DrawVrPointers()
+{
+	const vec4_t pointerColors[2] = {
+		{ 0.20f, 0.95f, 1.0f, 1.0f },
+		{ 1.0f, 0.70f, 0.18f, 1.0f },
+	};
+	for ( int hand = 0; hand < 2; ++hand )
+	{
+		const vrConsolePointer_t &pointer = vrConsolePointers[hand];
+		if ( !pointer.valid || pointer.x < 42.0f || pointer.x > 598.0f ||
+			 pointer.y < 12.0f || pointer.y > 664.0f )
+		{
+			continue;
+		}
+		re.SetColor( pointerColors[hand] );
+		re.DrawStretchPic(
+			pointer.x - 6.0f, pointer.y - 1.0f,
+			12.0f, 2.0f, 0, 0, 0, 0, cls.whiteShader );
+		re.DrawStretchPic(
+			pointer.x - 1.0f, pointer.y - 6.0f,
+			2.0f, 12.0f, 0, 0, 0, 0, cls.whiteShader );
+	}
+}
+
 static void Con_DrawVrConsole()
 {
+	const vrConsoleAnimation_t animation = Con_VrAnimation();
+	if ( re.VR_SetSpatialConsoleState != nullptr )
+	{
+		re.VR_SetSpatialConsoleState(
+			qtrue,
+			animation.scaleX,
+			animation.scaleY,
+			animation.opacity );
+	}
 	if ( re.VR_SetConsoleMode != nullptr )
 	{
 		re.VR_SetConsoleMode( qtrue );
 	}
 
 	const float opacity = Com_Clamp( 0.0f, 1.0f, con_opacity->value );
-	vec4_t background = { 0.055f, 0.070f, 0.095f, opacity };
+	vec4_t background = { 0.025f, 0.075f, 0.160f, opacity * 0.94f };
 	re.SetColor( background );
-	SCR_DrawPic(
+	re.DrawStretchPic(
 		VR_CONSOLE_LEFT,
 		VR_CONSOLE_TOP,
 		VR_CONSOLE_WIDTH,
 		VR_CONSOLE_HEIGHT,
-		cls.consoleShader );
+		0, 0, 0, 0,
+		cls.whiteShader );
 
-	re.SetColor( console_color );
+	Con_VrSetColorWithAlpha( console_color, animation.textAlpha );
 	re.DrawStretchPic(
 		VR_CONSOLE_LEFT,
 		VR_CONSOLE_TOP,
@@ -823,7 +1651,7 @@ static void Con_DrawVrConsole()
 		2,
 		0, 0, 0, 0,
 		cls.whiteShader );
-	re.SetColor( console_color );
+	Con_VrSetColorWithAlpha( console_color, animation.textAlpha );
 	Con_DrawVrString(
 		VR_CONSOLE_TEXT_LEFT,
 		VR_CONSOLE_TOP + VR_CONSOLE_CHAR_HEIGHT,
@@ -856,7 +1684,7 @@ static void Con_DrawVrConsole()
 	}
 
 	int currentColor = ColorIndex( COLOR_WHITE );
-	re.SetColor( g_color_table[currentColor] );
+	Con_VrSetColorWithAlpha( g_color_table[currentColor], animation.textAlpha );
 	for ( ; y >= VR_CONSOLE_OUTPUT_TOP; y -= VR_CONSOLE_CHAR_HEIGHT, --row )
 	{
 		if ( row < 0 )
@@ -879,7 +1707,8 @@ static void Con_DrawVrConsole()
 			if ( color != currentColor )
 			{
 				currentColor = color;
-				re.SetColor( g_color_table[currentColor] );
+				Con_VrSetColorWithAlpha(
+					g_color_table[currentColor], animation.textAlpha );
 			}
 			Con_DrawVrChar(
 				VR_CONSOLE_TEXT_LEFT + x * VR_CONSOLE_CHAR_WIDTH,
@@ -888,7 +1717,28 @@ static void Con_DrawVrConsole()
 		}
 	}
 
+	Con_VrSetColorWithAlpha( g_color_table[ColorIndex( COLOR_WHITE )], animation.textAlpha );
 	Con_DrawVrInput( VR_CONSOLE_TEXT_LEFT, VR_CONSOLE_INPUT_Y );
+	Con_DrawVrKeyboard( animation );
+
+	if ( vrConsolePhase == VR_CONSOLE_OPENING )
+	{
+		const float lineAlpha = Com_Clamp(
+			0.0f, 1.0f, 1.4f - animation.openAmount * 2.0f );
+		vec4_t lineColor = { 0.20f, 0.95f, 1.0f, lineAlpha };
+		re.SetColor( lineColor );
+		re.DrawStretchPic(
+			VR_CONSOLE_LEFT,
+			VR_CONSOLE_TOP + VR_CONSOLE_HEIGHT * 0.5f - 1.0f,
+			VR_CONSOLE_WIDTH,
+			2.0f,
+			0, 0, 0, 0,
+			cls.whiteShader );
+	}
+	if ( vrConsolePhase == VR_CONSOLE_OPEN )
+	{
+		Con_DrawVrPointers();
+	}
 	re.SetColor( NULL );
 	if ( re.VR_SetConsoleMode != nullptr )
 	{
@@ -906,6 +1756,19 @@ Con_DrawConsole
 void Con_DrawConsole( void ) {
 	// check for console width changes from a vid mode change
 	Con_CheckResize ();
+	if ( Con_UseVrLayout() )
+	{
+		Con_VrUpdatePhase();
+		if ( Con_VrPhaseVisible() )
+		{
+			Con_DrawVrConsole();
+			return;
+		}
+		if ( re.VR_SetSpatialConsoleState != nullptr )
+		{
+			re.VR_SetSpatialConsoleState( qfalse, 0.0f, 0.0f, 0.0f );
+		}
+	}
 
 	// if disconnected, render console full screen
 	if ( cls.state == CA_DISCONNECTED ) {
@@ -951,7 +1814,8 @@ Scroll it up or down
 void Con_RunConsole (void) {
 	if ( Con_UseVrLayout() )
 	{
-		con.finalFrac = ( Key_GetCatcher( ) & KEYCATCH_CONSOLE ) ? 1.0f : 0.0f;
+		Con_VrUpdatePhase();
+		con.finalFrac = Con_VrPhaseVisible() ? 1.0f : 0.0f;
 		con.displayFrac = con.finalFrac;
 		return;
 	}

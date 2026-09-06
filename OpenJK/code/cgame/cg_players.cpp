@@ -6961,6 +6961,7 @@ Ghoul2 Insert End
 
 	//Draw the saber hilts in the appropriate locked location
 	if (CG_getPlayer1stPersonSaber(cent) &&
+		!vr->spatial_console_visible &&
 		cent->gent->client->ps.saberLockEnemy != ENTITYNUM_NONE &&
 		bladeNum == 0) // Only need to do this for the first blade
 	{
@@ -7557,7 +7558,14 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 				CG_AddHealthBarEnt( cent->currentState.clientNum );
 			}
 		}
-		CG_AddRefEntityWithPowerups( &ent, cent->currentState.powerups, cent );
+		const bool hideLocalVrModel =
+			vr->spatial_console_visible &&
+			cent->currentState.number == cg.snap->ps.clientNum &&
+			!cg.renderingThirdPerson;
+		if ( !hideLocalVrModel )
+		{
+			CG_AddRefEntityWithPowerups( &ent, cent->currentState.powerups, cent );
+		}
 		VectorCopy( tempAngles, cent->renderAngles );
 
 		//Initialize all these to *some* valid data
@@ -7738,7 +7746,8 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 							if ( saberNum == 0 )
 							{
 								//this returns qfalse if it doesn't exist or isn't being rendered
-								if ( G_GetRootSurfNameWithVariant( cent->gent, "r_hand", handName, sizeof(handName) ) ) //!gi.G2API_GetSurfaceRenderStatus( &cent->gent->ghoul2[cent->gent->playerModel], "r_hand" ) )//surf is still on
+								if ( !hideLocalVrModel &&
+									 G_GetRootSurfNameWithVariant( cent->gent, "r_hand", handName, sizeof(handName) ) ) //!gi.G2API_GetSurfaceRenderStatus( &cent->gent->ghoul2[cent->gent->playerModel], "r_hand" ) )//surf is still on
 								{
 									CG_AddSaberBladeGo( cent, cent, NULL, CG_getPlayer1stPersonSaber(cent) ? 0 : ent.renderfx,
 														cent->gent->weaponModel[saberNum], ent.origin, tempAngles, saberNum, bladeNum );
@@ -7748,7 +7757,8 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 							else if ( saberNum == 1 )
 							{
 								//this returns qfalse if it doesn't exist or isn't being rendered
-								if ( G_GetRootSurfNameWithVariant( cent->gent, "l_hand", handName, sizeof(handName) ) ) //!gi.G2API_GetSurfaceRenderStatus( &cent->gent->ghoul2[cent->gent->playerModel], "l_hand" ) )//surf is still on
+								if ( !hideLocalVrModel &&
+									 G_GetRootSurfNameWithVariant( cent->gent, "l_hand", handName, sizeof(handName) ) ) //!gi.G2API_GetSurfaceRenderStatus( &cent->gent->ghoul2[cent->gent->playerModel], "l_hand" ) )//surf is still on
 								{
 									CG_AddSaberBladeGo( cent, cent, NULL, CG_getPlayer1stPersonSaber(cent) ? 0 : ent.renderfx,
 														cent->gent->weaponModel[saberNum], ent.origin, tempAngles, saberNum, bladeNum );
@@ -8706,6 +8716,7 @@ Ghoul2 Insert End
 	}
 
 	if (CG_getPlayer1stPersonSaber(cent) &&
+		!vr->spatial_console_visible &&
 		!vr->item_selector &&
 		!in_misccamera &&
 		!in_camera &&

@@ -1981,6 +1981,38 @@
 			} 
 		}
 
+		itemDef
+		{
+			name				energy_bloom
+			group				video2
+			type				ITEM_TYPE_MULTI
+			text				@MENUS_VR_ENERGY_BLOOM_ITEM
+			cvar				"r_vulkanBloom"
+			cvarFloatList		{ @MENUS0_OFF 0 @MENUS0_ON 1 }
+			rect				305 371 300 20
+			textalign			ITEM_ALIGN_RIGHT
+			textalignx			120
+			textaligny			-2
+			font				2
+			textscale			0.8
+			forecolor			1 1 1 1
+			visible				0
+			descText			@MENUS_VR_ENERGY_BLOOM_DESC
+
+			mouseenter
+			{
+				show			highlight11
+			}
+			mouseexit
+			{
+				hide			highlight11
+			}
+			action
+			{
+				play			"sound/interface/button1.wav"
+			}
+		}
+
 
 
 		//----------------------------------------------------------------------------------------------

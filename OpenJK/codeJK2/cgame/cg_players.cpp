@@ -4821,6 +4821,7 @@ Ghoul2 Insert End
 	}
 
 	if (CG_getPlayer1stPersonSaber(cent) &&
+			!vr->spatial_console_visible &&
 			cent->gent->client->ps.saberLockEnemy != ENTITYNUM_NONE)
 	{
 		cgi_HapticEvent("shotgun_fire", 0, 0, 100, 0, 0);
@@ -5280,7 +5281,14 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 		}
 
 		// We want to be able to do cool full-body type effects
-		CG_AddRefEntityWithPowerups( &ent, cent->currentState.powerups, cent );
+		const bool hideLocalVrModel =
+			vr->spatial_console_visible &&
+			cent->currentState.number == cg.snap->ps.clientNum &&
+			!cg.renderingThirdPerson;
+		if ( !hideLocalVrModel )
+		{
+			CG_AddRefEntityWithPowerups( &ent, cent->currentState.powerups, cent );
+		}
 
 		if ( cg_debugBB.integer)
 		{
@@ -5434,7 +5442,8 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 //						CGhoul2Info *nextModel = &cent->gent->ghoul2[1];
 					//FIXME: need a version of this that *doesn't* need the mFileName in the ghoul2
 					//FIXME: use an actual surfaceIndex?
-					if ( !gi.G2API_GetSurfaceRenderStatus( &cent->gent->ghoul2[cent->gent->playerModel], "r_hand" ) )//surf is still on
+					if ( !hideLocalVrModel &&
+						 !gi.G2API_GetSurfaceRenderStatus( &cent->gent->ghoul2[cent->gent->playerModel], "r_hand" ) )//surf is still on
 					{
 						CG_AddSaberBlade( cent, cent, NULL, CG_getPlayer1stPersonSaber(cent) ? 0 : ent.renderfx, cent->gent->weaponModel, ent.origin, tempAngles);
 					}//else, the limb will draw the blade itself
@@ -6161,7 +6170,8 @@ Ghoul2 Insert End
 
 	}
 
-	if (CG_getPlayer1stPersonSaber(cent) && !cent->currentState.saberInFlight && !vr->item_selector &&
+	if (CG_getPlayer1stPersonSaber(cent) && !vr->spatial_console_visible &&
+			!cent->currentState.saberInFlight && !vr->item_selector &&
 			cent->gent->client->ps.saberLockEnemy == ENTITYNUM_NONE)
 	{
 		refEntity_t hiltEnt;

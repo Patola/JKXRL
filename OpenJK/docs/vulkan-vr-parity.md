@@ -289,6 +289,23 @@ changes during the effect. `r_vulkanModelDynamicLightAudit 1` logs each bounded
 model receiver once per level, and `r_vulkanTiming 1` reports the resulting
 `model-dlight-draws` separately.
 
+The optional `r_vulkanBloom 1` path keeps authored emissive geometry separate
+from receiver lighting. It renders depth-tested saber, beam, flare, and other
+recognized glow sources into a full-resolution per-eye target, then builds
+half-, quarter-, and eighth-resolution separable blur bands. The tight band
+retains the full single-scale contribution while progressively softer medium
+and broad bands add lower-intensity energy; normalizing their weights would
+incorrectly attenuate a source that each downsample has already spread. They
+are screen-composited after world lighting and shadows but before HUD, scope,
+and Force Speed processing. This preserves sharp authored cores and
+solid-geometry occlusion while adding a multi-scale aura;
+`r_vulkanBloomIntensity` controls its strength and `r_vulkanBloomRadius` its
+spread. `Energy Bloom` exposes the archived `r_vulkanBloom` switch in both
+games' startup and in-game More Video menus and defaults to Off for fresh
+profiles. Off skips the source, six blur, and three composite draws entirely;
+recognized authored energy effects receive an 18% geometry-radius increase to
+retain a modest halo without offscreen processing.
+
 Animated BSP lighting may author up to four independent lightmap or vertex
 color styles per surface. Vulkan retains their handles and style metadata and
 applies the current packed `SetLightStyle` RGBA value to the primary slot.
@@ -1086,20 +1103,46 @@ near its lower center.
 
 While an active world is present, opening the console must not promote the
 composed eye image to a mono OpenXR quad. Vulkan retains the ordinary stereo
-projection and tags only the console's rectangles. Those rectangles are scaled
-about the optical center to 56% width and 35% height, with reduced binocular
-disparity placing the panel at a calibrated apparent distance of about four
-metres. Its calibrated downward center offset is retained as its dimensions are
-tuned. The world therefore remains fully stereoscopic behind the head-locked console.
-Menus and cinematic screen layers retain their captured world-locked behavior.
+projection and tags only the console's rectangles. The renderer captures a
+yaw-only, level OpenXR pose when the console opens and places its centre six
+metres ahead at the captured eye height. The pose is fixed until close; head
+translation and rotation therefore reveal a world-locked terminal rather than
+dragging a head-locked layer. The accepted panel angular size remains 56% of the
+combined horizontal FOV by 35% of the combined vertical FOV, with the virtual
+keyboard extending beneath it. Menus and cinematic screen layers retain their
+existing captured world-locked behaviour.
 
-Acceptance requires readable, fused text and cursor rendering; an input line
-that remains in view for long commands; working history, completion, and
-scrollback; stable head-locked placement; and an artifact-free return to the
-world when the console closes.
+Both controller aim poses are intersected with the same spatial plane in the
+tracking reference space. Their triggers activate keyboard keys, and all
+gameplay input is suppressed while any console phase is visible. Printable
+keys enter the normal event queue as `SE_CHAR`; Enter, Escape, Tab, arrows,
+Backspace, Delete, Insert, Home, End, Page Up, and Page Down enter as paired
+`SE_KEY` events. This keeps console editing independent of platform keyboard
+layout and pointer size on both x86-64 and ARM64. Shift is one-shot, Caps Lock
+is persistent, and editing/navigation keys implement delayed repeat.
 
-Headset acceptance confirmed the 56% by 35% panel is comfortable and usable,
-preserves stereo world rendering behind it, and should remain at this size.
+By default, holding Y for 600 ms toggles the console while a shorter press
+retains the datapad action. Reaching the threshold consumes the short action.
+The Comfort settings and archived cvars expose the policy:
+
+- `vr_console_button`: `0` for Y, `1` for B, or `2` for the handedness-aware
+  datapad button.
+- `vr_console_hold_ms`: hold threshold, clamped to 300-1200 ms.
+- `vr_console_animation`: `1` for the holographic transition or `0` for an
+  immediate terminal.
+
+The 180 ms opening transition flashes a thin cyan line at the final pose,
+expands the panel in place, fades text during the latter half, and unfolds the
+keyboard rows downward. Closing reverses over 120 ms. Only scale and opacity
+change: depth, position, and orientation never move or overshoot. A local sound
+and short haptic pulse confirm each transition; key presses have a lighter
+pulse.
+
+Acceptance requires readable, fused 120-by-40 text and cursor rendering; a
+fixed, level world-space pose; correct two-controller pointing; a complete
+keyboard with history, completion, editing, navigation, and repeat; no input
+leaking into gameplay; preserved short-press datapad behaviour; and an
+artifact-free return to the world when the console closes.
 
 Live immersive cinematics retain the scripted camera pose while allowing the
 ordinary turn stick to add yaw. The compositor snapshots `snapTurn` at
@@ -1158,10 +1201,8 @@ copying is insufficient for local builds and package replacements.
   needed. A recognized gesture that cannot run because energy is insufficient
   should produce an
   audible rejection cue and controller haptic instead of failing silently.
-- Replace the default-off single-scale Vulkan glow prototype with a profiled
-  multi-scale bloom pyramid for sabers and authored glow effects. The prototype
-  is retained only as implementation scaffolding and is not part of the
-  accepted visual baseline.
+- Complete headset menu, fallback-halo, and timing acceptance for the optional
+  multi-scale Vulkan bloom pyramid before freezing its visual baseline.
 - Deliberately improve beyond original/Quest behavior by extending and tuning
   `surfaceSprites` vegetation draw/fade distance after profiling its CPU,
   geometry, and fill-rate cost. Preserve world anchoring, stereo stability,
