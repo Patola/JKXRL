@@ -13,6 +13,7 @@ published by the Free Software Foundation.
 #include "tr_local.h"
 #include "vk_backend.h"
 #include "vk_ghoul2.h"
+#include "vk_surface_sprites.h"
 #include "../qcommon/matcomp.h"
 
 #define XR_USE_GRAPHICS_API_VULKAN
@@ -79,7 +80,11 @@ enum vk_alpha_test_t
 	VK_ALPHA_TEST_LESS_HALF,
 	VK_ALPHA_TEST_GREATER_EQUAL_HALF,
 	VK_ALPHA_TEST_GREATER_EQUAL_THREE_QUARTER,
+	VK_ALPHA_TEST_VEGETATION_HALF,
+	VK_ALPHA_TEST_VEGETATION_THREE_QUARTER,
 };
+static_assert( VK_ALPHA_TEST_VEGETATION_HALF == 5 &&
+	VK_ALPHA_TEST_VEGETATION_THREE_QUARTER == 6, "Keep world.frag coverage modes in sync" );
 
 enum vk_depth_func_t
 {
@@ -1126,6 +1131,8 @@ struct vk_backend_state_t
 	cvar_t *bloomCvar;
 	cvar_t *bloomIntensityCvar;
 	cvar_t *bloomRadiusCvar;
+	cvar_t *vegetationDistanceCvar;
+	cvar_t *vegetationCoverageCvar;
 	cvar_t *waterEffectIntensityCvar;
 	cvar_t *yavinRiverOpacityCvar;
 	cvar_t *yavinRiverExtinctionCvar;
@@ -1191,6 +1198,12 @@ struct vk_backend_state_t
 	double timingBspTotalMs;
 	double timingWorldLightTotalMs;
 	double timingSpriteTotalMs;
+	double timingVegetationStreamTotalMs;
+	uint64_t timingVegetationCandidates;
+	uint64_t timingVegetationEmitted;
+	uint64_t timingVegetationCacheHits;
+	uint64_t timingVegetationDraws;
+	uint64_t timingVegetationDrawnSprites;
 	double timingModelTotalMs;
 	double timingModelCullTotalMs;
 	double timingModelBoneTotalMs;
@@ -1621,6 +1634,8 @@ static void VK_Backend_Clear()
 	vk.glowIntensityCvar = nullptr;
 	vk.glowRadiusCvar = nullptr;
 	vk.bloomCvar = nullptr;
+	vk.vegetationDistanceCvar = nullptr;
+	vk.vegetationCoverageCvar = nullptr;
 	vk.bloomIntensityCvar = nullptr;
 	vk.bloomRadiusCvar = nullptr;
 	vk.waterEffectIntensityCvar = nullptr;
@@ -1684,6 +1699,12 @@ static void VK_Backend_Clear()
 	vk.timingBspTotalMs = 0.0;
 	vk.timingWorldLightTotalMs = 0.0;
 	vk.timingSpriteTotalMs = 0.0;
+	vk.timingVegetationStreamTotalMs = 0.0;
+	vk.timingVegetationCandidates = 0;
+	vk.timingVegetationEmitted = 0;
+	vk.timingVegetationCacheHits = 0;
+	vk.timingVegetationDraws = 0;
+	vk.timingVegetationDrawnSprites = 0;
 	vk.timingModelTotalMs = 0.0;
 	vk.timingModelCullTotalMs = 0.0;
 	vk.timingModelBoneTotalMs = 0.0;
@@ -13504,21 +13525,36 @@ static void VK_WriteSurfaceSpriteVertex(
 	vertex->uv[1] = v;
 }
 
+static bool VK_IsVegetation( const vk_surface_sprite_config_t &config )
+{
+	return config.type == VK_SURFACE_SPRITE_VERTICAL ||
+		config.type == VK_SURFACE_SPRITE_FLATTENED;
+}
+
 static bool VK_StreamSurfaceSpriteBatch(
 	const vk_surface_sprite_batch_t &batch,
 	VkDeviceSize *vertexOffset,
 	uint32_t *vertexCount )
 {
+	const vk_surface_sprite_config_t &config = batch.stage.surfaceSprite;
+	const bool vegetation = VK_IsVegetation( config );
+	const bool timing = vegetation && VK_TimingEnabled();
 	for ( const vk_surface_sprite_stream_cache_t &cached : vk.surfaceSpriteStreamCache )
 	{
 		if ( cached.batch == &batch )
 		{
+			if ( timing )
+			{
+				++vk.timingVegetationCacheHits;
+			}
 			*vertexOffset = cached.vertexOffset;
 			*vertexCount = cached.vertexCount;
 			return true;
 		}
 	}
 
+	const auto streamBegin = timing ? std::chrono::steady_clock::now()
+		: std::chrono::steady_clock::time_point{};
 	const VkDeviceSize alignment = 16;
 	const VkDeviceSize offset =
 		( vk.skinnedVertexOffset + alignment - 1 ) & ~( alignment - 1 );
@@ -13532,13 +13568,19 @@ static bool VK_StreamSurfaceSpriteBatch(
 		vk.skinnedVertexMapped + offset );
 	size_t writtenVertices = 0;
 
-	const vk_surface_sprite_config_t &config = batch.stage.surfaceSprite;
-	const float fadeMax = config.fadeMax > config.fadeDist
+	const float distanceScale = vegetation && vk.vegetationDistanceCvar != nullptr
+		? VK_VegetationDistanceScale( vk.vegetationDistanceCvar->value ) : 1.0f;
+	const float fadeStart = config.fadeDist * distanceScale;
+	const float fadeMax = ( config.fadeMax > config.fadeDist
 		? config.fadeMax
-		: config.fadeDist * 1.33f;
-	const float fadeRange = std::max( 1.0f, fadeMax - config.fadeDist );
+		: config.fadeDist * 1.33f ) * distanceScale;
+	const float fadeRange = std::max( 1.0f, fadeMax - fadeStart );
 	const float seconds = static_cast<float>( vk.worldRefdef.time ) * 0.001f;
 	const float orientationAngles[4] = { 10.0f, -30.0f, 30.0f, 0.0f };
+	if ( timing )
+	{
+		vk.timingVegetationCandidates += batch.instances.size();
+	}
 
 	for ( const vk_surface_sprite_instance_t &instance : batch.instances )
 	{
@@ -13549,16 +13591,23 @@ static bool VK_StreamSurfaceSpriteBatch(
 		{
 			continue;
 		}
-		float alpha = distance <= config.fadeDist
-			? 1.0f
-			: ( fadeMax - distance ) / fadeRange;
-		const float randomFadeStart = 0.55f + 0.45f *
-			( 0.5f + 0.5f * std::sin( instance.phase * 7.0f ) );
-		if ( alpha < randomFadeStart )
+		float alpha;
+		if ( vegetation )
 		{
-			alpha /= randomFadeStart;
+			alpha = VK_VegetationCoverage( distance, fadeStart, fadeMax, instance.phase );
 		}
-		alpha = std::max( 0.0f, std::min( 1.0f, alpha ) );
+		else
+		{
+			// Preserve authored effect/weather fading independently of plant visibility.
+			alpha = distance <= fadeStart ? 1.0f : ( fadeMax - distance ) / fadeRange;
+			const float randomFadeStart = 0.55f + 0.45f *
+				( 0.5f + 0.5f * std::sin( instance.phase * 7.0f ) );
+			if ( alpha < randomFadeStart )
+			{
+				alpha /= randomFadeStart;
+			}
+			alpha = std::clamp( alpha, 0.0f, 1.0f );
+		}
 		if ( alpha <= 0.0f )
 		{
 			continue;
@@ -13717,6 +13766,12 @@ static bool VK_StreamSurfaceSpriteBatch(
 		offset,
 		static_cast<uint32_t>( writtenVertices ),
 	} );
+	if ( timing )
+	{
+		vk.timingVegetationEmitted += writtenVertices / 6;
+		vk.timingVegetationStreamTotalMs += std::chrono::duration<double, std::milli>(
+			std::chrono::steady_clock::now() - streamBegin ).count();
+	}
 	return true;
 }
 
@@ -13769,12 +13824,31 @@ static void VK_RecordWorldSurfaceSprites(
 		{
 			continue;
 		}
-		VK_PushWorldStage( &batch.stage, false );
+		// Only generated plant draws get coverage fading. Never change the shared material.
+		vk_material_stage_t spriteStage = batch.stage;
+		if ( VK_IsVegetation( spriteStage.surfaceSprite ) &&
+			vk.vegetationCoverageCvar != nullptr && vk.vegetationCoverageCvar->integer != 0 )
+		{
+			if ( spriteStage.alphaTest == VK_ALPHA_TEST_GREATER_EQUAL_HALF )
+			{
+				spriteStage.alphaTest = VK_ALPHA_TEST_VEGETATION_HALF;
+			}
+			else if ( spriteStage.alphaTest == VK_ALPHA_TEST_GREATER_EQUAL_THREE_QUARTER )
+			{
+				spriteStage.alphaTest = VK_ALPHA_TEST_VEGETATION_THREE_QUARTER;
+			}
+		}
+		VK_PushWorldStage( &spriteStage, false );
 		vkCmdBindVertexBuffers(
 			vk.commandBuffer, 0, 1, &vk.skinnedVertexBuffer, &vertexOffset );
 		vkCmdDraw( vk.commandBuffer, vertexCount, 1, 0, 0 );
 		++batchesDrawn;
 		const uint32_t batchSprites = vertexCount / 6;
+		if ( VK_IsVegetation( batch.stage.surfaceSprite ) && VK_TimingEnabled() )
+		{
+			++vk.timingVegetationDraws;
+			vk.timingVegetationDrawnSprites += batchSprites;
+		}
 		spritesDrawn += batchSprites;
 		const size_t typeIndex = static_cast<size_t>( batch.stage.surfaceSprite.type );
 		if ( typeIndex < ARRAY_LEN( spritesDrawnByType ) )
@@ -16678,6 +16752,12 @@ static double VK_TimingMilliseconds(
 
 static void VK_ResetTimingSamples()
 {
+	vk.timingVegetationStreamTotalMs = 0.0;
+	vk.timingVegetationCandidates = 0;
+	vk.timingVegetationEmitted = 0;
+	vk.timingVegetationCacheHits = 0;
+	vk.timingVegetationDraws = 0;
+	vk.timingVegetationDrawnSprites = 0;
 	vk.timingSamples = 0;
 	vk.timingGpuSamples = 0;
 	vk.timingRecordTotalMs = 0.0;
@@ -16831,6 +16911,20 @@ static void VK_RecordTimingSample(
 	const double classifiedModelMs =
 		vk.timingModelCullTotalMs + vk.timingModelBoneTotalMs +
 		vk.timingModelSkinTotalMs + vk.timingModelSubmitTotalMs;
+	ri.Printf( PRINT_ALL,
+		"rd-vulkan-vegetation: scale=%.2f coverage=%d candidates=%.1f generated=%.1f "
+		"upload=%.1fKiB stream=%.3fms cache-hits=%.1f stereo-draws=%.1f "
+		"stereo-sprites=%.1f (per-frame averages, including portal views)\n",
+		vk.vegetationDistanceCvar != nullptr
+			? VK_VegetationDistanceScale( vk.vegetationDistanceCvar->value ) : 1.0f,
+		vk.vegetationCoverageCvar != nullptr ? vk.vegetationCoverageCvar->integer : 0,
+		static_cast<double>( vk.timingVegetationCandidates ) * sampleScale,
+		static_cast<double>( vk.timingVegetationEmitted ) * sampleScale,
+		static_cast<double>( vk.timingVegetationEmitted ) * 6.0 * sizeof( vk_world_vertex_t ) * sampleScale / 1024.0,
+		vk.timingVegetationStreamTotalMs * sampleScale,
+		static_cast<double>( vk.timingVegetationCacheHits ) * sampleScale,
+		static_cast<double>( vk.timingVegetationDraws ) * sampleScale,
+		static_cast<double>( vk.timingVegetationDrawnSprites ) * sampleScale );
 	ri.Printf( PRINT_ALL,
 		"rd-vulkan-model-phases: cpu-stereo cull=%.3fms bones=%.3fms "
 		"skin=%.3fms submit=%.3fms other=%.3fms\n",
@@ -17717,6 +17811,10 @@ bool VK_Backend_Init()
 		ri.Cvar_Get( "r_vulkanBloomIntensity", "1.0", CVAR_ARCHIVE );
 	vk.bloomRadiusCvar =
 		ri.Cvar_Get( "r_vulkanBloomRadius", "3.0", CVAR_ARCHIVE );
+	vk.vegetationDistanceCvar =
+		ri.Cvar_Get( "r_vulkanVegetationDistanceScale", "3.0", CVAR_ARCHIVE );
+	vk.vegetationCoverageCvar =
+		ri.Cvar_Get( "r_vulkanVegetationCoverage", "1", CVAR_ARCHIVE );
 	vk.waterEffectIntensityCvar =
 		ri.Cvar_Get( "r_vulkanWaterEffectIntensity", "1.35", CVAR_ARCHIVE );
 	vk.yavinRiverOpacityCvar =
@@ -20634,7 +20732,8 @@ static void VK_WorldAppendSurfaceSpriteBatches(
 	uint32_t indexCount,
 	qhandle_t shader,
 	uint32_t surfaceFlags,
-	uint32_t surfaceIndex )
+	uint32_t surfaceIndex,
+	const float *planarNormal )
 {
 	if ( shader <= 0 || static_cast<size_t>( shader ) >= vk.materials.size() )
 	{
@@ -20679,6 +20778,8 @@ static void VK_WorldAppendSurfaceSpriteBatches(
 		batch.stage.vertexColor = true;
 		batch.surfaceFlags = surfaceFlags;
 		batch.surfaceIndex = surfaceIndex;
+		const uint32_t rejectedBefore = stats->facingRejectedTriangles;
+		const float *placementNormal = VK_IsVegetation( config ) ? planarNormal : nullptr;
 		constexpr size_t maxInstancesPerSurface = 100000;
 		const size_t endIndex = std::min<size_t>(
 			indices.size(), static_cast<size_t>( firstIndex ) + indexCount );
@@ -20699,6 +20800,11 @@ static void VK_WorldAppendSurfaceSpriteBatches(
 			const vk_world_vertex_t &v0 = vertices[i0];
 			const vk_world_vertex_t &v1 = vertices[i1];
 			const vk_world_vertex_t &v2 = vertices[i2];
+			// RB_SurfaceFace supplies its plane normal to surfaceSprites, not the
+			// smoothed BSP vertex normals. Keep this local to plant placement.
+			const float *normal0 = placementNormal != nullptr ? placementNormal : v0.normal;
+			const float *normal1 = placementNormal != nullptr ? placementNormal : v1.normal;
+			const float *normal2 = placementNormal != nullptr ? placementNormal : v2.normal;
 			vec3_t edge0;
 			vec3_t edge1;
 			vec3_t faceNormal;
@@ -20716,18 +20822,18 @@ static void VK_WorldAppendSurfaceSpriteBatches(
 				   config.type == VK_SURFACE_SPRITE_EFFECT ) &&
 				 config.facing != VK_SURFACE_SPRITE_FACING_NORMAL )
 			{
-				facingAccepted = v0.normal[2] >= 0.99f &&
-					v1.normal[2] >= 0.99f && v2.normal[2] >= 0.99f;
+				facingAccepted = normal0[2] >= 0.99f &&
+					normal1[2] >= 0.99f && normal2[2] >= 0.99f;
 			}
 			else if ( config.facing == VK_SURFACE_SPRITE_FACING_DOWN )
 			{
-				facingAccepted = v0.normal[2] <= -0.5f &&
-					v1.normal[2] <= -0.5f && v2.normal[2] <= -0.5f;
+				facingAccepted = normal0[2] <= -0.5f &&
+					normal1[2] <= -0.5f && normal2[2] <= -0.5f;
 			}
 			else if ( config.facing != VK_SURFACE_SPRITE_FACING_ANY )
 			{
-				facingAccepted = v0.normal[2] >= 0.5f &&
-					v1.normal[2] >= 0.5f && v2.normal[2] >= 0.5f;
+				facingAccepted = normal0[2] >= 0.5f &&
+					normal1[2] >= 0.5f && normal2[2] >= 0.5f;
 			}
 			if ( !facingAccepted )
 			{
@@ -20774,9 +20880,9 @@ static void VK_WorldAppendSurfaceSpriteBatches(
 							v1.position[component] * weight1 +
 							v2.position[component] * weight2;
 						instance.normal[component] =
-							v0.normal[component] * weight0 +
-							v1.normal[component] * weight1 +
-							v2.normal[component] * weight2;
+							normal0[component] * weight0 +
+							normal1[component] * weight1 +
+							normal2[component] * weight2;
 					}
 					if ( VectorNormalize( instance.normal ) <= 0.0f )
 					{
@@ -20809,6 +20915,13 @@ static void VK_WorldAppendSurfaceSpriteBatches(
 			}
 		}
 
+		if ( VK_TimingEnabled() )
+		{
+			ri.Printf( PRINT_ALL,
+				"rd-vulkan-vegetation-build: surface=%u normal=%s anchors=%zu slope-rejected=%u\n",
+				surfaceIndex, placementNormal != nullptr ? "plane" : "vertex",
+				batch.instances.size(), stats->facingRejectedTriangles - rejectedBefore );
+		}
 		if ( !batch.instances.empty() )
 		{
 			spriteBatches->push_back( std::move( batch ) );
@@ -21539,6 +21652,19 @@ void VK_Backend_LoadWorld( const char *name )
 				surfaceFlags,
 				vertexLit,
 				static_cast<uint32_t>( i ) );
+			vec3_t spritePlaneNormal;
+			const float *spriteNormalOverride = nullptr;
+			if ( LittleLong( surface.surfaceType ) == MST_PLANAR )
+			{
+				for ( int axis = 0; axis < 3; ++axis )
+				{
+					spritePlaneNormal[axis] = LittleFloat( surface.lightmapVecs[2][axis] );
+				}
+				if ( VectorNormalize( spritePlaneNormal ) > 0.0f )
+				{
+					spriteNormalOverride = spritePlaneNormal;
+				}
+			}
 			VK_WorldAppendSurfaceSpriteBatches(
 				&surfaceSpriteBatches,
 				&surfaceSpriteBuildStats,
@@ -21548,7 +21674,8 @@ void VK_Backend_LoadWorld( const char *name )
 				static_cast<uint32_t>( indices.size() ) - firstBatchIndex,
 				shader,
 				surfaceFlags,
-				static_cast<uint32_t>( i ) );
+				static_cast<uint32_t>( i ),
+				spriteNormalOverride );
 		}
 		else
 		{

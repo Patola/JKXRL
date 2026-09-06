@@ -88,10 +88,34 @@ void main()
 	float fragmentAlpha = clamp(
 		texel.a * pc.stageColor.a * generatedColor.a * pc.alpha, 0.0, 1.0);
 	float alphaTest = pc.stageFlags.w;
+	if (alphaTest > 4.5 && alphaTest < 6.5)
+	{
+		// Plant-only distance coverage: keep the leaf cutout independent of fading.
+		float materialAlpha = clamp(texel.a * pc.stageColor.a * pc.alpha, 0.0, 1.0);
+		float cutoff = alphaTest < 5.5 ? 0.5 : 0.75;
+		if (materialAlpha < cutoff)
+		{
+			discard;
+		}
+		if (generatedColor.a < 1.0)
+		{
+			// Texture-anchored, not screen-space: both eyes and head motion see the same holes.
+			const int bayer[16] = int[16](0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5);
+			ivec2 cell = ivec2(floor(vUv * vec2(textureSize(baseTexture, 0)))) & ivec2(3);
+			float threshold = (float(bayer[cell.y * 4 + cell.x]) + 0.5) / 16.0;
+			if (generatedColor.a <= threshold)
+			{
+				discard;
+			}
+		}
+		// Discarded coverage writes neither color nor depth; surviving texels retain their alpha.
+		generatedColor.a = 1.0;
+		fragmentAlpha = materialAlpha;
+	}
 	if ((alphaTest > 0.5 && alphaTest < 1.5 && fragmentAlpha <= 0.0) ||
 		(alphaTest > 1.5 && alphaTest < 2.5 && fragmentAlpha >= 0.5) ||
 		(alphaTest > 2.5 && alphaTest < 3.5 && fragmentAlpha < 0.5) ||
-		(alphaTest > 3.5 && fragmentAlpha < 0.75))
+		(alphaTest > 3.5 && alphaTest < 4.5 && fragmentAlpha < 0.75))
 	{
 		discard;
 	}

@@ -217,6 +217,7 @@ if(BuildSPRdVulkan OR BuildJK2SPRdVulkan)
 		"${SPDir}/rd-vulkan/tr_local.h"
 		"${SPDir}/rd-vulkan/vk_backend.cpp"
 		"${SPDir}/rd-vulkan/vk_backend.h"
+		"${SPDir}/rd-vulkan/vk_surface_sprites.h"
 		"${SPDir}/rd-vulkan/vk_ghoul2.cpp"
 		"${SPDir}/rd-vulkan/vk_ghoul2.h"
 		"${SPDir}/rd-vulkan/shaders/test_pattern.vert"

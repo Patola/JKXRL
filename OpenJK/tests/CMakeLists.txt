@@ -25,6 +25,7 @@ set(TestFiles
 	"main.cpp"
 	"safe/string.cpp"
 	"safe/limited_vector.cpp"
+	"vegetation.cpp"
 	"${SharedDir}/qcommon/safe/string.cpp"
 	)
 source_group( "tests" REGULAR_EXPRESSION ".*")

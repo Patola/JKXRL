@@ -24,6 +24,38 @@ New fixes should be committed by subsystem after focused verification rather
 than accumulated into large uncommitted checkpoints. Annotated tags identify
 the headset-accepted recovery points used before broader renderer work.
 
+## Release roadmap (2026-09-06)
+
+Agreed order:
+
+1. Commit, annotate and push the accepted vegetation/credits checkpoint as
+   `vulkan-m5-vegetation-credits`. Yavin has full-level headset acceptance;
+   cross-level and JKO vegetation validation remain ongoing.
+2. Finish Vulkan-only dependency and packaging cleanup. Remove obsolete
+   OpenGL/GL ES and SDL2 implementation/build dependencies, while retaining
+   historical attribution and migration records where appropriate. Verify
+   clean builds, runtime dependency inspection, package installation and both
+   terminal/Steam launchers, including module/asset synchronization.
+3. Perform additional measured x86-64 optimization rounds before release.
+   Use reproducible CPU/GPU timings for crowded cinematics, demanding levels,
+   dense vegetation, shadows and optional bloom. Preserve accepted visual and
+   input behavior; create checkpoints between independently verified changes.
+4. Merge the development branch into `main` after those gates, provisionally
+   tag the release `v0.6`, and publish PC packages for wider testing. Include
+   installation/upgrade instructions, runtime requirements, checksums, known
+   issues and the scope of testing. Do not claim full campaign validation
+   before it has occurred. Do not bundle proprietary game data.
+5. Continue the user's JKA/JKO campaign playthroughs and accept external code
+   contributions and bug reports. Publish subsequent fixes as `v0.6.1`,
+   `v0.6.2`, and later patch releases.
+6. ARM64 comes after the PC release and broad optimization, tentatively in
+   `v0.7` or `v0.8`, when hardware and validation are available. Follow the port
+   with ARM64-specific optimization; neither version number is a commitment.
+
+The `main` merge and public release are later actions, not part of creating
+the vegetation checkpoint. Full physical ragdolls and other optional future
+features need not block the PC release unless testing exposes a release blocker.
+
 ## Renderer shader-stage contract
 
 The authoritative behavior is the parsed Raven shader, executed in authored
@@ -1193,6 +1225,135 @@ state changes; otherwise OpenJK can silently load an older module left in the
 game directory and produce an executable/module ABI mismatch. Timestamp-only
 copying is insufficient for local builds and package replacements.
 
+## Vegetation visibility trial (2026-09-06)
+
+Status: accepted in the user's full Yavin traversal, including the corrected
+plant placement near later howlers. Distance/fade, stereo, wind, water,
+characters, shadows and exit credits passed. Other levels and JKO vegetation
+remain on the cross-level validation list. This deliberately improves beyond
+the original Quest behavior.
+
+- Yavin's generated plants are `surfaceSprites`, usually a single two-triangle
+  quad, not GLM models with lower-detail meshes. The recorded Yavin build had
+  1,855 generated anchors across the map before the planar-placement fix,
+  and 2,031 after it. Distance scaling does not generate additional anchors;
+  the placement correction restores plants on two previously rejected surfaces
+  at the authored density.
+- Authored fade distances are short. In addition, multiplying distance alpha
+  into a GE192 material alpha test discards the plant before its fade reaches
+  zero. Conditional division at the randomized fade boundary also introduced
+  a discontinuity. Plant coverage now falls monotonically with smooth endpoints.
+- `r_vulkanVegetationDistanceScale` defaults to 3, bounded to 1..4. It extends
+  both authored fade distances for vertical/flattened plants only. Effects,
+  snow, other oriented sprites, water and model LOD are unchanged.
+- `r_vulkanVegetationCoverage` defaults to 1. Generated plant draws with GE128
+  or GE192 cutouts preserve their texture mask independently of distance fade.
+  A texture-anchored ordered coverage pattern discards both color and depth
+  in the fading area. It does not use per-eye screen coordinates or temporal
+  noise. Shared material definitions and ordinary world/model alpha tests are
+  untouched. Set 0 to compare the old combined-alpha cutoff, independently of
+  the distance setting; this does not restore the old discontinuous fade math.
+- CPU geometry generation/upload is cached once per batch per frame and reused
+  by both eyes. Each eye still needs a draw, and visible portal views can add
+  draws. This is not repeated generation of every plant for every eye.
+- With `r_vulkanTiming 1`, `rd-vulkan-vegetation` reports average candidates,
+  generated plants, uploaded KiB, CPU streaming time, cache hits and stereo draw
+  counts. PVS rejection, the existing vertex-stream limit and authored density
+  remain in place. Extending distance can increase fill cost: no claim of a
+  free performance improvement is made before the headset comparison.
+
+Acceptance run: use the same Yavin starting-hill viewpoint for 30 seconds at
+distance scale 1 and 30 seconds at 3, leaving coverage 1 and bloom 0 throughout.
+Then approach/retreat slowly at scale 3 and check visible range, fade, distant
+shimmer, stereo agreement and wind. Check river, temple pool, actors and shadows
+for regressions. Compare GPU-stereo and CPU recording times as well as the new
+plant counts; do not compare only FPS or different camera paths. If plant fill
+cost proves material, evaluate instancing/spatial batching and distant density
+LOD using these measurements, without restoring the original short pop-in.
+
+### First headset results and placement correction
+
+`/tmp/jka-vegetation.log` confirms that trying distance scale 2 between 1 and 3
+is valid. Stable starting-view blocks gave approximately:
+
+| Distance scale | Generated plants/frame | CPU plant stream | Stereo GPU, whole scene |
+| --- | ---: | ---: | ---: |
+| 1 | 228 | 0.025 ms | 2.53 ms |
+| 2 | 356 | 0.038 ms | 2.63 ms |
+| 3 | 722 | 0.076 ms | 2.85 ms |
+
+These use repeated, stable generated counts and exclude mixed distance-change
+blocks. GPU timings include the whole scene and changing character activity;
+they are not isolated plant GPU timings. No sprite-stream exhaustion was
+reported. All 23 authored sprite stages loaded, with no unsupported stages or
+unavailable textures. The user reported no noticeable pop-in/out at scale 3,
+and confirmed the credits. Keep 3 as the default.
+
+The reported sparse area near the later howlers has a concrete placement issue:
+in `yavin1b.bsp`, planar surface 807 (near howler4) is horizontal, with plane
+normal `(0,0,1)`, but its smoothed vertex normals lean toward the surrounding
+cliffs. Testing those vertex normals against the 0.5 upward-slope threshold
+rejects all four planting triangles. Surface 819 near howler5 similarly loses
+one planting triangle. Legacy `RB_SurfaceFace` supplies the BSP face plane
+normal to `surfaceSprites`; it does not use those smoothed vertex normals.
+
+The follow-up supplies the plane normal only to vertical/flattened plant
+generation on planar surfaces. No shared vertex data, surface winding,
+lighting, material, depth, water, weather/effect sprites or triangle-soup/patch
+placement rules change. A read-only audit of the shipped map finds exactly two
+changed surfaces (807: 0 to 4 eligible triangles; 819: 0 to 1). Total eligible
+triangles rise from 69 to 74, with none removed. This is a source-backed fix,
+but does not prove it covers every location the user remembers as vegetated.
+With timing enabled, new `rd-vulkan-vegetation-build` lines report per-surface
+normal source, anchor count and rejected slopes, including empty batches.
+
+Follow-up test: use scale 3, revisit the two later howler corners, check ground
+plants and nearby slopes, then verify the original starting hill and water
+remain correct. No need to repeat the 1/2/3 comparison. Restart/reload the map
+to regenerate its anchors; capture the build diagnostics in the launch log.
+
+Accepted follow-up: `/tmp/jka-vegetation-placement.log` records 132 anchors on
+surface 807 and 44 on surface 819, both using plane normals with zero rejected
+slopes. Total anchors are 2,031; all 23 sprite stages are supported, with zero
+invalid stages or unavailable textures and no stream-exhaustion reports. The
+user traversed the entire Yavin level and reports that vegetation is fixed.
+The run ends with normal shutdown. Existing main-menu parsing warnings and
+missing `tutorial_video_7/8` messages remain unrelated outstanding diagnostics.
+Do not treat this as proof of full campaign coverage: test both campaigns before
+closing the cross-level acceptance item. No further visual tuning is requested.
+
+The pure fade tests run with the existing Boost suite (`BuildTests=ON`, then
+`ctest --test-dir OpenJK/build-linux --output-on-failure`). They cover bounded
+settings, non-finite inputs, fade endpoints, monotonicity/continuity across
+random phases, and equivalent scaled distances. Both JKA/JKO renderer targets
+and Vulkan 1.3 shaders must also compile. These checks do not replace visual
+inspection of the coverage pattern in a headset.
+
+The exit credits are rendered menu text (`ui/credits.menu`), not a movie.
+Both game asset packs now credit Patola for the Linux port, OpenGL-to-Vulkan +
+SDL3 port, and additional features via ChatGPT Codex. Existing contributor
+lines are retained. Only that menu differs from the installed asset archives.
+
+Worktree recovery: the previous `/tmp/jkxrl-yavin-parity` checkout disappeared.
+Work continues from pushed `2637cfb` in
+`/home/patola/workspace/codex/JKXRL-active` on `codex/vulkan-portal-parity`.
+The older, dirty `JKXRL` checkout was left untouched. Renderer-only builds use
+system OpenXR headers (`-DCMAKE_CXX_FLAGS=-I/usr/include/openxr`) because the
+previous ignored include directory was not part of the checkpoint. Executable
+and game modules are not replaced by this renderer/asset-only deployment.
+
+### Optional bloom measurement
+
+The completed `/tmp/jka-m5-bloom-off.log` contains 30 full timing blocks; the
+21 blocks with active lights/models average CPU record 8.222 ms and stereo GPU
+2.623 ms (block GPU averages 2.464..2.708 ms). There are no glow timing reports.
+Two pre-existing `ui/main.menu` parsing warnings remain. The earlier bloom-on
+summary recorded roughly 1.029 ms in the glow GPU timing bracket. That bracket
+also includes HUD work, and the on/off camera paths differ, so this is not a
+strict isolated bloom-cost subtraction. Keep bloom optional and off by default.
+The previous uncommitted extra bloom recording/draw counters were not in the
+recovered checkpoint; the renderer retains its committed GPU glow timings.
+
 ## Deferred work
 
 - Full physical ragdolls.
@@ -1203,11 +1364,11 @@ copying is insufficient for local builds and package replacements.
   audible rejection cue and controller haptic instead of failing silently.
 - Complete headset menu, fallback-halo, and timing acceptance for the optional
   multi-scale Vulkan bloom pyramid before freezing its visual baseline.
-- Deliberately improve beyond original/Quest behavior by extending and tuning
-  `surfaceSprites` vegetation draw/fade distance after profiling its CPU,
-  geometry, and fill-rate cost. Preserve world anchoring, stereo stability,
-  wind animation, and authored density while replacing Yavin's conspicuous
-  few-metre pop-in with a substantially longer, gradual transition.
+- Validate the accepted Yavin vegetation improvements across other JKA/JKO
+  levels during full campaign playthroughs. Keep the longer draw distance,
+  gradual fade, stereo stability, wind and restored planar placement; do not
+  revert to the original Quest pop-in behavior. Profile unusually dense areas
+  before considering further density/instancing optimizations.
 - Evaluate AI-upscaled cinematics while preserving optional compatibility with
   original game assets and licensing constraints.
 - Broad x86-64 optimization before the eventual ARM64 port; ARM64-specific work
