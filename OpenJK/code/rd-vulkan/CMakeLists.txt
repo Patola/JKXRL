@@ -25,6 +25,7 @@ if(BuildSPRdVulkan OR BuildJK2SPRdVulkan)
 		"${CMAKE_CURRENT_BINARY_DIR}/textured_rect.frag.inc"
 		"${CMAKE_CURRENT_BINARY_DIR}/force_speed_motion_blur.vert.inc"
 		"${CMAKE_CURRENT_BINARY_DIR}/force_speed_motion_blur.frag.inc"
+		"${CMAKE_CURRENT_BINARY_DIR}/quest_color.frag.inc"
 		"${CMAKE_CURRENT_BINARY_DIR}/glow_blur.frag.inc"
 		"${CMAKE_CURRENT_BINARY_DIR}/glow_composite.frag.inc"
 		"${CMAKE_CURRENT_BINARY_DIR}/diagnostic3d.vert.inc"
@@ -105,6 +106,15 @@ if(BuildSPRdVulkan OR BuildJK2SPRdVulkan)
 		VERBATIM)
 
 	add_custom_command(
+		OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/quest_color.frag.inc"
+		COMMAND "${Vulkan_GLSLC_EXECUTABLE}" --target-env=vulkan1.3 -fshader-stage=frag -mfmt=c
+			-o "${CMAKE_CURRENT_BINARY_DIR}/quest_color.frag.inc"
+			"${SPDir}/rd-vulkan/shaders/quest_color.frag"
+		DEPENDS "${SPDir}/rd-vulkan/shaders/quest_color.frag"
+			"${SPDir}/rd-vulkan/vk_quest_color_matrix.h"
+		VERBATIM)
+
+	add_custom_command(
 		OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/glow_blur.frag.inc"
 		COMMAND "${Vulkan_GLSLC_EXECUTABLE}" --target-env=vulkan1.3 -fshader-stage=frag -mfmt=c
 			-o "${CMAKE_CURRENT_BINARY_DIR}/glow_blur.frag.inc"
@@ -141,7 +151,8 @@ if(BuildSPRdVulkan OR BuildJK2SPRdVulkan)
 		COMMAND "${Vulkan_GLSLC_EXECUTABLE}" --target-env=vulkan1.3 -fshader-stage=vert -mfmt=c
 			-o "${CMAKE_CURRENT_BINARY_DIR}/world.vert.inc"
 			"${SPDir}/rd-vulkan/shaders/world.vert"
-		DEPENDS "${SPDir}/rd-vulkan/shaders/world.vert"
+		DEPENDS "${SPDir}/rd-vulkan/shaders/world.vert" "${SPDir}/rd-vulkan/shaders/deform.glsl"
+			"${SPDir}/rd-vulkan/shaders/specular.glsl"
 		VERBATIM)
 
 	add_custom_command(
@@ -149,7 +160,7 @@ if(BuildSPRdVulkan OR BuildJK2SPRdVulkan)
 		COMMAND "${Vulkan_GLSLC_EXECUTABLE}" --target-env=vulkan1.3 -fshader-stage=frag -mfmt=c
 			-o "${CMAKE_CURRENT_BINARY_DIR}/world.frag.inc"
 			"${SPDir}/rd-vulkan/shaders/world.frag"
-		DEPENDS "${SPDir}/rd-vulkan/shaders/world.frag"
+		DEPENDS "${SPDir}/rd-vulkan/shaders/world.frag" "${SPDir}/rd-vulkan/shaders/local_fog.glsl"
 		VERBATIM)
 
 	add_custom_command(
@@ -157,7 +168,7 @@ if(BuildSPRdVulkan OR BuildJK2SPRdVulkan)
 		COMMAND "${Vulkan_GLSLC_EXECUTABLE}" --target-env=vulkan1.3 -fshader-stage=vert -mfmt=c
 			-o "${CMAKE_CURRENT_BINARY_DIR}/shadow_map.vert.inc"
 			"${SPDir}/rd-vulkan/shaders/shadow_map.vert"
-		DEPENDS "${SPDir}/rd-vulkan/shaders/shadow_map.vert"
+		DEPENDS "${SPDir}/rd-vulkan/shaders/shadow_map.vert" "${SPDir}/rd-vulkan/shaders/deform.glsl"
 		VERBATIM)
 
 	add_custom_command(
@@ -214,6 +225,7 @@ if(BuildSPRdVulkan OR BuildJK2SPRdVulkan)
 
 	set(SPRDVulkanFiles
 		"${SPDir}/rd-vulkan/tr_init.cpp"
+		"${SPDir}/rd-vulkan/vk_save_preview.cpp"
 		"${SPDir}/rd-vulkan/tr_local.h"
 		"${SPDir}/rd-vulkan/vk_backend.cpp"
 		"${SPDir}/rd-vulkan/vk_backend.h"
@@ -228,6 +240,9 @@ if(BuildSPRdVulkan OR BuildJK2SPRdVulkan)
 		"${SPDir}/rd-vulkan/shaders/textured_rect.frag"
 		"${SPDir}/rd-vulkan/shaders/force_speed_motion_blur.vert"
 		"${SPDir}/rd-vulkan/shaders/force_speed_motion_blur.frag"
+		"${SPDir}/rd-vulkan/shaders/quest_color.frag"
+		"${SPDir}/rd-vulkan/vk_quest_color.h"
+		"${SPDir}/rd-vulkan/vk_quest_color_matrix.h"
 		"${SPDir}/rd-vulkan/shaders/glow_blur.frag"
 		"${SPDir}/rd-vulkan/shaders/glow_composite.frag"
 		"${SPDir}/rd-vulkan/shaders/diagnostic3d.vert"

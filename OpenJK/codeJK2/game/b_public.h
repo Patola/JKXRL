@@ -549,13 +549,12 @@ public:
 		saved_game.read<int32_t>(controlledTime);
 		saved_game.read<int32_t>(surrenderTime);
 		saved_game.read<float>(enemyLaggedPos);
+		// Preserve the encoded entity index until F_GENTITY fixup: -1 is null,
+		// while zero is the player, not a cleared pointer.
 		saved_game.read<int32_t>(watchTarget);
 		saved_game.read<int32_t>(ffireCount);
 		saved_game.read<int32_t>(ffireDebounce);
 		saved_game.read<int32_t>(ffireFadeDebounce);
-
-		//May fix the save game crash issue?
-		watchTarget = NULL;
 	}
 }; // gNPC_t
 

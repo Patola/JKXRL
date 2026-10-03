@@ -7322,7 +7322,7 @@ void ForceLightningDamage( gentity_t *self, gentity_t *traceEnt, vec3_t dir, flo
 void ForceShootLightning( gentity_t *self )
 {
 	trace_t	tr;
-	vec3_t	end, forward;
+	vec3_t	end, forward, castOrigin, castAngles;
 	gentity_t	*traceEnt;
 
 	if ( self->health <= 0 )
@@ -7334,18 +7334,23 @@ void ForceShootLightning( gentity_t *self )
 		return;
 	}
 
-	if (self->client->ps.clientNum == 0 && !cg.renderingThirdPerson)
-	{
-		vec3_t origin, angles;
-		BG_CalculateVROffHandPosition(origin, angles);
-		AngleVectors(angles, forward, NULL, NULL);
-	}
-	else
-	{
-		AngleVectors(self->client->ps.viewangles, forward, NULL, NULL);
-	}
-
+	VectorCopy(self->client->renderInfo.handLPoint, castOrigin);
+	VectorCopy(self->client->ps.viewangles, castAngles);
+	const bool trackedLightning = BG_CalculateVRLightningPose(self, castOrigin, castAngles);
+	AngleVectors(castAngles, forward, NULL, NULL);
 	VectorNormalize( forward );
+
+	if ( trackedLightning )
+	{
+		static int lastAimLogTime = -2000;
+		if ( level.time < lastAimLogTime || level.time - lastAimLogTime >= 2000 )
+		{
+			lastAimLogTime = level.time;
+			gi.Printf("jkxr-lightning-aim: offhand origin=(%.1f %.1f %.1f) angles=(%.1f %.1f %.1f) view=(%.1f %.1f)\n",
+				castOrigin[0], castOrigin[1], castOrigin[2], castAngles[0], castAngles[1], castAngles[2],
+				self->client->ps.viewangles[0], self->client->ps.viewangles[1]);
+		}
+	}
 
 	if (self->client->ps.clientNum == 0)
 	{
@@ -7362,7 +7367,7 @@ void ForceShootLightning( gentity_t *self )
 		gentity_t	*entityList[MAX_GENTITIES];
 		int		e, numListedEntities, i;
 
-		VectorCopy( self->currentOrigin, center );
+		VectorCopy( trackedLightning ? castOrigin : self->currentOrigin, center );
 		for ( i = 0 ; i < 3 ; i++ )
 		{
 			mins[i] = center[i] - radius;
@@ -7420,13 +7425,13 @@ void ForceShootLightning( gentity_t *self )
 			}
 
 			//in PVS?
-			if ( !traceEnt->bmodel && !gi.inPVS( ent_org, self->client->renderInfo.handLPoint ) )
+			if ( !traceEnt->bmodel && !gi.inPVS( ent_org, castOrigin ) )
 			{//must be in PVS
 				continue;
 			}
 
 			//Now check and see if we can actually hit it
-			gi.trace( &tr, self->client->renderInfo.handLPoint, vec3_origin, vec3_origin, ent_org, self->s.number, MASK_SHOT, G2_NOCOLLIDE, 0 );
+			gi.trace( &tr, castOrigin, vec3_origin, vec3_origin, ent_org, self->s.number, MASK_SHOT, G2_NOCOLLIDE, 0 );
 			if ( tr.fraction < 1.0f && tr.entityNum != traceEnt->s.number )
 			{//must have clear LOS
 				continue;
@@ -7445,8 +7450,8 @@ void ForceShootLightning( gentity_t *self )
 		int traces = 0;
 		vec3_t	start;
 
-		VectorCopy( self->client->renderInfo.handLPoint, start );
-		VectorMA( self->client->renderInfo.handLPoint, 2048, forward, end );
+		VectorCopy( castOrigin, start );
+		VectorMA( castOrigin, 2048, forward, end );
 
 		while ( traces < 10 )
 		{//need to loop this in case we hit a Jedi who dodges the shot

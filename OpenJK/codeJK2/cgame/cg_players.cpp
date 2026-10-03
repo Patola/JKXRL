@@ -5700,16 +5700,10 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 
 		if ( cent->gent->client->ps.forcePowersActive&(1<<FP_LIGHTNING) )
 		{//doing the electrocuting
-			vec3_t tAng, fxDir;
-			if (cent->gent->client->ps.clientNum == 0)
-			{
-				vec3_t origin, angles;
-				BG_CalculateVROffHandPosition(origin, tAng);
-			}
-			else
-			{
-				VectorCopy( cent->lerpAngles, tAng );
-			}
+			vec3_t tAng, fxDir, fxOrigin;
+			VectorCopy( cent->lerpAngles, tAng );
+			VectorCopy( cent->gent->client->renderInfo.handLPoint, fxOrigin );
+			BG_CalculateVRLightningPose(cent->gent, fxOrigin, tAng);
 
 			/*
             if ( cent->currentState.number )
@@ -5725,12 +5719,12 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 			{//arc
 				vec3_t	fxAxis[3];
 				AnglesToAxis( tAng, fxAxis );
-				theFxScheduler.PlayEffect( cgs.effects.forceLightningWide, cent->gent->client->renderInfo.handLPoint, fxAxis );
+				theFxScheduler.PlayEffect( cgs.effects.forceLightningWide, fxOrigin, fxAxis );
 			}
 			else
 			{//line
 				AngleVectors( tAng, fxDir, NULL, NULL );
-				theFxScheduler.PlayEffect( cgs.effects.forceLightning, cent->gent->client->renderInfo.handLPoint, fxDir );
+				theFxScheduler.PlayEffect( cgs.effects.forceLightning, fxOrigin, fxDir );
 			}
 		}
 

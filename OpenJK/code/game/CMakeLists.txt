@@ -385,7 +385,7 @@ if(MakeApplicationBundles AND BuildSPEngine)
 else()
 	install(TARGETS ${SPGame}
 		LIBRARY
-		DESTINATION "${JKAInstallDir}/OpenJK"
+		DESTINATION "${JKAInstallDir}/base"
 		COMPONENT ${JKASPClientComponent})
 endif()
 

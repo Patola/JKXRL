@@ -886,6 +886,7 @@ static bool SG_ReadScreenshot(
 	bool set_as_loading_screen,
 	void* screenshot_ptr)
 {
+	if (set_as_loading_screen) SCR_SetScreenshot(nullptr, 0, 0);
 	bool is_succeed = true;
 
 	ojk::SavedGameHelper saved_game(
@@ -898,6 +899,10 @@ static bool SG_ReadScreenshot(
 	is_succeed = saved_game.try_read_chunk<uint32_t>(
 		INT_ID('S', 'H', 'L', 'N'),
 		screenshot_length);
+	// Empty previews exist in older Vulkan saves. Consume their SHOT chunk,
+	// then fall back without passing empty input to the decoder. Bound sizes
+	// before narrowing/allocation; an invalid preview must not crash the menu.
+	if (!is_succeed || screenshot_length > 4 * 1024 * 1024) return false;
 
 	//
 	// alloc enough space plus extra 4K for sloppy JPG-decode reader to not do memory access violation...
@@ -927,10 +932,10 @@ static bool SG_ReadScreenshot(
 	// decompress JPG data...
 	//
 	byte* image = NULL;
-	int width;
-	int height;
+	int width = 0;
+	int height = 0;
 
-	if (is_succeed)
+	if (is_succeed && screenshot_length)
 	{
 		::re.LoadJPGFromBuffer(
 			jpeg_data,
@@ -942,7 +947,7 @@ static bool SG_ReadScreenshot(
 		//
 		// if the loaded image is the same size as the game is expecting, then copy it to supplied arg (if present)...
 		//
-		if (width == SG_SCR_WIDTH && height == SG_SCR_HEIGHT)
+		if (image && width == SG_SCR_WIDTH && height == SG_SCR_HEIGHT)
 		{
 			if (screenshot_ptr)
 			{
@@ -964,6 +969,10 @@ static bool SG_ReadScreenshot(
 		{
 			is_succeed = false;
 		}
+	}
+	else
+	{
+		is_succeed = false;
 	}
 
 	if (jpeg_data)
@@ -1031,7 +1040,13 @@ static void SG_WriteScreenshot(qboolean qbAutosave, const char *psMapName)
 	byte *pbRawScreenShot = NULL;
 	byte *byBlank = NULL;
 
-	if( qbAutosave )
+	qboolean captureValid = qfalse;
+	if (!qbAutosave)
+	{
+		pbRawScreenShot = SCR_GetSaveScreenshot(&captureValid);
+		if (!captureValid) pbRawScreenShot = nullptr;
+	}
+	if (!pbRawScreenShot)
 	{
 		// try to read a levelshot (any valid TGA/JPG etc named the same as the map)...
 		//
@@ -1059,12 +1074,6 @@ static void SG_WriteScreenshot(qboolean qbAutosave, const char *psMapName)
 		}
 	}
 
-	if (!pbRawScreenShot)
-	{
-		pbRawScreenShot = SCR_GetScreenshot(0);
-	}
-
-
 	size_t iJPGDataSize = 0;
 	size_t bufSize = SG_SCR_WIDTH * SG_SCR_HEIGHT * 3;
 	byte *pJPGData = (byte *)Z_Malloc( static_cast<int>(bufSize), TAG_TEMP_WORKSPACE, qfalse, 4 );
@@ -1075,9 +1084,11 @@ static void SG_WriteScreenshot(qboolean qbAutosave, const char *psMapName)
 	bool flip_vertical = false;
 #endif // JK2_MODE
 
-	iJPGDataSize = re.SaveJPGToBuffer(pJPGData, bufSize, JPEG_IMAGE_QUALITY, SG_SCR_WIDTH, SG_SCR_HEIGHT, pbRawScreenShot, 0, flip_vertical );
-	if ( qbAutosave )
-		delete[] byBlank;
+	if (pbRawScreenShot)
+		iJPGDataSize = re.SaveJPGToBuffer(pJPGData, bufSize, JPEG_IMAGE_QUALITY, SG_SCR_WIDTH, SG_SCR_HEIGHT, pbRawScreenShot, 0, flip_vertical );
+	delete[] byBlank;
+	Com_Printf("save-preview: %s bytes=%zu source=%s\n", psMapName, iJPGDataSize,
+		captureValid ? "gameplay" : "levelshot fallback");
 
 	saved_game.write_chunk<uint32_t>(
 		INT_ID('S', 'H', 'L', 'N'),

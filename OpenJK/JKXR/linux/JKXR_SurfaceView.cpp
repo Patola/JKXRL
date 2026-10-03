@@ -13,8 +13,10 @@
 
 #ifdef JK2_MODE
 #include "game/weapons.h"
+#include "game/bg_public.h"
 #else
 #include "game/weapons.h"
+#include "game/bg_public.h"
 #include "game/g_vehicles.h"
 #endif
 
@@ -31,14 +33,9 @@ bool VR_UseScreenLayer()
 {
 	const bool inGameCinematic = (CL_IsRunningInGameCinematic() || CL_InGameCinematicOnStandBy());
 
-	// Pre-rendered (ROQ) video cinematics always use the screen layer on
-	// desktop. The per-eye path relies on the renderer's stereo replay
-	// (VR_ReplayStereoFrame), which only the Android rd-gles renderer
-	// implements; without it each eye draws the video independently with the
-	// VR projection override, producing swapped/pseudoscopic eyes and
-	// flattening the text crawl's perspective refdef. The quad screen layer
-	// (same path as the menu) shows them correctly. In-engine cutscenes
-	// (cin_camera) remain immersive per vr_immersive_cinematics.
+	// Videos and full-screen UI use the shared virtual screen. In-engine
+	// cutscenes remain immersive per vr_immersive_cinematics; the renderer
+	// handles the spatial console separately from this legacy UI classification.
 	vr.using_screen_layer = _UI_IsFullscreen() ||
 			(bool)((vr.cin_camera && !vr.immersive_cinematics) ||
 			vr.misc_camera ||
@@ -140,15 +137,24 @@ void VR_SetHMDPosition(float x, float y, float z )
 void VR_GetMove(float *forward, float *side, float *pos_forward, float *pos_side, float *up,
 				float *yaw, float *pitch, float *roll)
 {
-	if (vr.remote_turret || vr.emplaced_gun) {
+	const bool mountedGun = (cl.frame.ps.eFlags & EF_LOCKED_TO_WEAPON) && !vr.remote_turret;
+	if (vr.remote_turret || mountedGun) {
 		*forward = 0.0f;
 		*pos_forward = 0.0f;
 		*up = 0.0f;
 		*side = 0.0f;
 		*pos_side = 0.0f;
-		*yaw = vr.snapTurn + vr.hmdorientation_first[YAW] +
+		if (mountedGun)
+		{
+			*yaw = vr.snapTurn + vr.hmdorientation_first[YAW];
+			*pitch = mounted_aim_pitch;
+		}
+		else
+		{
+			*yaw = vr.snapTurn + vr.hmdorientation_first[YAW] +
 				vr.weaponangles[ANGLES_ADJUSTED][YAW] - vr.weaponangles_first[ANGLES_ADJUSTED][YAW];
-		*pitch = vr.weaponangles[ANGLES_ADJUSTED][PITCH];
+			*pitch = vr.weaponangles[ANGLES_ADJUSTED][PITCH];
+		}
 		*roll = 0.0f;
 	}
 	else if (vr.cgzoommode == 2 || vr.cgzoommode == 4)
@@ -182,7 +188,8 @@ void VR_GetMove(float *forward, float *side, float *pos_forward, float *pos_side
 		*up = 0.0f;
 		*side = remote_movementSideways;
 		*pos_side = 0.0f;
-		if (vr_vehicle_use_hmd_direction != nullptr && vr_vehicle_use_hmd_direction->integer)
+		if ((cl.frame.ps.eFlags & EF_IN_ATST) ||
+			(vr_vehicle_use_hmd_direction != nullptr && vr_vehicle_use_hmd_direction->integer))
 		{
 			*yaw = vr.hmdorientation[YAW] + vr.snapTurn;
 			*pitch = vr.hmdorientation[PITCH];
@@ -244,6 +251,9 @@ static void VR_InitGameStateAndCvars()
 
 	vr_turn_mode = Cvar_Get( "vr_turn_mode", "0", CVAR_ARCHIVE );
 	vr_turn_angle = Cvar_Get( "vr_turn_angle", "45", CVAR_ARCHIVE );
+	vr_mounted_yaw_speed = Cvar_Get("vr_mounted_yaw_speed", "90", CVAR_ARCHIVE);
+	vr_mounted_pitch_speed = Cvar_Get("vr_mounted_pitch_speed", "60", CVAR_ARCHIVE);
+	vr_thermal_throw_grace_ms = Cvar_Get("vr_thermal_throw_grace_ms", "250", CVAR_ARCHIVE);
 	vr_positional_factor = Cvar_Get( "vr_positional_factor", "12", CVAR_ARCHIVE );
 	vr_walkdirection = Cvar_Get( "vr_walkdirection", "1", CVAR_ARCHIVE );
 	vr_3rdperson_digital_direction = Cvar_Get( "vr_3rdperson_digital_direction", "1", CVAR_ARCHIVE );
@@ -294,35 +304,6 @@ static void VR_InitGameStateAndCvars()
 
 
 
-void VR_Init()
-{
-	GlInitExtensions();
-
-	//First - all the OpenXR stuff and nonsense
-	TBXR_InitialiseOpenXR();
-	TBXR_EnterVR();
-	TBXR_InitRenderer();
-	TBXR_InitActions();
-	TBXR_WaitForSessionActive();
-
-	VR_InitGameStateAndCvars();
-
-	cvar_t *expanded_menu_enabled = Cvar_Get ("expanded_menu_enabled", "0", CVAR_ARCHIVE);
-	if (FS_FileExists("expanded_menu.pk3") || FS_BaseFileExists("expanded_menu.pk3")) {
-		Cvar_Set( "expanded_menu_enabled", "1" );
-	} else {
-		Cvar_Set( "expanded_menu_enabled", "0" );
-	}
-
-	cvar_t *mod_npcsp_enabled = Cvar_Get ("mod_npcsp_enabled", "0", CVAR_ARCHIVE);
-	if (FS_FileExists("NpcSP_v1.1.pk3") || FS_BaseFileExists("NpcSP_v1.1.pk3")) {
-		Cvar_Set( "mod_npcsp_enabled", "1" );
-	} else {
-		Cvar_Set( "mod_npcsp_enabled", "0" );
-	}
-
-}
-
 int VR_SetRefreshRate(int refreshRate)
 {
 	return 0;
@@ -331,8 +312,7 @@ int VR_SetRefreshRate(int refreshRate)
 //All the stuff we want to do each frame specifically for this game
 void VR_FrameSetup()
 {
-	// Vulkan owns its OpenXR session and skips VR_Init(), but still requires all
-	// renderer-independent VR state and cvars used by movement and game code.
+	// Initialize game-side VR state before renderer callbacks consume it.
 	VR_InitGameStateAndCvars();
 
 	static float refresh = 0;
@@ -344,107 +324,6 @@ void VR_FrameSetup()
 
 	//get any cvar values required here
 	vr.immersive_cinematics = (vr_immersive_cinematics->value != 0.0f);
-}
-
-bool VR_GetVRProjection(int eye, float zNear, float zFar, float zZoomX, float zZoomY, float* projection)
-{
-	//Don't use our projection if playing a cinematic and we are not immersive
-	if (vr.cin_camera && !vr.immersive_cinematics)
-	{
-		return false;
-	}
-
-	//Just use game-calculated FOV when showing the quad screen
-	if (vr.using_screen_layer)
-	{
-		return false;
-	}
-
-	XrFovf fov = gAppState.Views[eye].fov;
-	
-	fov.angleLeft = atanf((tanf(fov.angleLeft) / zZoomX));
-	fov.angleRight = atanf((tanf(fov.angleRight) / zZoomX));
-	fov.angleUp = atanf((tanf(fov.angleUp) / zZoomY));
-	fov.angleDown = atanf((tanf(fov.angleDown) / zZoomY));
-
-	XrMatrix4x4f_CreateProjectionFov(
-		(XrMatrix4x4f*)projection, GRAPHICS_OPENGL,
-		fov, zNear, zFar);
-
-	return true;
-}
-
-bool VR_GetFovTangentsForEye(int eye, float *tanLeft, float *tanRight, float *tanUp, float *tanDown)
-{
-	XrFovf fov;
-
-	if (!gAppState.SessionActive || gAppState.Views == NULL)
-	{
-		return false;
-	}
-
-	if (vr.cin_camera && !vr.immersive_cinematics)
-	{
-		return false;
-	}
-
-	if (vr.using_screen_layer)
-	{
-		return false;
-	}
-
-	if (eye < 0)
-	{
-		XrFovf left = gAppState.Views[0].fov;
-		XrFovf right = gAppState.Views[1].fov;
-		*tanLeft = fminf(tanf(left.angleLeft), tanf(right.angleLeft));
-		*tanRight = fmaxf(tanf(left.angleRight), tanf(right.angleRight));
-		*tanUp = fmaxf(tanf(left.angleUp), tanf(right.angleUp));
-		*tanDown = fminf(tanf(left.angleDown), tanf(right.angleDown));
-		return true;
-	}
-
-	if (eye > 1)
-	{
-		eye = vr.eye;
-	}
-
-	fov = gAppState.Views[eye].fov;
-	*tanLeft = tanf(fov.angleLeft);
-	*tanRight = tanf(fov.angleRight);
-	*tanUp = tanf(fov.angleUp);
-	*tanDown = tanf(fov.angleDown);
-	return true;
-}
-
-float VR_GetEyeStereoSeparation(int eye)
-{
-	XrVector3f *left;
-	XrVector3f *right;
-	float dx, dy, dz;
-	float ipd;
-	float worldScale = 33.5f;
-	cvar_t *worldScaleCvar;
-
-	if (!gAppState.SessionActive || gAppState.Views == NULL)
-	{
-		return 0.0f;
-	}
-
-	worldScaleCvar = Cvar_Get("cg_worldScale", "33.5", 0);
-	if (worldScaleCvar)
-	{
-		worldScale = worldScaleCvar->value;
-	}
-
-	left = &gAppState.Views[0].pose.position;
-	right = &gAppState.Views[1].pose.position;
-	dx = right->x - left->x;
-	dy = right->y - left->y;
-	dz = right->z - left->z;
-	ipd = sqrtf(dx * dx + dy * dy + dz * dz);
-
-	return (eye == 0 ? 0.5f : -0.5f) * ipd * worldScale;
 }
 
 void VR_ExternalHapticEvent(const char* event, int position, int flags, int intensity, float angle, float yHeight )
@@ -483,9 +362,7 @@ void VR_HapticDisable()
 void VR_HapticEvent(const char* event, int position, int flags, int intensity, float angle, float yHeight )
 {
 	const bool rendererHaptics = re.VR_ApplyHaptic != nullptr;
-	const bool legacyHaptics = gAppState.Initialised && gAppState.SessionActive &&
-		gAppState.Session != XR_NULL_HANDLE;
-	if ((!rendererHaptics && !legacyHaptics) || vr_haptic_intensity == NULL ||
+	if (!rendererHaptics || vr_haptic_intensity == NULL ||
 		vr_control_scheme == NULL || vr_haptic_intensity->value == 0.0f)
 	{
 		return;
@@ -586,11 +463,6 @@ void VR_HapticEvent(const char* event, int position, int flags, int intensity, f
 	{
 		TBXR_Vibrate(120, weaponFireChannel, fIntensity);
 	}
-}
-
-void VR_HandleControllerInput() {
-	TBXR_UpdateControllers();
-	VR_ProcessControllerInput();
 }
 
 void VR_ProcessControllerInput() {

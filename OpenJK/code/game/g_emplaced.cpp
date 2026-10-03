@@ -27,6 +27,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "../cgame/cg_local.h"
 #include "b_local.h"
 #include "g_navigator.h"
+#include <VrMountedAim.h>
 
 extern Vehicle_t *G_IsRidingVehicle( gentity_t *pEnt );
 extern qboolean g_vrEmplacedHandUse;
@@ -190,6 +191,7 @@ void eweb_pain( gentity_t *self, gentity_t *inflictor, gentity_t *attacker, cons
 void eweb_die( gentity_t *self, gentity_t *inflictor, gentity_t *attacker, int damage, int mod,int dFlags,int hitLoc )
 {
 	vec3_t org;
+	self->s.loopSound = 0;
 
 	// turn off any firing animations it may have been doing
 	self->s.frame = self->startFrame = self->endFrame = 0;
@@ -917,6 +919,8 @@ void G_UpdateEmplacedWeaponData( gentity_t *ent )
 
 void ExitEmplacedWeapon( gentity_t *ent )
 {
+	// Death and scripted exits must stop the aiming motor too, before detaching.
+	ent->owner->s.loopSound = 0;
 	// requesting to unlock from the weapon
 	// We'll leave the gun pointed in the direction it was last facing, though we'll cut out the pitch
 	if ( ent->client )
@@ -1095,6 +1099,11 @@ extern void CG_ChangeWeapon( int num );
 
 	ent->s.eFlags &= ~EF_LOCKED_TO_WEAPON;
 	ent->client->ps.eFlags &= ~EF_LOCKED_TO_WEAPON;
+	if (!ent->s.number)
+	{
+		// Mounted pitch stops adjust command deltas; on foot VR pitch is absolute.
+		ent->client->ps.delta_angles[PITCH] = 0;
+	}
 
 	ent->owner->noDamageTeam = TEAM_FREE;
 	ent->owner->svFlags &= ~SVF_NONNPC_ENEMY;
@@ -1110,7 +1119,10 @@ extern void CG_ChangeWeapon( int num );
 
 void RunEmplacedWeapon( gentity_t *ent, usercmd_t **ucmd )
 {
-	if (( (*ucmd)->buttons & BUTTON_USE ||/* (*ucmd)->forwardmove < 0 ||*/ (*ucmd)->upmove > 0 ) && ent->owner && ent->owner->delay + 500 < level.time )
+	static jkxr_mounted_exit_t playerExit;
+	const bool freshExit = ent->owner && playerExit.Update(ent->owner->s.number,
+		ent->owner->delay, level.time, ((*ucmd)->buttons & BUTTON_USE) != 0, (*ucmd)->upmove > 0);
+	if (freshExit)
 	{
 		ent->owner->s.loopSound = 0;
 

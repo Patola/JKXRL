@@ -1649,8 +1649,9 @@ static void G_SetVRUseTargetContext( qboolean active )
 		return;
 	}
 
-	if ( active
-		&& (vr->useGestureState & (USE_GESTURE_OFF_HAND | USE_GESTURE_WEAPON_HAND)) )
+	// Reserve before extension: the Force history threshold can be crossed
+	// before either hand reaches the use-gesture boundary.
+	if ( active )
 	{
 		vr->useGestureState |= USE_GESTURE_TARGET;
 	}

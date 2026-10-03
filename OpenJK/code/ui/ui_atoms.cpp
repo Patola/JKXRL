@@ -203,6 +203,12 @@ qboolean UI_ConsoleCommand( void )
 {
 	char	*cmd;
 
+	if (Q_stricmp(UI_Argv(0), "ui_refreshSaveGames") == 0)
+	{
+		UI_RefreshSaveGames(UI_Argv(1));
+		return qtrue;
+	}
+
 	if (!ui.SG_GameAllowedToSaveHere(qtrue))	//only check if incamera
 	{
 		return qfalse;

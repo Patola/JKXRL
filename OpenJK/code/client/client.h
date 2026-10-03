@@ -379,6 +379,7 @@ void	SCR_DrawSmallChar( int x, int y, int ch );
 
 #ifdef JK2_MODE
 void	SCR_PrecacheScreenshot();
+byte *SCR_GetSaveScreenshot(qboolean *valid);
 #endif
 
 //

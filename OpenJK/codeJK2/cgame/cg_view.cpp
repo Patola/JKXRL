@@ -1669,6 +1669,10 @@ static qboolean CG_CalcViewValues( void ) {
 			VectorCopy( cg_entities[cg.snap->ps.viewEntity].lerpOrigin, cg.refdef.vieworg );
 		}
 		VectorCopy( cg_entities[cg.snap->ps.viewEntity].lerpAngles, cg.refdefViewAngles );
+		if ( !Q_stricmp( "misc_camera", g_entities[cg.snap->ps.viewEntity].classname ) )
+		{
+			cg.refdef.rdflags |= RDF_SECURITY_CAMERA;
+		}
 		if ( !Q_stricmp( "misc_camera", g_entities[cg.snap->ps.viewEntity].classname ) || g_entities[cg.snap->ps.viewEntity].s.weapon == WP_TURRET )
 		{
 			viewEntIsCam = qtrue;
@@ -1865,6 +1869,9 @@ void cgi_CM_SnapPVS(vec3_t origin,byte *buffer);
 extern vec3_t	serverViewOrg;
 void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	qboolean	inwater = qfalse;
+
+    if (!vr->item_selector || vr->spatial_console_visible || cg.infoScreenText[0])
+        CG_ItemSelectorReleaseTime(); // A queued selection still owns its highlight.
 
 	if ( stereoView != STEREO_RIGHT ) {
 		cg.time = serverTime;

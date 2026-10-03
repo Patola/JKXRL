@@ -488,7 +488,7 @@ REFERENCE           USE_RAGDOLLS_INSTANT
 LANG_ENGLISH        "Instant"
 
 REFERENCE           HELP_BUTTON_ITEM
-LANG_ENGLISH        "JKXR Help"
+LANG_ENGLISH        "JKXRL Help"
 
 REFERENCE           HELP_BUTTON_DESC
 LANG_ENGLISH        "Short tutorials explaining various game mechanics."
@@ -545,7 +545,7 @@ REFERENCE           REFRESH_RATE_DESC
 LANG_ENGLISH        "Select display refresh rate (72Hz is recommended for default graphics setup)."
 
 REFERENCE           RESTART_JKXR_TO_APPLY
-LANG_ENGLISH        "You will need to manually restart JKXR."
+LANG_ENGLISH        "You will need to manually restart JKXRL."
 
 REFERENCE           NPC_SETUP_ITEM
 LANG_ENGLISH        "NPC SETUP"

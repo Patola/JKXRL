@@ -24,6 +24,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 // cg_ents.c -- present snapshot entities, happens every single frame
 #include "../game/g_local.h"
 #include "cg_local.h"
+#include "../../JKXR/VrCameraVisibility.h"
 #include "cg_media.h"
 #include "../game/g_functions.h"
 #include "../../code/ghoul2/G2.h"
@@ -357,6 +358,14 @@ static void CG_General( centity_t *cent )
 	entityState_t		*s1;
 
 	s1 = &cent->currentState;
+	const int cameraNumber = cg.snap ? cg.snap->ps.viewEntity : 0;
+	if (cameraNumber > 0 && cameraNumber < ENTITYNUM_WORLD && cent->gent)
+	{
+		const gentity_t* camera = &g_entities[cameraNumber];
+		if (VR_HideActiveCameraPart(camera->classname && !Q_stricmp(camera->classname, "misc_camera"),
+			s1->number == cameraNumber, CG_ConfigString(CS_MODELS + s1->modelindex),
+			cent->gent->currentOrigin, camera->currentOrigin)) return;
+	}
 /*
 Ghoul2 Insert Start
 */

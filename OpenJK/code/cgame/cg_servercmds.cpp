@@ -170,7 +170,8 @@ static void CG_ConfigStringModified( void ) {
 }
 
 static void CG_CenterPrint_f( void ) {
-	CG_CenterPrint( CG_Argv( 1 ), SCREEN_HEIGHT * 0.25 );
+	// Script messages belong near the gaze center, not the upper screen edge.
+	CG_CenterPrint( CG_Argv( 1 ), SCREEN_HEIGHT * 0.45 );
 }
 
 static void CG_Print_f( void ) {

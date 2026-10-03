@@ -261,6 +261,7 @@ static consoleCommand_t	commands[] = {
 	{ "writecam",			CG_WriteCam_f },
 	{ "zoom",				CG_ToggleBinoculars },
 	{ "itemselectorselect", CG_ItemSelectorSelect_f },
+	{ "itemselectorcancel", CG_ItemSelectorCancel_f },
 	{ "itemselectornext", CG_ItemSelectorNext_f },
 	{ "itemselectorprev", CG_ItemSelectorPrev_f },
 	{ "togglesaber", CG_ToggleSaber_f },

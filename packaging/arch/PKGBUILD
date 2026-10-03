@@ -1,44 +1,37 @@
 # Maintainer: Cláudio "Patola" Sampaio <patola at gmail dot com>
 #
-# Native Linux PCVR build of JKXR (Team Beef's VR port of Jedi Academy /
-# Jedi Outcast), using OpenXR with the X11/GLX graphics binding.
+# JKXRL native Linux PCVR build, based on JKXR (Team Beef's VR port of Jedi Academy /
+# Jedi Outcast), using SDL3 and the OpenXR Vulkan graphics binding.
 #
 # Game data is NOT included. You need your own copy of the games (Steam/GOG);
 # see the post-install notes / BUILDING_LINUX.md.
 #
-# Note: this builds the default branch of the repository. To build a work
-# branch instead, append #branch=<name> to the source URL below.
+# Stable release; source is pinned to the matching public tag.
 
-pkgname=jkxrl-git
-pkgver=r.13cd8d1
+pkgname=jkxrl
+pkgver=0.6
 pkgrel=1
-pkgdesc="VR port of Jedi Academy & Jedi Outcast (Team Beef JKXR) - native Linux PCVR build"
+pkgdesc="JKXRL - Jedi Academy and Jedi Outcast in native Linux VR (Vulkan, SDL3, OpenXR)"
 arch=('x86_64')
-url="https://github.com/Patola/JKXR"
+url="https://github.com/Patola/JKXRL"
 license=('GPL-2.0-only')
-depends=('sdl3' 'openxr' 'glu' 'libglvnd' 'libx11' 'vulkan-icd-loader' 'zlib' 'libpng' 'libjpeg-turbo')
+depends=('sdl3' 'openxr' 'vulkan-icd-loader' 'zlib' 'libpng' 'libjpeg-turbo')
 makedepends=('git' 'cmake' 'zip' 'vulkan-headers' 'shaderc' 'glslang')
-provides=('jkxrl')
-conflicts=('jkxrl')
+conflicts=('jkxrl-git')
 install=jkxr.install
 # This old Quake-derived codebase relies on -fno-strict-aliasing and modest
 # optimisation (see BUILDING_LINUX.md); LTO across modules is asking for it.
 options=('!lto')
-source=("JKXRL::git+https://github.com/Patola/JKXRL.git")
+source=("JKXRL::git+https://github.com/Patola/JKXRL.git#tag=v${pkgver}")
 sha256sums=('SKIP')
-
-pkgver() {
-	cd JKXRL
-	printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
-}
 
 build() {
 	cmake -S JKXRL/OpenJK -B build \
 		-DCMAKE_BUILD_TYPE=Release \
 		-DBuildMPEngine=OFF -DBuildMPRdVanilla=OFF -DBuildMPDed=OFF \
 		-DBuildMPGame=OFF -DBuildMPCGame=OFF -DBuildMPUI=OFF \
-		-DBuildSPEngine=ON -DBuildSPGame=ON -DBuildSPRdVanilla=ON -DBuildSPRdVulkan=ON \
-		-DBuildJK2SPEngine=ON -DBuildJK2SPGame=ON -DBuildJK2SPRdVanilla=ON -DBuildJK2SPRdVulkan=ON \
+		-DBuildSPEngine=ON -DBuildSPGame=ON -DBuildSPRdVanilla=OFF -DBuildSPRdVulkan=ON \
+		-DBuildJK2SPEngine=ON -DBuildJK2SPGame=ON -DBuildJK2SPRdVanilla=OFF -DBuildJK2SPRdVulkan=ON \
 		-DBuildTests=OFF
 	cmake --build build
 
@@ -51,8 +44,6 @@ package() {
 	install -Dm755 -t "$pkgdir/usr/lib/jkxr" \
 		build/openjk_sp.x86_64 \
 		build/openjo_sp.x86_64 \
-		build/code/rd-vanilla/rdsp-vanilla_x86_64.so \
-		build/code/rd-vanilla/rdjosp-vanilla_x86_64.so \
 		build/code/rd-vulkan/rdsp-vulkan_x86_64.so \
 		build/code/rd-vulkan/rdjosp-vulkan_x86_64.so
 
@@ -79,5 +70,9 @@ package() {
 		JKXRL/packaging/arch/jkxr-jko
 
 	install -Dm644 JKXRL/BUILDING_LINUX.md -t "$pkgdir/usr/share/doc/jkxr"
+	install -Dm644 JKXRL/README.md JKXRL/ROADMAP.md JKXRL/RELEASE_NOTES.md \
+		JKXRL/assets/packaged_mods_credits.txt -t "$pkgdir/usr/share/doc/jkxr"
+	install -Dm644 JKXRL/OpenJK/docs/console-variables.md -t "$pkgdir/usr/share/doc/jkxr"
+	cp -r JKXRL/OpenJK/docs/cvars "$pkgdir/usr/share/doc/jkxr/"
 	install -Dm644 JKXRL/LICENSE.txt "$pkgdir/usr/share/licenses/$pkgname/LICENSE.txt"
 }

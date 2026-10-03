@@ -330,6 +330,7 @@ void CL_GenericMenu_f(void)
 	const char *arg = Cmd_Argv( 1 );
 
 	if (cls.uiStarted) {
+		Con_Close();
 		UI_SetActiveMenu("ingame",arg);
 	}
 }
@@ -343,6 +344,7 @@ void CL_EndScreenDissolve_f(void)
 void CL_DataPad_f(void)
 {
 	if (cls.uiStarted && cls.cgameStarted && (cls.state == CA_ACTIVE) ) {
+		Con_Close();
 		UI_SetActiveMenu("datapad",NULL);
 	}
 }
@@ -505,4 +507,3 @@ intptr_t CL_UISystemCalls( intptr_t *args )
 
 	return 0;
 }
-

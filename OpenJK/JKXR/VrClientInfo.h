@@ -110,6 +110,7 @@ typedef struct {
     bool primaryVelocityTriggeredAttack;
     float secondaryswingvelocity;
     bool secondaryVelocityTriggeredAttack;
+    bool dual_saber_casting;
     vec3_t secondaryVelocityTriggerLocation;
 	bool forceGestureArmed;
 	vec3_t forceGestureStartLocation;
@@ -131,6 +132,16 @@ typedef struct {
     float   curHeight;
     int     useGestureState;
     int     useHapticFeedbackTime[2];
+
+    // Published by player movement; runtime-only, not part of saved playerState.
+    bool mounted_pitch_limits_valid;
+    float mounted_pitch_min;
+    float mounted_pitch_max;
+
+    // One-shot controller release, frozen until the game spawns the thermal.
+    bool thermal_throw_ready;
+    int thermal_throw_time;
+    vec3_t thermal_throw_velocity;
 
 } vr_client_info_t;
 

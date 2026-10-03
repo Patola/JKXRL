@@ -36,19 +36,19 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 #=============================================================================
 option(BuildPortableVersion "Build portable version (does not read or write files from your user/home directory" OFF)
 
-option(BuildMPEngine "Whether to create projects for the MP client (openjk.exe)" ON)
-option(BuildMPRdVanilla "Whether to create projects for the MP default renderer (rd-vanilla_x86.dll)" ON)
-option(BuildMPDed "Whether to create projects for the MP dedicated server (openjkded.exe)" ON)
-option(BuildMPGame "Whether to create projects for the MP server-side gamecode (jampgamex86.dll)" ON)
-option(BuildMPCGame "Whether to create projects for the MP clientside gamecode (cgamex86.dll)" ON)
-option(BuildMPUI "Whether to create projects for the MP UI code (uix86.dll)" ON)
+option(BuildMPEngine "Whether to create projects for the MP client (openjk.exe)" OFF)
+option(BuildMPRdVanilla "Whether to create projects for the MP default renderer (rd-vanilla_x86.dll)" OFF)
+option(BuildMPDed "Whether to create projects for the MP dedicated server (openjkded.exe)" OFF)
+option(BuildMPGame "Whether to create projects for the MP server-side gamecode (jampgamex86.dll)" OFF)
+option(BuildMPCGame "Whether to create projects for the MP clientside gamecode (cgamex86.dll)" OFF)
+option(BuildMPUI "Whether to create projects for the MP UI code (uix86.dll)" OFF)
 option(BuildSPEngine "Whether to create projects for the SP engine (openjk_sp.exe)" ON)
 option(BuildSPGame "Whether to create projects for the SP gamecode (jagamex86.dll)" ON)
-option(BuildSPRdVanilla "Whether to create projects for the SP default renderer (rdsp-vanilla_x86.dll)" ON)
+option(BuildSPRdVanilla "Whether to create projects for the SP default renderer (rdsp-vanilla_x86.dll)" OFF)
 option(BuildSPRdVulkan "Whether to create projects for the SP Vulkan renderer (rdsp-vulkan_x86.dll)" ON)
 
-option(BuildJK2SPEngine "Whether to create projects for the jk2 SP engine (openjo_sp.exe)" OFF)
-option(BuildJK2SPGame "Whether to create projects for the jk2 sp gamecode mod (jk2gamex86.dll)" OFF)
+option(BuildJK2SPEngine "Whether to create projects for the jk2 SP engine (openjo_sp.exe)" ON)
+option(BuildJK2SPGame "Whether to create projects for the jk2 sp gamecode mod (jk2gamex86.dll)" ON)
 option(BuildJK2SPRdVanilla "Whether to create projects for the jk2 sp renderer (rdjosp-vanilla_x86.dll)" OFF)
 option(BuildJK2SPRdVulkan "Whether to create projects for the jk2 sp Vulkan renderer (rdjosp-vulkan_x86.dll)" ON)
 
@@ -138,8 +138,7 @@ set(OpenJKLibDir "${CMAKE_SOURCE_DIR}/lib")
 set(GSLIncludeDirectory "${OpenJKLibDir}/gsl-lite/include")
 set(OpenALIncludeDirectory "${CMAKE_SOURCE_DIR}/code/client/OpenAL")
 set(JKXRDir "${CMAKE_SOURCE_DIR}/JKXR")
-set(OpenXRLibDir "${OpenJKLibDir}/openxr/include")
-set(OpenGLExternalIncludeDir "${OpenJKLibDir}/external/include")
+find_path(OpenXRLibDir openxr.h PATH_SUFFIXES openxr REQUIRED)
 
 include(InstallConfig)
 
@@ -313,7 +312,13 @@ if(BuildJK2SPGame)
 	add_subdirectory("${JK2SPDir}/game")
 endif()
 
-add_subdirectory(${MPDir})
+# This Linux VR fork supports only the two single-player Vulkan clients.
+# Fail explicitly for old build caches instead of silently building stale backends.
+foreach(unsupported BuildMPEngine BuildMPRdVanilla BuildMPDed BuildMPGame BuildMPCGame BuildMPUI BuildSPRdVanilla BuildJK2SPRdVanilla)
+	if(${unsupported})
+		message(FATAL_ERROR "${unsupported} is not supported by the Vulkan-only Linux port; configure it OFF.")
+	endif()
+endforeach()
 
 if(BuildTests)
 	enable_testing()

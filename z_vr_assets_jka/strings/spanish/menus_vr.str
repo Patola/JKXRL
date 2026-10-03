@@ -646,7 +646,7 @@ LANG_ENGLISH        "Instant"
 LANG_SPANISH        "#same"
 
 REFERENCE           HELP_BUTTON_ITEM
-LANG_ENGLISH        "JKXR Help"
+LANG_ENGLISH        "JKXRL Help"
 LANG_SPANISH        "#same"
 
 REFERENCE           HELP_BUTTON_DESC
@@ -722,7 +722,7 @@ LANG_ENGLISH        "Select display refresh rate (72Hz is recommended for defaul
 LANG_SPANISH        "#same"
 
 REFERENCE           RESTART_JKXR_TO_APPLY
-LANG_ENGLISH        "You will need to manually restart JKXR."
+LANG_ENGLISH        "You will need to manually restart JKXRL."
 LANG_SPANISH        "#same"
 
 REFERENCE           NPC_SETUP_ITEM

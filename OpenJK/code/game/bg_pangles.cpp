@@ -34,6 +34,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "wp_saber.h"
 #include "g_vehicles.h"
 #include "../ghoul2/ghoul2_gore.h"
+#include <VrClientInfo.h>
 
 extern void CG_SetClientViewAngles( vec3_t angles, qboolean overrideViewEnt );
 extern qboolean PM_InAnimForSaberMove( int anim, int saberMove );
@@ -1495,6 +1496,12 @@ void PM_UpdateViewAngles( playerState_t *ps, usercmd_t *cmd, gentity_t *gent )
 
 	const short pitchClampMin = ANGLE2SHORT(rootPitch+pitchMin);
 	const short pitchClampMax = ANGLE2SHORT(rootPitch+pitchMax);
+	if (vr && ps->clientNum == 0)
+	{
+		vr->mounted_pitch_limits_valid = (ps->eFlags & EF_LOCKED_TO_WEAPON) != 0;
+		vr->mounted_pitch_min = SHORT2ANGLE(pitchClampMin);
+		vr->mounted_pitch_max = SHORT2ANGLE(pitchClampMax);
+	}
 	const short yawClampMin = ANGLE2SHORT(lockedYawValue+yawMin);
 	const short yawClampMax = ANGLE2SHORT(lockedYawValue+yawMax);
 

@@ -1923,6 +1923,7 @@ Called before every level change or subsystem restart
 */
 void CG_Shutdown( void )
 {
+    CG_ItemSelectorCancel_f();
 	in_camera = false;
 	FX_Free();
 }
@@ -3975,6 +3976,5 @@ static void CG_RunCinematicFrame(int handle) {
 }
 #pragma warning ( default : 4505)
 */
-
 
 

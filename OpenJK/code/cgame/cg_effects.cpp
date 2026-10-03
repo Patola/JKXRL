@@ -26,6 +26,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "cg_headers.h"
 
 #include "cg_media.h"
+#include "../qcommon/glass_geometry.h"
 
 #if !defined(FX_SCHEDULER_H_INC)
 	#include "FxScheduler.h"
@@ -664,7 +665,7 @@ void CG_TestLine( vec3_t start, vec3_t end, int time, unsigned int color, int ra
 static float offX[20][20],
 			offZ[20][20];
 
-static void CG_DoGlassQuad( vec3_t p[4], vec2_t uv[4], bool stick, int time, vec3_t dmgDir )
+static void CG_DoGlassShard( vec3_t *p, vec2_t *uv, int vertexCount, bool stick, int time, vec3_t dmgDir )
 {
 	float	bounce;
 	vec3_t	rotDelta;
@@ -690,7 +691,7 @@ static void CG_DoGlassQuad( vec3_t p[4], vec2_t uv[4], bool stick, int time, vec
 	// Set up our random rotate, we only do PITCH and YAW, not ROLL.  This is something like degrees per second
 	VectorSet( rotDelta, Q_flrand(-1.0f, 1.0f) * 40.0f, Q_flrand(-1.0f, 1.0f) * 40.0f, 0.0f );
 
-	CPoly *pol = FX_AddPoly(p, uv, 4,			// verts, ST, vertCount
+	CPoly *pol = FX_AddPoly(p, uv, vertexCount,	// verts, ST, vertCount
 			vel, accel,				// motion
 			0.15f, 0.0f, 85.0f,		// alpha start, alpha end, alpha parm ( begin alpha fade when 85% of life is complete )
 			rgb1, rgb1, 0.0f,		// rgb start, rgb end, rgb parm ( not used )
@@ -704,6 +705,25 @@ static void CG_DoGlassQuad( vec3_t p[4], vec2_t uv[4], bool stick, int time, vec
 		pol->AddFlags( FX_IMPACT_RUNS_FX | FX_KILL_ON_IMPACT );
 		pol->SetImpactFxID( theFxScheduler.RegisterEffect( "misc/glass_impact" ));
 	}
+}
+
+bool CG_DoGlassPolygon(vec3_t *vertices, int count, vec3_t normal, vec3_t point, vec3_t direction, float radius)
+{
+	auto shards = GlassBuildShards(vertices, count, normal);
+	if (shards.empty()) return false;
+	cgi_S_StartSound(point, -1, CHAN_AUTO, cgi_S_RegisterSound("sound/effects/glassbreak1.wav"));
+	for (auto &shard : shards)
+	{
+		vec3_t center = {};
+		for (int i = 0; i < 3; ++i) VectorMA(center, 1.0f / 3.0f, shard.vertices[i], center);
+		const float delay = DistanceSquared(center, point) * 0.04f -
+			Q_flrand(0.0f, 1.0f) * 32 - radius * radius;
+		const bool stick = delay > 1;
+		const int time = stick ? int(std::min(delay + Q_flrand(0.0f, 1.0f) * 200, 3000.0f)) : 0;
+		CG_DoGlassShard(shard.vertices, shard.uv, 3, stick, time, direction);
+	}
+	Com_Printf("glass-polygon: boundary=%d shards=%zu\n", count, shards.size());
+	return true;
 }
 
 static void CG_CalcBiLerp( vec3_t verts[4], vec3_t subVerts[4], vec2_t uv[4] )
@@ -740,7 +760,7 @@ static void CG_CalcBiLerp( vec3_t verts[4], vec3_t subVerts[4], vec2_t uv[4] )
 	VectorMA( temp,			uv[3][1],			subVerts[3], subVerts[3] );
 }
 // bilinear
-//f(p',q') = (1 - y) × {[(1 - x) × f(p,q)] + [x × f(p,q+1)]} + y × {[(1 - x) × f(p+1,q)] + [x × f(p+1,q+1)]}.
+//f(p',q') = (1 - y) Ã— {[(1 - x) Ã— f(p,q)] + [x Ã— f(p,q+1)]} + y Ã— {[(1 - x) Ã— f(p+1,q)] + [x Ã— f(p+1,q+1)]}.
 
 
 static void CG_CalcHeightWidth( vec3_t verts[4], float *height, float *width )
@@ -954,7 +974,7 @@ void CG_DoGlass( vec3_t verts[4], vec3_t normal, vec3_t dmgPt, vec3_t dmgDir, fl
 				time = 0;
 			}
 
-			CG_DoGlassQuad( subVerts, biPoints, stick, time, dmgDir );
+			CG_DoGlassShard( subVerts, biPoints, 4, stick, time, dmgDir );
 		}
 	}
 }

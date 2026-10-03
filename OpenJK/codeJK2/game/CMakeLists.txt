@@ -288,7 +288,7 @@ add_custom_command(TARGET ${JK2SPGame} POST_BUILD
 if(MakeApplicationBundles AND BuildJK2SPEngine)
 	install(TARGETS ${JK2SPGame} LIBRARY DESTINATION "${JK2InstallDir}/${JK2SPEngine}.app/Contents/MacOS/OpenJK")
 else(MakeApplicationBundles AND BuildJK2SPEngine)
-	install(TARGETS ${JK2SPGame} LIBRARY DESTINATION "${JK2InstallDir}/OpenJK")
+	install(TARGETS ${JK2SPGame} LIBRARY DESTINATION "${JK2InstallDir}/base")
 endif(MakeApplicationBundles AND BuildJK2SPEngine)
 
 set_target_properties(${JK2SPGame} PROPERTIES COMPILE_DEFINITIONS "${JK2SPGameDefines}")

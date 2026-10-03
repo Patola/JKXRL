@@ -37,6 +37,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "../cgame/animtable.h"
 
 #include "ui_shared.h"
+#include "ui_list_selection.h"
 #include "menudef.h"
 
 #include "qcommon/stringed_ingame.h"
@@ -90,7 +91,7 @@ static itemDef_t *g_editItem = NULL;
 static itemDef_t *itemCapture = NULL;   // item that has the mouse captured ( if any )
 
 #define DOUBLE_CLICK_DELAY 300
-static int lastListBoxClickTime = 0;
+static ui_list_click_state_t lastListBoxClick;
 
 static void (*captureFunc) (void *p) = NULL;
 static void *captureData = NULL;
@@ -5841,6 +5842,7 @@ Menus_CloseAll
 void  Menus_CloseAll(void)
 {
 	int i;
+	lastListBoxClick = {};
 
 	for (i = 0; i < menuCount; i++)
 	{
@@ -10436,14 +10438,20 @@ qboolean Item_ListBox_HandleKey(itemDef_t *item, int key, qboolean down, qboolea
 			}
 			else
 			{
-				// select an item
-				if (DC->realTime < lastListBoxClickTime && listPtr->doubleClick)
+				if (!UI_ListSelectionValid(listPtr->cursorPos, count))
+				{
+					lastListBoxClick = {};
+					return qtrue;
+				}
+				const bool activate = lastListBoxClick.Click(item, listPtr->cursorPos,
+					key, DC->realTime, DOUBLE_CLICK_DELAY, [&](int row) {
+						item->cursorPos = row;
+						DC->feederSelection(item->special, row, item);
+					});
+				if (activate && listPtr->doubleClick)
 				{
 					Item_RunScript(item, listPtr->doubleClick);
 				}
-				lastListBoxClickTime = DC->realTime + DOUBLE_CLICK_DELAY;
-				item->cursorPos = listPtr->cursorPos;
-				DC->feederSelection(item->special, item->cursorPos, item);
 			}
 			return qtrue;
 		}

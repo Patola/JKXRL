@@ -27,6 +27,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "server/exe_headers.h"
 
 #include "client.h"
+#include "client_ui.h"
 #include "qcommon/stringed_ingame.h"
 #include "qcommon/stv_version.h"
 
@@ -220,6 +221,7 @@ static qboolean vrConsoleShift = qfalse;
 static qboolean vrConsoleCaps = qfalse;
 static qboolean vrConsoleBindingWasDown = qfalse;
 static qboolean vrConsoleBindingLongPress = qfalse;
+static bool vrConsoleBindingCanOpen = false;
 static int vrConsoleBindingPressStart = 0;
 static vrConsolePointer_t vrConsolePointers[2] = {};
 static qboolean vrConsoleTriggerWasDown[2] = {};
@@ -256,6 +258,15 @@ static qboolean Con_VrPhaseInteractive()
 		vrConsolePhase == VR_CONSOLE_OPEN ) ? qtrue : qfalse;
 }
 
+static bool Con_VrGameplayAvailable()
+{
+	return cls.state == CA_ACTIVE && cls.cgameStarted &&
+		!(Key_GetCatcher() & KEYCATCH_UI) &&
+		!(cls.uiStarted && _UI_IsFullscreen()) &&
+		!CL_IsRunningInGameCinematic() && !CL_InGameCinematicOnStandBy() &&
+		!vr.cin_camera && !vr.misc_camera;
+}
+
 static void Con_VrFeedback( int hand, qboolean opening )
 {
 	static sfxHandle_t openSound = 0;
@@ -278,16 +289,14 @@ static void Con_VrFeedback( int hand, qboolean opening )
 static void Con_VrSetOpen( qboolean open, int hand )
 {
 	Con_VrInitCvars();
+	if (open && !Con_VrGameplayAvailable()) return;
 	if ( open )
 	{
 		if ( Con_VrPhaseInteractive() )
 		{
 			return;
 		}
-		if ( con_autoclear->integer )
-		{
-			Field_Clear( &g_consoleField );
-		}
+		// Spatial-console toggles preserve the unfinished command and caret.
 		g_consoleField.widthInChars = g_console_field_width;
 		Con_ClearNotify();
 		Key_SetCatcher( Key_GetCatcher() | KEYCATCH_CONSOLE );
@@ -324,6 +333,11 @@ static void Con_VrSetOpen( qboolean open, int hand )
 static void Con_VrUpdatePhase()
 {
 	Con_VrInitCvars();
+	if (Con_VrPhaseVisible() && !Con_VrGameplayAvailable())
+	{
+		Con_Close();
+		return;
+	}
 	if ( !vrConsoleAnimationCvar->integer )
 	{
 		if ( vrConsolePhase == VR_CONSOLE_OPENING )
@@ -431,6 +445,11 @@ static void Con_VrActivateKey( int id, int hand )
 	if ( key->type == VR_CONSOLE_KEY_SPACER )
 	{
 		return;
+	}
+	const sfxHandle_t click = S_RegisterSound( "sound/interface/console_key.wav" );
+	if ( click > 0 )
+	{
+		S_StartLocalSound( click, CHAN_LOCAL_SOUND );
 	}
 	if ( key->type == VR_CONSOLE_KEY_SHIFT )
 	{
@@ -610,16 +629,22 @@ void Con_VrFilterControllerInput(
 	const qboolean bindingDown =
 		( bindingController->buttons & bindingMask ) != 0 ? qtrue : qfalse;
 	const int now = Sys_Milliseconds();
+	const bool gameplay = Con_VrGameplayAvailable();
+	// A press begun outside gameplay must be released before it can open the
+	// console in the next scene. Never turn a blocked hold into a datapad tap.
+	if (!gameplay) vrConsoleBindingCanOpen = false;
 	if ( bindingDown && !vrConsoleBindingWasDown )
 	{
 		vrConsoleBindingPressStart = now;
 		vrConsoleBindingLongPress = qfalse;
+		vrConsoleBindingCanOpen = gameplay;
 	}
 	if ( bindingDown && !vrConsoleBindingLongPress &&
 		 now - vrConsoleBindingPressStart >= vrConsoleHoldCvar->integer )
 	{
 		vrConsoleBindingLongPress = qtrue;
-		Con_VrSetOpen( Con_VrPhaseInteractive() ? qfalse : qtrue, bindingHand );
+		if (gameplay && vrConsoleBindingCanOpen)
+			Con_VrSetOpen( Con_VrPhaseInteractive() ? qfalse : qtrue, bindingHand );
 	}
 	if ( !bindingDown && vrConsoleBindingWasDown )
 	{
@@ -1609,6 +1634,49 @@ static void Con_DrawVrPointers()
 	}
 }
 
+static void Con_VrFollowTeleport()
+{
+	static bool haveSnapshot = false;
+	static int teleportBit = 0;
+	if ( !Con_VrPhaseVisible() || !Con_VrGameplayAvailable() )
+	{
+		haveSnapshot = false;
+		return;
+	}
+
+	// Follow the snapshot already reached by cgame, not a future snapshot that
+	// has arrived while the rendered view is still at the previous location.
+	const clSnapshot_t *frame = nullptr;
+	for ( int age = 0; age < PACKET_BACKUP && age <= cl.frame.messageNum; ++age )
+	{
+		const int message = cl.frame.messageNum - age;
+		const clSnapshot_t &candidate = cl.frames[message & PACKET_MASK];
+		if ( candidate.valid && candidate.messageNum == message &&
+			candidate.serverTime <= cl.serverTime )
+		{
+			frame = &candidate;
+			break;
+		}
+	}
+	if ( !frame ) return;
+	const int currentBit = frame->ps.eFlags & EF_TELEPORT_BIT;
+	const bool teleported = haveSnapshot && currentBit != teleportBit;
+	teleportBit = currentBit;
+	haveSnapshot = true;
+	if ( teleported && re.VR_SetSpatialConsoleState != nullptr )
+	{
+		// The draw immediately below recaptures render and pointer poses together.
+		// Keep text, modifiers, input latches and animation phase unchanged.
+		re.VR_SetSpatialConsoleState( qfalse, 0.0f, 0.0f, 0.0f );
+		for ( int hand = 0; hand < 2; ++hand )
+		{
+			vrConsolePointers[hand] = {};
+			vrConsoleHeldKey[hand] = -1;
+			vrConsoleNextRepeat[hand] = 0;
+		}
+	}
+}
+
 static void Con_DrawVrConsole()
 {
 	const vrConsoleAnimation_t animation = Con_VrAnimation();
@@ -1655,7 +1723,7 @@ static void Con_DrawVrConsole()
 	Con_DrawVrString(
 		VR_CONSOLE_TEXT_LEFT,
 		VR_CONSOLE_TOP + VR_CONSOLE_CHAR_HEIGHT,
-		"JKXR CONSOLE" );
+		JKXRL_DISPLAY_VERSION " CONSOLE" );
 	re.DrawStretchPic(
 		VR_CONSOLE_TEXT_LEFT,
 		VR_CONSOLE_INPUT_Y - 10,
@@ -1759,6 +1827,7 @@ void Con_DrawConsole( void ) {
 	if ( Con_UseVrLayout() )
 	{
 		Con_VrUpdatePhase();
+		Con_VrFollowTeleport();
 		if ( Con_VrPhaseVisible() )
 		{
 			Con_DrawVrConsole();
@@ -1768,6 +1837,9 @@ void Con_DrawConsole( void ) {
 		{
 			re.VR_SetSpatialConsoleState( qfalse, 0.0f, 0.0f, 0.0f );
 		}
+		if (Con_VrGameplayAvailable() && con_drawnotify->integer)
+			Con_DrawNotify();
+		return; // Do not fall through to the disconnected/fullscreen console.
 	}
 
 	// if disconnected, render console full screen
@@ -1871,7 +1943,29 @@ void Con_Bottom( void ) {
 
 
 void Con_Close( void ) {
-	Field_Clear( &g_consoleField );
+	if ( !Con_UseVrLayout() )
+		Field_Clear( &g_consoleField );
+	// Map loads and cinematics cannot carry a closing animation or its old pose
+	// into the next scene. Normal user toggles still use Con_VrSetOpen().
+	vrConsolePhase = VR_CONSOLE_CLOSED;
+	vrConsolePhaseStart = 0;
+	vrConsoleShift = qfalse;
+	vr.spatial_console_visible = false;
+	for ( int hand = 0; hand < 2; ++hand )
+	{
+		vrConsolePointers[hand] = {};
+		vrConsoleHeldKey[hand] = -1;
+		vrConsoleNextRepeat[hand] = 0;
+	}
+	// Keep consumed-button/trigger latches until physical release; also cancel
+	// any pending short/long console-button action across the transition.
+	vrConsoleBindingLongPress = vrConsoleBindingWasDown;
+	vrConsoleBindingCanOpen = false;
+	vrConsoleBindingPressStart = 0;
+	if ( re.VR_SetConsoleMode != nullptr )
+		re.VR_SetConsoleMode( qfalse );
+	if ( re.VR_SetSpatialConsoleState != nullptr )
+		re.VR_SetSpatialConsoleState( qfalse, 0.0f, 0.0f, 0.0f );
 	Con_ClearNotify ();
 	Key_SetCatcher( Key_GetCatcher( ) & ~KEYCATCH_CONSOLE );
 	con.finalFrac = 0;				// none visible

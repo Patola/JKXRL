@@ -1567,8 +1567,6 @@ int CIN_PlayCinematic( const char *arg, int x, int y, int w, int h, int systemBi
 			cls.state = CA_CINEMATIC;
 		}
 
-		Con_Close();
-
 		if ( !cinTable[currentHandle].silent )
 		{
 			// The audio device may have advanced while startup registration was
@@ -1931,6 +1929,9 @@ static void PlayCinematic(const char *arg, const char *s, qboolean qbInGame)
 		CL_handle = CIN_PlayCinematic( arg, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, bits, psAudioFile );
 		if (CL_handle >= 0)
 		{
+			// Foreground movies own the view even when reusing a cached handle.
+			// Background videoMap/UI previews must not dismiss the debug console.
+			Con_Close();
 			cinTable[CL_handle].hCRAWLTEXT = hCrawl;
 			do
 			{

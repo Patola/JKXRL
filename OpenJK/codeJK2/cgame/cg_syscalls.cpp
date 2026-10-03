@@ -444,6 +444,11 @@ void	cgi_R_GetBModelVerts(int bmodelIndex, vec3_t *verts, vec3_t normal )
 	Q_syscall( CG_R_GET_BMODEL_VERTS, bmodelIndex, verts, normal );
 }
 
+int cgi_R_GetBModelGlassPolygon(int model, vec3_t *vertices, int capacity, vec3_t normal)
+{
+	return Q_syscall(CG_R_GET_BMODEL_GLASS_POLYGON, model, vertices, capacity, normal);
+}
+
 void	cgi_R_WorldEffectCommand( const char *command )
 {
 	Q_syscall( CG_R_WORLD_EFFECT_COMMAND, command );

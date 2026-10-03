@@ -718,6 +718,13 @@ usercmd_t CL_CreateCmd( void ) {
 
     VR_GetMove(&new_move.forward, &new_move.side, &new_move.pos_forward, &new_move.pos_side,
                &new_move.up, &new_move.yaw, &new_move.pitch, &new_move.roll);
+	const bool consoleOwnsInput = vr.spatial_console_visible ||
+		(Key_GetCatcher() & KEYCATCH_CONSOLE);
+	if ( consoleOwnsInput )
+	{
+		new_move.forward = new_move.side = new_move.up = 0.0f;
+		new_move.pos_forward = new_move.pos_side = 0.0f;
+	}
 
 	// keyboard angle adjustment
 	CL_AdjustAngles ();
@@ -766,6 +773,13 @@ usercmd_t CL_CreateCmd( void ) {
 	}
 	// store out the final values
 	CL_FinishMove( &cmd );
+	if ( consoleOwnsInput )
+	{
+		// Final boundary covers keyboard, sticks, room-scale input and queued actions.
+		cmd.forwardmove = cmd.rightmove = cmd.upmove = 0;
+		cmd.buttons = 0;
+		cmd.generic_cmd = 0;
+	}
 
 	// draw debug graphs of turning for mouse testing
 	if ( cl_debugMove->integer ) {

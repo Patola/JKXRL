@@ -42,6 +42,7 @@ for pk3 in "$SHAREDIR"/*.pk3; do
 	sync_runtime_file "$pk3" "$HOMEDATA/$(basename "$pk3")"
 done
 
-# The OpenXR session uses the X11/GLX graphics binding (XWayland is fine).
-export SDL_VIDEODRIVER=x11
+# Keep the tested X11/XWayland desktop input default; XR uses Vulkan.
+# An explicit SDL driver override is respected for testing other window systems.
+export SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-x11}"
 exec "$LIBDIR/openjk_sp.x86_64" +set fs_basepath "$GAMEDATA" "$@"

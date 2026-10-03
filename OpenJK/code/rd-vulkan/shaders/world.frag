@@ -1,12 +1,24 @@
 #version 450
+#extension GL_GOOGLE_include_directive : require
+#include "local_fog.glsl"
 
 layout(set = 0, binding = 0) uniform sampler2D baseTexture;
+layout(set = 2, binding = 0) uniform sampler2D extraLightmaps[3];
+layout(set = 2, binding = 1, std140) uniform LightmapStyles
+{
+	vec4 colors[4];
+	vec4 offsets[4];
+	vec4 spriteFogPlane;
+	vec4 spriteFogColorDepth;
+	vec4 spriteFogEye;
+} lm;
 
 layout(location = 0) in vec4 vColor;
 layout(location = 1) in vec2 vUv;
 layout(location = 2) in float vViewDepth;
 layout(location = 3) in vec3 vPosition;
 layout(location = 4) in vec3 vNormal;
+layout(location = 5) in float vSpecularAlpha;
 layout(location = 0) out vec4 outColor;
 
 layout(push_constant) uniform WorldPush
@@ -25,6 +37,7 @@ layout(push_constant) uniform WorldPush
 void main()
 {
 	vec4 texel = texture(baseTexture, vUv);
+	bool localFog = pc.stageFlags.w >= 15.0 && pc.stageFlags.w < 20.0;
 	if (pc.stageFlags.w >= 20.0)
 	{
 		float alphaTest = pc.lightmapGamma;
@@ -61,30 +74,65 @@ void main()
 		outColor = vec4(pc.stageColor.rgb * attenuation, attenuation);
 		return;
 	}
-	if (pc.useLightmap > 0.5 && pc.useLightmap < 1.5 &&
+	if (!localFog && pc.useLightmap > 0.5 && pc.useLightmap < 1.5 && lm.offsets[0].w > 0.5)
+	{
+		// Accumulate authored lighting before the material's modulation pass.
+		texel.rgb = clamp(texel.rgb * lm.colors[0].rgb +
+			texture(extraLightmaps[0], vUv + lm.offsets[1].xy).rgb * lm.colors[1].rgb +
+			texture(extraLightmaps[1], vUv + lm.offsets[2].xy).rgb * lm.colors[2].rgb +
+			texture(extraLightmaps[2], vUv + lm.offsets[3].xy).rgb * lm.colors[3].rgb, 0.0, 1.0);
+	}
+	if (!localFog && pc.useLightmap > 0.5 && pc.useLightmap < 1.5 &&
 		abs(pc.lightmapGamma - 1.0) > 0.0001)
 	{
 		texel.rgb = pow(max(texel.rgb, vec3(0.0)), vec3(1.0 / pc.lightmapGamma));
 	}
 	if (pc.stageFlags.w >= 10.0)
 	{
-		float maskMode = pc.stageFlags.w - 10.0;
-		if ((maskMode > 0.5 && maskMode < 1.5 && texel.a <= 0.0) ||
-			(maskMode > 1.5 && maskMode < 2.5 && texel.a >= 0.5) ||
-			(maskMode > 2.5 && maskMode < 3.5 && texel.a < 0.5) ||
-			(maskMode > 3.5 && texel.a < 0.75))
+		bool alphaWave = pc.stageFlags.x >= 2.0;
+		float coverage = alphaWave ? pc.stageColor.a : vColor.a;
+		float maskAlpha = texel.a * (alphaWave ? coverage : 1.0);
+		float maskMode = pc.stageFlags.w - (localFog ? 15.0 : 10.0);
+		if ((maskMode > 0.5 && maskMode < 1.5 && maskAlpha <= 0.0) ||
+			(maskMode > 1.5 && maskMode < 2.5 && maskAlpha >= 0.5) ||
+			(maskMode > 2.5 && maskMode < 3.5 && maskAlpha < 0.5) ||
+			(maskMode > 3.5 && maskAlpha < 0.75))
 		{
 			discard;
 		}
 		float fogAmount = clamp(vViewDepth / max(pc.alpha, 1.0), 0.0, 1.0);
-		if (vColor.a <= 0.0)
+		if (pc.lightmapGamma > 0.5)
+		{
+			fogAmount = clamp((vViewDepth - pc.padding) / max(pc.alpha - pc.padding, 1.0), 0.0, 1.0);
+		}
+		if (localFog)
+		{
+			float pointDepth = dot(vec3(pc.uvOffset, pc.useLightmap), vPosition) + pc.padding;
+			fogAmount = localFogAmount(vViewDepth, pointDepth, pc.stageFlags.y, pc.alpha);
+		}
+		if (coverage <= 0.0)
 		{
 			discard;
 		}
-		outColor = vec4(pc.stageColor.rgb, fogAmount * texel.a * vColor.a);
+		float textureCoverage = localFog && pc.stageFlags.z < 0.5 ? 1.0 : texel.a;
+		outColor = vec4(pc.stageColor.rgb, fogAmount * textureCoverage * coverage);
 		return;
 	}
-	vec4 generatedColor = mix(vec4(1.0), vColor, pc.stageFlags.x);
+	bool specularAlpha = pc.stageFlags.x >= 4.0;
+	float colorFlags = pc.stageFlags.x - (specularAlpha ? 4.0 : 0.0);
+	bool alphaWave = colorFlags >= 2.0;
+	float vertexColorWeight = colorFlags - (alphaWave ? 2.0 : 0.0);
+	vec4 generatedColor = mix(vec4(1.0), vColor, vertexColorWeight);
+	if (alphaWave) generatedColor.a = 1.0;
+	if (specularAlpha) generatedColor.a = vSpecularAlpha;
+	if (pc.padding > 0.5 && pc.padding < 1.5)
+	{
+		texel.rgb = vec3(1.0);
+	}
+	else if (pc.padding > 1.5)
+	{
+		generatedColor.rgb = vec3(1.0);
+	}
 	float fragmentAlpha = clamp(
 		texel.a * pc.stageColor.a * generatedColor.a * pc.alpha, 0.0, 1.0);
 	float alphaTest = pc.stageFlags.w;
@@ -121,4 +169,19 @@ void main()
 	}
 	outColor = texel * pc.stageColor * generatedColor;
 	outColor.a = fragmentAlpha;
+	if (lm.spriteFogColorDepth.a > 0.0)
+	{
+		float pointDepth = dot(lm.spriteFogPlane, vec4(vPosition, 1.0));
+		float amount = localFogAmount(vViewDepth, pointDepth, lm.spriteFogEye.x, lm.spriteFogColorDepth.a);
+		// Fold the legacy equal-depth fog overlay into the leaf's original alpha blend.
+		// Cutout and distance-coverage discards have already happened above.
+		if (lm.spriteFogEye.y > 0.5)
+			outColor.rgb = mix(outColor.rgb, lm.spriteFogColorDepth.rgb, amount);
+		else if (amount > 0.0)
+		{
+			float alpha = outColor.a + (1.0 - outColor.a) * amount;
+			outColor.rgb = (outColor.rgb * outColor.a * (1.0 - amount) + lm.spriteFogColorDepth.rgb * amount) / alpha;
+			outColor.a = alpha;
+		}
+	}
 }

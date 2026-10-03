@@ -13,6 +13,7 @@ published by the Free Software Foundation.
 #include "tr_local.h"
 #include "vk_backend.h"
 #include "vk_ghoul2.h"
+#include "vk_save_preview.h"
 
 #include <algorithm>
 #include <cstdarg>
@@ -48,6 +49,55 @@ void NORETURN QDECL Com_Error( int level, const char *format, ... )
 static window_t trWindow;
 static bool trWindowInitialized;
 static bool trFontsInitialized;
+static bool trWeatherCommandRegistered;
+static byte *trPreviewImage;
+
+static void R_ClearPreviewImage()
+{
+	if (trPreviewImage) R_Free(trPreviewImage);
+	trPreviewImage = nullptr;
+}
+
+static byte *R_PreviewImage(const char *name, int *width, int *height, byte *resample, qboolean flip)
+{
+	R_ClearPreviewImage();
+	if (!width || !height) return nullptr;
+	const int targetWidth = *width, targetHeight = *height;
+	*width = *height = 0;
+	if (!name || (resample && (targetWidth != SavePreview::Width || targetHeight != SavePreview::Height))) return nullptr;
+	int w = 0, h = 0;
+	R_LoadImage(name, &trPreviewImage, &w, &h);
+	if (!trPreviewImage || w <= 0 || h <= 0)
+	{
+		R_ClearPreviewImage();
+		return nullptr;
+	}
+	if (resample)
+	{
+		SavePreview::Resample(trPreviewImage, w, h, resample, targetWidth, targetHeight, 4, false, flip != qfalse, false);
+		*width = targetWidth; *height = targetHeight;
+		return resample;
+	}
+	if (flip)
+		for (int y = 0; y < h/2; ++y)
+			for (int x = 0; x < w*4; ++x)
+				std::swap(trPreviewImage[size_t(y)*w*4+x], trPreviewImage[size_t(h-1-y)*w*4+x]);
+	*width = w; *height = h;
+	return trPreviewImage;
+}
+
+static void R_WorldEffect_f()
+{
+	char command[2048];
+	ri.Cmd_ArgsBuffer(command, sizeof(command));
+	if (!command[0])
+	{
+		ri.Printf(PRINT_ALL, "r_we <weather command>: sand, spacedust N, rain, snow, fog, constantwind (x y z), clear\n");
+		return;
+	}
+	VK_Backend_WorldEffectCommand(command);
+}
+
 void *R_Malloc( int size, memtag_t tag, qboolean zeroIt )
 {
 	return ri.Malloc( size, tag, zeroIt, 4 );
@@ -132,6 +182,11 @@ unsigned int AnyLanguage_ReadCharFromString( char **text, qboolean *trailingPunc
 static void RE_BeginRegistration( glconfig_t *config, intptr_t )
 {
 	const bool backendReady = VK_Backend_Init();
+	if (!trWeatherCommandRegistered)
+	{
+		ri.Cmd_AddCommand("r_we", R_WorldEffect_f);
+		trWeatherCommandRegistered = true;
+	}
 	R_ImageLoader_Init();
 	se_language = ri.Cvar_Get( "se_language", "english", CVAR_ARCHIVE | CVAR_NORESTART );
 	com_buildScript = ri.Cvar_Get( "com_buildScript", "0", 0 );
@@ -156,7 +211,7 @@ static void RE_BeginRegistration( glconfig_t *config, intptr_t )
 	config->depthBits = 24;
 	config->stencilBits = 8;
 	config->deviceSupportsGamma = qfalse;
-	config->renderer_string = "JKXRL Vulkan renderer scaffold";
+	config->renderer_string = JKXRL_DISPLAY_VERSION " Vulkan renderer";
 	config->vendor_string = "JKXRL";
 	config->version_string = backendReady ? "Vulkan/OpenXR bootstrap" : "Vulkan scaffold";
 	config->extensions_string = "";
@@ -180,6 +235,12 @@ extern "C" Q_EXPORT refexport_t* QDECL GetRefAPI( int apiVersion, refimport_t *r
 	}
 
 	re.Shutdown = []( qboolean destroyWindow, qboolean ) {
+		R_ClearPreviewImage();
+		if (trWeatherCommandRegistered)
+		{
+			ri.Cmd_RemoveCommand("r_we");
+			trWeatherCommandRegistered = false;
+		}
 		if ( trFontsInitialized )
 		{
 			R_ShutdownFonts();
@@ -223,7 +284,7 @@ extern "C" Q_EXPORT refexport_t* QDECL GetRefAPI( int apiVersion, refimport_t *r
 	re.AddPolyToScene = VK_Backend_AddPoly;
 	re.AddLightToScene = VK_Backend_AddLight;
 	re.RenderScene = VK_Backend_RenderScene;
-	re.GetLighting = []( const vec3_t, vec3_t, vec3_t, vec3_t ) -> qboolean { return qfalse; };
+	re.GetLighting = VK_Backend_GetLighting;
 
 	re.SetColor = VK_Backend_SetColor;
 	re.DrawStretchPic = []( float x, float y, float w, float h, float s1, float t1, float s2, float t2, qhandle_t shader ) {
@@ -239,7 +300,7 @@ extern "C" Q_EXPORT refexport_t* QDECL GetRefAPI( int apiVersion, refimport_t *r
 		VK_Backend_DrawRotatePic(
 			x, y, w, h, s1, t1, s2, t2, angle, shader, true );
 	};
-	re.LAGoggles = []() {};
+	re.LAGoggles = VK_Backend_LAGoggles;
 	re.Scissor = []( float, float, float, float ) {};
 
 	re.DrawStretchRaw = []( int x, int y, int w, int h,
@@ -266,21 +327,38 @@ extern "C" Q_EXPORT refexport_t* QDECL GetRefAPI( int apiVersion, refimport_t *r
 
 	re.ProcessDissolve = []() -> qboolean { return qfalse; };
 	re.InitDissolve = []( qboolean ) -> qboolean { return qfalse; };
-	re.GetScreenShot = []( byte *, int, int ) {};
+	re.RequestSavePreview = VK_Backend_RequestSavePreview;
+	re.ReadSavePreview = VK_Backend_ReadSavePreview;
+	re.GetScreenShot = [](byte *data, int w, int h) { VK_Backend_ReadSavePreview(data, w, h); };
 
 #ifdef JK2_MODE
-	re.SaveJPGToBuffer = []( byte *, size_t, int, int, int, byte *, int, bool ) -> size_t { return 0; };
-	re.LoadJPGFromBuffer = []( byte *, size_t, byte **, int *, int * ) {};
+	re.SaveJPGToBuffer = [](byte *dest, size_t cap, int quality, int w, int h, byte *src, int pad, bool flip) {
+		return SavePreview::EncodeJpeg(dest, cap, quality, w, h, src, pad, flip);
+	};
+	re.LoadJPGFromBuffer = [](byte *src, size_t length, byte **out, int *w, int *h) {
+		if (out) *out = nullptr;
+		if (w) *w = 0;
+		if (h) *h = 0;
+		if (!out || !w || !h || !src || !length || length > SavePreview::MaxJpegBytes) return;
+		byte *pixels = static_cast<byte *>(R_Malloc(SavePreview::Width*SavePreview::Height*4, TAG_TEMP_WORKSPACE, qfalse));
+		if (!SavePreview::DecodeJpeg(src, length, pixels, SavePreview::Width, SavePreview::Height))
+		{
+			R_Free(pixels);
+			return;
+		}
+		*out = pixels; *w = SavePreview::Width; *h = SavePreview::Height;
+	};
 #endif
 
-	re.TempRawImage_ReadFromFile = []( const char *, int *, int *, byte *, qboolean ) -> byte * { return nullptr; };
-	re.TempRawImage_CleanUp = []() {};
-	re.MarkFragments = []( int, const vec3_t *, const vec3_t, int, vec3_t, int, markFragment_t * ) -> int { return 0; };
+	re.TempRawImage_ReadFromFile = R_PreviewImage;
+	re.TempRawImage_CleanUp = R_ClearPreviewImage;
+	re.MarkFragments = VK_Backend_MarkFragments;
 	re.LerpTag = VK_Backend_LerpTag;
 	re.ModelBounds = VK_Backend_ModelBounds;
 	re.GetLightStyle = VK_Backend_GetLightStyle;
 	re.SetLightStyle = VK_Backend_SetLightStyle;
-	re.GetBModelVerts = []( int, vec3_t *, vec3_t ) {};
+	re.GetBModelVerts = VK_Backend_GetBModelVerts;
+	re.GetBModelGlassPolygon = VK_Backend_GetBModelGlassPolygon;
 	re.WorldEffectCommand = VK_Backend_WorldEffectCommand;
 	re.GetModelBounds = VK_Backend_GetModelBounds;
 
@@ -308,15 +386,15 @@ extern "C" Q_EXPORT refexport_t* QDECL GetRefAPI( int apiVersion, refimport_t *r
 	re.tr_distortionPrePost = []() -> qboolean * { return nullptr; };
 	re.tr_distortionNegate = []() -> qboolean * { return nullptr; };
 
-	re.GetWindVector = []( vec3_t, vec3_t ) -> bool { return false; };
-	re.GetWindGusting = []( vec3_t ) -> bool { return false; };
-	re.IsOutside = []( vec3_t ) -> bool { return false; };
-	re.IsOutsideCausingPain = []( vec3_t ) -> float { return 0.0f; };
-	re.GetChanceOfSaberFizz = []() -> float { return 0.0f; };
+	re.GetWindVector = VK_Backend_GetWindVector;
+	re.GetWindGusting = VK_Backend_GetWindGusting;
+	re.IsOutside = VK_Backend_IsOutside;
+	re.IsOutsideCausingPain = VK_Backend_IsOutsideCausingPain;
+	re.GetChanceOfSaberFizz = VK_Backend_GetChanceOfSaberFizz;
 	re.IsShaking = []( vec3_t ) -> bool { return false; };
 	re.AddWeatherZone = VK_Backend_AddWeatherZone;
-	re.SetTempGlobalFogColor = []( vec3_t ) -> bool { return false; };
-	re.SetRangedFog = []( float ) {};
+	re.SetTempGlobalFogColor = VK_Backend_SetTempGlobalFogColor;
+	re.SetRangedFog = VK_Backend_SetRangedFog;
 
 	re.TheGhoul2InfoArray = TheGhoul2InfoArray;
 	re.G2API_AddBolt = VK_G2API_AddBolt;

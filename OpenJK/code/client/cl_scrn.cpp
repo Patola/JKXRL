@@ -490,8 +490,8 @@ This is called every frame, and can also be called explicitly to flush
 text to the screen.
 ==================
 */
+static int scrUpdateDepth;
 void SCR_UpdateScreen( void ) {
-	static int	recursive;
 
 	if ( !scr_initialized ) {
 		return;				// not initialized yet
@@ -500,127 +500,27 @@ void SCR_UpdateScreen( void ) {
 	// load the ref / ui / cgame if needed
 	CL_StartHunkUsers();
 
-	if ( ++recursive > 2 ) {
+	if ( ++scrUpdateDepth > 2 ) {
 		Com_Error( ERR_FATAL, "SCR_UpdateScreen: recursively called" );
 	}
-	recursive = qtrue;
+	scrUpdateDepth = 1;
 
 	// If there is no VM, there are also no rendering commands issued. Stop the renderer in
 	// that case.
 	if ( cls.uiStarted )
 	{
-		if ( SCR_UsingVulkanRenderer() )
+		SCR_DrawScreenField( STEREO_CENTER );
+		if (com_speeds->integer)
 		{
-			SCR_DrawScreenField( STEREO_CENTER );
-			if (com_speeds->integer)
-			{
-				re.EndFrame(&time_frontend, &time_backend);
-			}
-			else
-			{
-				re.EndFrame(NULL, NULL);
-			}
-
-			recursive = 0;
-			return;
-		}
-
-		//Try again here in case we've not done it yet
-		TBXR_FrameSetup();
-
-		qboolean skippingCin = Cvar_VariableIntegerValue( "skippingCinematic" ) != 0 ? qtrue : qfalse;
-		qboolean useScreenLayer = VR_UseScreenLayer() ? qtrue : qfalse;
-
-		if ( useScreenLayer )
-		{
-			TBXR_prepareEyeBuffer(0);
-
-			SCR_DrawScreenField( STEREO_CENTER );
-
-			if (com_speeds->integer)
-			{
-				re.EndFrame(&time_frontend, &time_backend);
-			}
-			else
-			{
-				re.EndFrame(NULL, NULL);
-			}
-
-			TBXR_finishEyeBuffer(0);
-		}
-		else if ( skippingCin )
-		{
-			for (int eye = 0; eye < 2; ++eye)
-			{
-				TBXR_prepareEyeBuffer(eye);
-				re.BeginFrame(eye == 0 ? STEREO_LEFT : STEREO_RIGHT);
-				SCR_FillRect(0, 0, 640, 480, colorBlack);
-				re.EndFrame(NULL, NULL);
-				TBXR_finishEyeBuffer(eye);
-			}
+			re.EndFrame(&time_frontend, &time_backend);
 		}
 		else
 		{
-			qboolean useStereoReplay = qtrue;
-			qboolean replayed = qfalse;
-
-			if (useStereoReplay &&
-				re.VR_BeginStereoReplayCapture && re.VR_ReplayStereoFrame &&
-				re.VR_BeginStereoReplayCapture())
-			{
-				qboolean replayFailed = qfalse;
-
-				vr.eye = 0;
-				vr.off_center_fov_x = 0.0f;
-				vr.off_center_fov_y = 0.0f;
-
-				SCR_DrawScreenField(STEREO_CENTER);
-
-				for (int eye = 0; eye < 2; ++eye)
-				{
-					TBXR_prepareEyeBuffer(eye);
-					if (!re.VR_ReplayStereoFrame(eye == 0 ? STEREO_LEFT : STEREO_RIGHT, eye == 1 ? qtrue : qfalse))
-					{
-						TBXR_finishEyeBuffer(eye);
-						if (re.VR_CancelStereoReplayCapture)
-						{
-							re.VR_CancelStereoReplayCapture();
-						}
-						replayFailed = qtrue;
-						break;
-					}
-					TBXR_finishEyeBuffer(eye);
-				}
-
-				replayed = replayFailed ? qfalse : qtrue;
-			}
-
-			if (!replayed)
-			{
-				for (int eye = 0; eye < 2; ++eye)
-				{
-					TBXR_prepareEyeBuffer(eye);
-					SCR_DrawScreenField(eye == 0 ? STEREO_LEFT : STEREO_RIGHT);
-					if (com_speeds->integer)
-					{
-						re.EndFrame(&time_frontend, &time_backend);
-					}
-					else
-					{
-						re.EndFrame(NULL, NULL);
-					}
-					TBXR_finishEyeBuffer(eye);
-				}
-			}
+			re.EndFrame(NULL, NULL);
 		}
-
-		//And we're done
-		re.SubmitStereoFrame();
-
-		recursive = 0;
 	}
 
-	recursive = 0;
+	scrUpdateDepth = 0;
 }
 
 // this stuff is only used by the savegame (SG) code for screenshots...
@@ -629,9 +529,12 @@ void SCR_UpdateScreen( void ) {
 
 static byte	bScreenData[SG_SCR_WIDTH * SG_SCR_HEIGHT * 4];
 static qboolean screenDataValid = qfalse;
+static byte saveScreenData[SG_SCR_WIDTH * SG_SCR_HEIGHT * 3];
+static qboolean saveScreenDataValid = qfalse;
 void SCR_UnprecacheScreenshot()
 {
 	screenDataValid = qfalse;
+	saveScreenDataValid = qfalse;
 }
 
 
@@ -650,6 +553,35 @@ void SCR_PrecacheScreenshot()
 
 	if (!Key_GetCatcher( ))
 	{
+		if (re.RequestSavePreview && re.ReadSavePreview)
+		{
+			// A fresh ordinary frame supplies the image while OpenXR still owns it.
+			// Do not recurse from UI refresh or capture a menu over the gameplay.
+			static bool capturing = false;
+			if (capturing || scrUpdateDepth) return;
+			const int captureStart = Sys_Milliseconds();
+			saveScreenDataValid = qfalse;
+			memset(saveScreenData, 0, sizeof(saveScreenData));
+			if (!re.RequestSavePreview(SG_SCR_WIDTH, SG_SCR_HEIGHT)) return;
+			capturing = true;
+			SCR_UpdateScreen();
+			const int frameEnd = Sys_Milliseconds();
+			saveScreenDataValid = re.ReadSavePreview(saveScreenData, SG_SCR_WIDTH, SG_SCR_HEIGHT);
+			screenDataValid = saveScreenDataValid;
+			if (screenDataValid)
+				for (int y = 0; y < SG_SCR_HEIGHT; ++y)
+					for (int x = 0; x < SG_SCR_WIDTH; ++x)
+					{
+						const byte *src = saveScreenData + ((SG_SCR_HEIGHT-1-y)*SG_SCR_WIDTH+x)*3;
+						byte *dst = bScreenData + (y*SG_SCR_WIDTH+x)*4;
+						memcpy(dst, src, 3);
+						dst[3] = 255;
+					}
+			capturing = false;
+			Com_Printf("save-preview-timing: frame=%dms total=%dms\n",
+				frameEnd-captureStart, Sys_Milliseconds()-captureStart);
+			return;
+		}
 		// in-game...
 		//
 //		SCR_UnprecacheScreenshot();
@@ -657,8 +589,21 @@ void SCR_PrecacheScreenshot()
 		S_ClearSoundBuffer();	// clear DMA etc because the following glReadPixels() call can take ages
 		re.GetScreenShot( (byte *) &bScreenData, SG_SCR_WIDTH, SG_SCR_HEIGHT);
 		screenDataValid = qtrue;
+		memcpy(saveScreenData, bScreenData, sizeof(saveScreenData));
+		saveScreenDataValid = qtrue;
 	}
 
+}
+
+byte *SCR_GetSaveScreenshot(qboolean *valid)
+{
+	const int catcher = Key_GetCatcher();
+	if (catcher & KEYCATCH_CONSOLE) saveScreenDataValid = qfalse;
+	// Menu saves reuse the frame captured before opening; quicksaves must not
+	// reuse an image from a previous visit to the menu.
+	if (!catcher || !saveScreenDataValid) SCR_PrecacheScreenshot();
+	if (valid) *valid = saveScreenDataValid;
+	return saveScreenData;
 }
 
 byte *SCR_GetScreenshot(qboolean *qValid)
@@ -676,6 +621,7 @@ byte *SCR_GetScreenshot(qboolean *qValid)
 //
 void SCR_SetScreenshot(const byte *pbData, int w, int h)
 {
+	saveScreenDataValid = qfalse;
 	if (w == SG_SCR_WIDTH && h == SG_SCR_HEIGHT)
 	{
 		screenDataValid = qtrue;

@@ -13,6 +13,9 @@ Authors		:	Simon Brown
 
 cvar_t	*vr_turn_mode;
 cvar_t	*vr_turn_angle;
+cvar_t *vr_mounted_yaw_speed;
+cvar_t *vr_mounted_pitch_speed;
+cvar_t *vr_thermal_throw_grace_ms;
 cvar_t	*vr_positional_factor;
 cvar_t	*vr_walkdirection;
 cvar_t	*vr_3rdperson_digital_direction;
@@ -66,6 +69,7 @@ float remote_movementForward;
 float remote_movementUp;
 float positional_movementSideways;
 float positional_movementForward;
+float mounted_aim_pitch;
 long long global_time;
 int ducked;
 vr_client_info_t vr;

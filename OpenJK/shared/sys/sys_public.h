@@ -161,9 +161,6 @@ typedef enum graphicsApi_e
 {
 	GRAPHICS_API_GENERIC,
 
-	// Only OpenGL needs special treatment..
-	GRAPHICS_API_OPENGL,
-
 	// Vulkan owns its device/swapchain outside the shared window layer.
 	GRAPHICS_API_VULKAN,
 } graphicsApi_t;
@@ -176,30 +173,9 @@ typedef struct window_s
 	graphicsApi_t api;
 } window_t;
 
-typedef enum glProfile_e
-{
-	GLPROFILE_COMPATIBILITY,
-	GLPROFILE_CORE,
-	GLPROFILE_ES,
-} glProfile_t;
-
-typedef enum glContextFlag_e
-{
-	GLCONTEXT_DEBUG = (1 << 1),
-} glContextFlag_t;
-
 typedef struct windowDesc_s
 {
 	graphicsApi_t api;
-
-	// Only used if api == GRAPHICS_API_OPENGL
-	struct gl_
-	{
-		int majorVersion;
-		int minorVersion;
-		glProfile_t profile;
-		uint32_t contextFlags;
-	} gl;
 
 	// Only used if api == GRAPHICS_API_VULKAN
 	struct vk_
@@ -213,7 +189,5 @@ window_t	WIN_Init( const windowDesc_t *desc, glconfig_t *glConfig );
 void		WIN_Present( window_t *window );
 void		WIN_SetGamma( glconfig_t *glConfig, byte red[256], byte green[256], byte blue[256] );
 void		WIN_Shutdown( void );
-void *		WIN_GL_GetProcAddress( const char *proc );
-qboolean	WIN_GL_ExtensionSupported( const char *extension );
 
 uint8_t ConvertUTF32ToExpectedCharset( uint32_t utf32 );

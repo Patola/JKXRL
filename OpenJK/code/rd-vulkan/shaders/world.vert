@@ -1,4 +1,7 @@
 #version 450
+#extension GL_GOOGLE_include_directive : require
+#include "deform.glsl"
+#include "specular.glsl"
 
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec4 inColor;
@@ -11,6 +14,7 @@ layout(location = 1) out vec2 vUv;
 layout(location = 2) out float vViewDepth;
 layout(location = 3) out vec3 vPosition;
 layout(location = 4) out vec3 vNormal;
+layout(location = 5) out float vSpecularAlpha;
 
 layout(push_constant) uniform WorldPush
 {
@@ -27,12 +31,21 @@ layout(push_constant) uniform WorldPush
 
 void main()
 {
+	vec3 position = deformPosition(inPosition, inNormal, inUv.x);
+	bool localFog = pc.stageFlags.w >= 15.0 && pc.stageFlags.w < 20.0;
 	vColor = inColor;
+	vSpecularAlpha = 1.0;
+	if (pc.stageFlags.w < 10.0 && pc.stageFlags.x >= 4.0)
+	{
+		vec4 eye = inverse(pc.mvp) * vec4(0.0, 0.0, -1.0, 0.0);
+		vSpecularAlpha = materialSpecularAlpha(position, deformNormal(inNormal),
+			eye.xyz / eye.w, deform.specularLight);
+	}
 	vec2 turbulence = vec2(
-		sin(((inPosition.x + inPosition.z) / 1024.0 + pc.stageFlags.z) * 6.28318530718),
-		sin((inPosition.y / 1024.0 + pc.stageFlags.z) * 6.28318530718)) * pc.stageFlags.y;
+		sin(((position.x + position.z) / 1024.0 + pc.stageFlags.z) * 6.28318530718),
+		sin((position.y / 1024.0 + pc.stageFlags.z) * 6.28318530718)) * pc.stageFlags.y;
 	vec2 generatedUv;
-	if (pc.stageFlags.w >= 20.0)
+	if (pc.stageFlags.w >= 20.0 || localFog)
 	{
 		generatedUv = inUv;
 	}
@@ -43,8 +56,8 @@ void main()
 		// legacy environment-map calculation to remain in model space.
 		vec4 localEyeHomogeneous = inverse(pc.mvp) * vec4(0.0, 0.0, -1.0, 0.0);
 		vec3 localEye = localEyeHomogeneous.xyz / localEyeHomogeneous.w;
-		vec3 viewer = normalize(localEye - inPosition);
-		vec3 normal = normalize(inNormal);
+		vec3 viewer = normalize(localEye - position);
+		vec3 normal = normalize(deformNormal(inNormal));
 		float reflection = dot(normal, viewer);
 		generatedUv = vec2(normal.x * reflection - 0.5 * viewer.x,
 			normal.y * reflection - 0.5 * viewer.y);
@@ -53,9 +66,9 @@ void main()
 	{
 		generatedUv = mix(inUv, inLightmapUv, pc.useLightmap);
 	}
-	vUv = generatedUv * pc.uvScale + pc.uvOffset + turbulence;
-	gl_Position = pc.mvp * vec4(inPosition, 1.0);
+	vUv = localFog ? inUv : generatedUv * pc.uvScale + pc.uvOffset + turbulence;
+	gl_Position = pc.mvp * vec4(position, 1.0);
 	vViewDepth = abs(gl_Position.w);
-	vPosition = inPosition;
-	vNormal = inNormal;
+	vPosition = position;
+	vNormal = deformNormal(inNormal);
 }

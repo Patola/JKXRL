@@ -886,6 +886,8 @@ void CG_AddViewWeapon (playerState_t *ps);
 void CG_DrawWeaponSelect( void );
 
 void CG_DrawItemSelector( void );
+void CG_ItemSelectorCancel_f( void );
+void CG_ItemSelectorReleaseTime( void );
 
 void CG_OutOfAmmoChange( void );	// should this be in pmove?
 void CG_Chunks( int owner, vec3_t origin, const vec3_t normal, const vec3_t min, const vec3_t maxs, 

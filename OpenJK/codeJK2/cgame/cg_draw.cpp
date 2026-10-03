@@ -30,6 +30,8 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "../game/objectives.h"
 #include "bg_local.h"
 #include <VrClientInfo.h>
+#include <VrForceHint.h>
+#include "../game/wp_saber.h"
 
 #include "FxUtil.h"
 
@@ -1857,8 +1859,28 @@ void CG_ScanForForceCrosshairEntity( )
 CG_DrawCrosshair3D
 =================
 */
+extern float forcePushPullRadius[];
+static bool CG_ForceHintAtTrace( const trace_t &trace )
+{
+	if ( !cg_crosshairForceHint.integer || trace.entityNum < 0 || trace.entityNum >= ENTITYNUM_WORLD ||
+		!g_entities[0].client )
+		return false;
+	const gentity_t &target = g_entities[trace.entityNum];
+	if ( !target.inuse || target.s.eType != ET_MOVER || !target.classname )
+		return false;
+	const VrForceHintTarget kind = !Q_stricmp( target.classname, "func_door" ) ? VrForceHintTarget::Door :
+		!Q_stricmp( target.classname, "func_static" ) ? VrForceHintTarget::Static : VrForceHintTarget::None;
+	const playerState_t &ps = g_entities[0].client->ps;
+	const int push = ps.forcePowerLevel[FP_PUSH], pull = ps.forcePowerLevel[FP_PULL];
+	return VR_ForceHintEligible( kind, target.spawnflags,
+		push > 0 && push < NUM_FORCE_POWER_LEVELS ? forcePushPullRadius[push] : 0,
+		pull > 0 && pull < NUM_FORCE_POWER_LEVELS ? forcePushPullRadius[pull] : 0,
+		Distance( ps.origin, trace.endpos ) );
+}
+
 static void CG_DrawCrosshair3D(int type) // 0 - force, 1 - weapons
 {
+	const bool mountedGun = (cg.snap->ps.eFlags & EF_LOCKED_TO_WEAPON) && !cg.snap->ps.viewEntity;
 	float		w;
 	qhandle_t	hShader;
 	float		f;
@@ -1868,8 +1890,8 @@ static void CG_DrawCrosshair3D(int type) // 0 - force, 1 - weapons
 	vec3_t endpos;
 	refEntity_t ent;
 
-	if (( type == 1 && !cg_drawCrosshair.integer) ||
-			(type == 0 && !cg_drawCrosshairForce.integer)) {
+	if ((type == 0 && mountedGun) || ( type == 1 && !cg_drawCrosshair.integer && !mountedGun) ||
+			(type == 0 && !cg_drawCrosshairForce.integer && !cg_crosshairForceHint.integer)) {
 		return;
 	}
 
@@ -1905,9 +1927,7 @@ static void CG_DrawCrosshair3D(int type) // 0 - force, 1 - weapons
 
 	if (type == 0)
 	{
-		if (showPowers[cg.forcepowerSelect] == FP_HEAL ||
-				showPowers[cg.forcepowerSelect] == FP_SPEED ||
-				vr->weapon_stabilised)
+		if (vr->weapon_stabilised)
 		{
 			return;
 		}
@@ -1928,6 +1948,8 @@ static void CG_DrawCrosshair3D(int type) // 0 - force, 1 - weapons
 	if (ca < 0) {
 		ca = 0;
 	}
+	if (mountedGun && type == 1 && ca == 0)
+		ca = 1;
 	hShader = cgs.media.crosshairShader[ ca % NUM_CROSSHAIRS ];
 
 	float xmax = 64.0f * tan(cg.refdef.fov_x * M_PI / 360.0f);
@@ -1937,15 +1959,26 @@ static void CG_DrawCrosshair3D(int type) // 0 - force, 1 - weapons
 	{
 		BG_CalculateVROffHandPosition(origin, weaponangles);
 	}
+	else if (mountedGun)
+	{
+		VectorCopy(g_entities[0].client->renderInfo.muzzlePoint, origin);
+		VectorCopy(g_entities[0].client->ps.viewangles, weaponangles);
+	}
 	else
 	{
 		BG_CalculateVRWeaponPosition(origin, weaponangles);
 	}
 	AngleVectors(weaponangles, forward, NULL, NULL);
 	VectorMA(origin, 2048, forward, endpos);
-	CG_Trace(&trace, origin, NULL, NULL, endpos, 0, MASK_SHOT);
+	const int ignore = mountedGun && g_entities[0].owner ? g_entities[0].owner->s.number : 0;
+	CG_Trace(&trace, origin, NULL, NULL, endpos, ignore, MASK_SHOT);
+	const bool forceHint = type == 0 && CG_ForceHintAtTrace( trace );
+	const bool drawCursor = type != 0 || (cg_drawCrosshairForce.integer &&
+		showPowers[cg.forcepowerSelect] != FP_HEAL && showPowers[cg.forcepowerSelect] != FP_SPEED);
+	if ( !drawCursor && !forceHint )
+		return;
 
-	if (trace.fraction != 1.0f) {
+	if (trace.fraction != 1.0f || mountedGun) {
 		memset(&ent, 0, sizeof(ent));
 		ent.reType = RT_SPRITE;
 		ent.renderfx = RF_FIRST_PERSON;
@@ -1953,6 +1986,8 @@ static void CG_DrawCrosshair3D(int type) // 0 - force, 1 - weapons
 		VectorCopy(trace.endpos, ent.origin);
 
 		ent.radius = w / 640 * xmax * trace.fraction * 2048 / 64.0f;
+		if (mountedGun)
+			ent.radius = w / 640 * xmax * Distance(cg.refdef.vieworg, trace.endpos) / 64.0f;
         ent.customShader = hShader;
 		if(type == 0 && !cg_forceCrosshair) //Not Active Force Crosshair
 		{
@@ -1974,7 +2009,21 @@ static void CG_DrawCrosshair3D(int type) // 0 - force, 1 - weapons
 		}
 		ent.shaderRGBA[3] = 255;
 
-		cgi_R_AddRefEntityToScene(&ent);
+		if ( drawCursor )
+			cgi_R_AddRefEntityToScene(&ent);
+		if ( forceHint )
+		{
+			if ( !cgs.media.forceCoronaShader )
+				cgs.media.forceCoronaShader = cgi_R_RegisterShaderNoMip( "gfx/hud/force_swirl" );
+			// Use the shipped counter-rotating rings at the hand ray's target,
+			// offset slightly towards the hand to avoid coplanar flicker.
+			VectorMA( trace.endpos, -1.0f, forward, ent.origin );
+			ent.radius = VR_ForceHintRadius( w, cg.refdef.fov_x, Distance( origin, trace.endpos ) );
+			ent.customShader = cgs.media.forceCoronaShader;
+			const byte intensity = static_cast<byte>( 255 * (0.35f + 0.08f * sin(cg.time * 0.001f)) );
+			ent.shaderRGBA[0] = ent.shaderRGBA[1] = ent.shaderRGBA[2] = intensity;
+			cgi_R_AddRefEntityToScene(&ent);
+		}
 	}
 }
 
@@ -2545,6 +2594,17 @@ static qboolean CG_RenderingFromMiscCamera()
 			{
 				CG_DrawPic( 0, 0, 640, 480, cgi_R_RegisterShader( "gfx/2d/brokenCamera" ));
 			}
+			const char *hints[] = {
+				"Turning stick up/down: next camera",
+				"Jump button: exit camera",
+			};
+			for ( int line = 0; line < 2; ++line )
+			{
+				const float scale = 0.7f;
+				const int width = cgi_R_Font_StrLenPixels( hints[line], cgs.media.qhFontSmall, scale );
+				cgi_R_Font_DrawString( ( SCREEN_WIDTH - width ) / 2, 330 + line * 24,
+					hints[line], colorTable[CT_LTGOLD1], cgs.media.qhFontSmall, -1, scale );
+			}
 			// don't render other 2d stuff
 			return qtrue;
 		}
@@ -2574,8 +2634,19 @@ qboolean cg_usingInFrontOf = qfalse;
 qboolean CanUseInfrontOf(gentity_t*);
 static void CG_UseIcon()
 {
+	cg_usingInFrontOf = CanUseInfrontOf(cg_entities[cg.snap->ps.clientNum].gent);
+	if (vr)
+	{
+		if (cg_usingInFrontOf)
+		{
+			vr->useGestureState |= USE_GESTURE_TARGET;
+		}
+		else
+		{
+			vr->useGestureState &= ~USE_GESTURE_TARGET;
+		}
+	}
 	if (cg_usableObjectsHint.integer) {
-		cg_usingInFrontOf = CanUseInfrontOf(cg_entities[cg.snap->ps.clientNum].gent);
 		if (cg_usingInFrontOf)
 		{
 			cgi_R_SetColor( NULL );
@@ -3088,6 +3159,14 @@ void CG_DrawActive( stereoFrame_t stereoView ) {
 		cg.refdef.viewangles[YAW] = vr->clientviewangles[YAW] +
 				(vr->hmdorientation[YAW] - vr->hmdorientation_first[YAW]) +
 				SHORT2ANGLE(cg.snap->ps.delta_angles[YAW]);
+		AnglesToAxis(cg.refdef.viewangles, cg.refdef.viewaxis);
+	}
+
+	if (vr->emplaced_gun && !in_camera && !in_misccamera)
+	{
+		VectorCopy(vr->hmdorientation, cg.refdef.viewangles);
+		cg.refdef.viewangles[YAW] = cg.predicted_player_state.viewangles[YAW] +
+			AngleSubtract(vr->hmdorientation[YAW], vr->hmdorientation_first[YAW]);
 		AnglesToAxis(cg.refdef.viewangles, cg.refdef.viewaxis);
 	}
 

@@ -1,191 +1,161 @@
-# JKXR on Linux (native PCVR)
+# JKXRL 0.6 on Linux (native PCVR)
 
-This fork adds a **native Linux PCVR build** of JKXR — the single-player VR
-ports of **Star Wars Jedi Knight: Jedi Academy** and **Star Wars Jedi Knight
-II: Jedi Outcast** — using OpenXR with the **X11/GLX** graphics binding.
-Upstream JKXR only ships Windows (PCVR) and Android (standalone) builds.
+This fork runs the single-player VR versions of Jedi Academy and Jedi Outcast
+using C++17, SDL3, Vulkan 1.3/1.4 and OpenXR's Vulkan graphics binding.
+The renderer uses Vulkan 1.4 where supported and otherwise requires 1.3.
+Multiplayer and the former rendering backends are not supported build targets.
 
-Both games have been built, run and played end-to-end on Arch Linux
-(GCC 16, CMake 4.x, AMD RX 7900 XTX / Mesa, WiVRn runtime): menus, motion
-controllers, gameplay, in-engine and pre-rendered cutscenes, sound/music,
-save/load.
+Both games have passed focused headset tests on Arch Linux, AMD RX 7900 XTX / Mesa,
+and Quest 3 via WiVRn: controllers, cinematics/audio, combat, saves, shadows,
+spatial console and selected levels. Complete campaign coverage is still pending.
 
-You need **your own copy of the games** (Steam, GOG, original CDs). Only the
-engine and VR assets are provided here.
+You need your own legally obtained game data. The package contains the engine
+and VR assets, not the original games.
 
-## 1. Requirements
+## Requirements
 
-A C/C++ toolchain plus development packages for SDL2, OpenXR, OpenGL/GLX,
-X11, zlib, libpng, libjpeg and GLU.
-
-Arch Linux:
+Use a C++17 compiler, CMake, SDL3, OpenXR development headers/loader, Vulkan
+headers/loader, glslangValidator, zlib, libpng and libjpeg. Arch Linux:
 
 ```sh
-sudo pacman -S --needed base-devel cmake zip \
-    sdl2 openxr glu libglvnd libx11 zlib libpng libjpeg-turbo mesa
+sudo pacman -S --needed base-devel cmake git zip sdl3 openxr \
+    vulkan-headers vulkan-icd-loader glslang shaderc zlib libpng libjpeg-turbo
 ```
 
-Debian/Ubuntu (approximate):
+Install the appropriate Vulkan driver for your GPU as well. Connect your headset
+to an active OpenXR runtime exposing `XR_KHR_vulkan_enable2` (WiVRn is the primary
+tested runtime). The session/device/swapchains belong to the Vulkan renderer;
+they do not depend on a desktop graphics context. The launchers default to
+SDL's X11/XWayland driver for the tested desktop input window. An explicit
+`SDL_VIDEODRIVER` override is respected, but other drivers need their own tests.
 
-```sh
-sudo apt install build-essential cmake zip libsdl2-dev libopenxr-dev \
-    libglu1-mesa-dev libgl-dev libx11-dev zlib1g-dev libpng-dev libjpeg-dev
-```
-
-At runtime you also need:
-
-- An **OpenXR runtime** supporting the OpenGL (`XR_KHR_opengl_enable`)
-  binding: **WiVRn** (streams to standalone headsets), **Monado**, or
-  **SteamVR**. Make sure it is the *active* runtime
-  (`~/.config/openxr/1/active_runtime.json`) — WiVRn's dashboard and most
-  runtimes set this up for you.
-- An **X11 session or XWayland**. The OpenXR session uses the X11/GLX
-  binding; under Wayland just run with `SDL_VIDEODRIVER=x11` (the
-  instructions below include it).
-
-## 2. Building
-
-One command builds both games' engines, renderers, game code and packs the
-VR asset `.pk3` files:
+## Build
 
 ```sh
 ./build_linux.sh
+# Optional: different directory, bounded parallelism, automatic tests
+BUILD_DIR=OpenJK/build-clean JOBS=12 ./build_linux.sh -DBuildTests=ON
+ctest --test-dir OpenJK/build-clean --output-on-failure
 ```
 
-(Manual CMake invocations: see the script — the project lives in
-`OpenJK/`, the full cross-platform source tree.)
+The default build directory is `OpenJK/build-linux`. For migration from an older
+checkout, use a fresh directory instead of reusing cached flags or stale modules.
+The script builds both engines, both Vulkan renderers, both game modules and the
+VR asset packs. Direct CMake defaults also select these single-player targets.
+Old multiplayer/legacy renderer build options must be OFF.
 
-Artifacts:
+| Artifact (relative to build directory) | Purpose |
+|---|---|
+| `openjk_sp.x86_64` | JKA engine |
+| `openjo_sp.x86_64` | JKO engine |
+| `code/rd-vulkan/rdsp-vulkan_x86_64.so` | JKA renderer |
+| `code/rd-vulkan/rdjosp-vulkan_x86_64.so` | JKO renderer |
+| `code/game/jagamex86_64.so` | JKA game module |
+| `codeJK2/game/jospgamex86_64.so` | JKO game module |
 
-| File | What it is |
-|------|------------|
-| `build-linux/openjk_sp.x86_64` | Jedi Academy SP VR engine |
-| `build-linux/openjo_sp.x86_64` | Jedi Outcast SP VR engine |
-| `build-linux/code/rd-vanilla/rdsp-vanilla_x86_64.so` | JKA renderer |
-| `build-linux/code/rd-vanilla/rdjosp-vanilla_x86_64.so` | JKO renderer |
-| `build-linux/code/game/jagamex86_64.so` | JKA game code |
-| `build-linux/codeJK2/game/jospgamex86_64.so` | JKO game code |
-| `assets/z_vr_assets_{base,jka,jko}.pk3` | VR assets (menus, VR weapon models, configs) |
+Keep these components from the same build. The engine rejects incompatible
+renderer API versions; replacing only one component is not a supported upgrade.
+The engine migrates older `cl_renderer` settings to the matching Vulkan renderer.
 
-## 3. Installing into your game directory
+## Manual Installation
 
-Find your game's **GameData** directory — the one containing `base/` with
-`assets0.pk3` etc. The location varies with how you installed the game:
-
-- Default Steam library:
-  `~/.local/share/Steam/steamapps/common/Jedi Academy/GameData`
-  `~/.local/share/Steam/steamapps/common/Jedi Outcast/GameData`
-- Any custom Steam library, e.g.:
-  `/games/SteamLibrary/steamapps/common/Jedi Academy/GameData`
-- GOG/innoextract installs: wherever `GameData/base/assets0.pk3` ends up.
-
-Then:
+Find the GameData folder containing `base/assets0.pk3`, then run:
 
 ```sh
 ./install_linux.sh jka "/path/to/Jedi Academy/GameData"
 ./install_linux.sh jko "/path/to/Jedi Outcast/GameData"
 ```
 
-### File layout (what the script does / manual install)
+Set `BUILD_DIR` for a nondefault build directory. Engines and renderers go beside
+each other in GameData. Game modules and VR pk3s go in GameData/base. If a per-user
+base directory exists, the installer refreshes its game module and VR packs too,
+because that directory has higher search priority. Saves and configs are retained.
+Old root-level game modules are no longer the installation target.
 
-Binaries go in **GameData/** (the engine looks for the renderer and game
-`.so` next to the executable), pk3s go in **GameData/base/**:
-
-```
-GameData/
-├── openjk_sp.x86_64                  # JKA engine    (JKO: openjo_sp.x86_64)
-├── rdsp-vanilla_x86_64.so            # JKA renderer  (JKO: rdjosp-vanilla_x86_64.so)
-├── jagamex86_64.so                   # JKA game code (JKO: jospgamex86_64.so)
-└── base/
-    ├── assets0.pk3 ... assets3.pk3   # YOUR game data (from Steam/GOG)
-    ├── z_vr_assets_base.pk3          # VR assets (both games need this one)
-    ├── z_vr_assets_jka.pk3           # game-specific VR assets (JKO: z_vr_assets_jko.pk3)
-    └── z_vr_weapons_jka_Crusty_and_Elin.pk3   # VR weapon models (JKO: ..._jko_...)
-```
-
-> The pk3s can alternatively go into the engine's per-user home path, which
-> has the highest search priority and avoids touching the game directory:
-> `~/.local/share/openjk/base/` for JKA, `~/.local/share/openjo/base/` for
-> JKO. (This is what the Arch package launchers do.)
-
-### Running
-
-Start your OpenXR runtime (e.g. WiVRn dashboard + headset client), then:
+Start the runtime and connect the headset before running:
 
 ```sh
 cd "/path/to/Jedi Academy/GameData"
 SDL_VIDEODRIVER=x11 ./openjk_sp.x86_64
 ```
 
-```sh
-cd "/path/to/Jedi Outcast/GameData"
-SDL_VIDEODRIVER=x11 ./openjo_sp.x86_64
-```
-
-Config and savegames live in `~/.local/share/openjk/` (JKA) and
-`~/.local/share/openjo/` (JKO). To run from elsewhere, pass
+Use `openjo_sp.x86_64` for JKO. From another working directory, pass
 `+set fs_basepath "/path/to/GameData"`.
 
-## 4. Arch Linux package (PKGBUILD)
+## Arch Package
 
-A PKGBUILD is provided in [`packaging/arch/`](packaging/arch/):
+Install the stable release from GitHub:
+
+```sh
+sudo pacman -U ./jkxrl-0.6-1-x86_64.pkg.tar.zst
+```
+
+Accept replacement of `jkxrl-git` if installed. The package name is now `jkxrl`;
+launcher names, environment variables and save/config locations are unchanged.
+To build the same tagged release yourself:
 
 ```sh
 cd packaging/arch
 makepkg -si
 ```
 
-It installs into the system (root-owned) paths:
+The package source is pinned to `v0.6`, not a moving development branch.
+Local uncommitted changes are not included in a normal git-source package build.
 
-- `/usr/lib/jkxr/` — engines and renderer `.so` modules
-- `/usr/lib/jkxr/base/` — JKA/JKO gamecode `.so` modules
-- `/usr/share/jkxr/{jka,jko}/` — VR asset pk3s
-- `/usr/bin/jkxr-jka`, `/usr/bin/jkxr-jko` — launchers
+Installed layout:
 
-Since your game data stays wherever Steam/GOG put it, the launchers locate
-it at run time:
+- `/usr/lib/jkxr/`: two engines and two Vulkan renderers.
+- `/usr/lib/jkxr/base/`: two game modules.
+- `/usr/share/jkxr/{jka,jko}/`: VR asset packs.
+- `/usr/bin/jkxr-jka`, `/usr/bin/jkxr-jko`: launchers.
 
-- They auto-detect the default Steam library
-  (`~/.local/share/Steam/steamapps/common/<game>/GameData`).
-- For any other location, point them at it with an environment variable:
+The launchers detect the default Steam library or accept explicit GameData paths:
 
 ```sh
-JKXR_JKA_GAMEDATA="/games/SteamLibrary/steamapps/common/Jedi Academy/GameData" jkxr-jka
-JKXR_JKO_GAMEDATA="/games/SteamLibrary/steamapps/common/Jedi Outcast/GameData" jkxr-jko
+JKXR_JKA_GAMEDATA="/games/SteamLibrary/steamapps/common/Jedi Academy/GameData" \
+    jkxr-jka 2>&1 | tee /tmp/jka.log
+JKXR_JKO_GAMEDATA="/games/SteamLibrary/steamapps/common/Jedi Outcast/GameData" \
+    jkxr-jko 2>&1 | tee /tmp/jko.log
 ```
 
-(Export the variable in your shell profile to make it permanent.) The
-launchers copy the VR pk3s into `~/.local/share/openjk|openjo/base` on
-start — nothing is ever written to the game directory or anywhere root-owned
-at run time.
+Steam launch options remain supported:
 
-## 5. Technical notes / status
+```sh
+cmd=(%command%); JKXR_JKA_GAMEDATA="$(dirname "${cmd[-1]}")" jkxr-jka
+cmd=(%command%); JKXR_JKO_GAMEDATA="$(dirname "${cmd[-1]}")" jkxr-jko
+```
 
-- The Linux OpenXR glue lives in `JKXR/linux/` (ported from the original
-  Windows OpenXR glue, since removed); the OpenXR session is created with
-  `XrGraphicsBindingOpenGLXlibKHR` from the SDL-created GLX context.
-- The release build uses `-O1 -fno-strict-aliasing`. The latter is
-  **required**: this Quake-derived code type-puns through incompatible
-  pointer types, which GCC's strict aliasing (enabled at `-O2`/`-O3`)
-  miscompiles into crashes (e.g. in the cgame effects system). `-O1` matches
-  the proven Android build as a hedge against other latent UB in this
-  20-year-old codebase. The PKGBUILD also disables LTO for the same reason.
-- Pre-rendered (ROQ) video cinematics — including the opening text crawls —
-  are presented on the virtual screen (quad layer) rather than per-eye: the
-  desktop rd-vanilla renderer lacks the stereo-replay feature the Android
-  renderer uses for per-eye video. In-engine cutscenes remain fully
-  immersive (`vr_immersive_cinematics`).
-- Multiplayer is not built (SP VR only, same as upstream JKXR).
+Launchers content-compare and synchronize game modules and pk3s into
+`${XDG_DATA_HOME:-$HOME/.local/share}/openjk/base` or `openjo/base` on each launch.
+They do not write to the original game directory. User settings/saves remain in
+these per-game home paths.
+
+## Binary archives
+
+The release tar.gz and zip contain the same `usr/` runtime tree as the Arch
+package, plus `INSTALL.txt`. They link against current Arch shared libraries;
+they are not static binaries and are not guaranteed to run on older distros.
+Prefer your package manager or build from source. Do not overwrite a
+package-managed installation by manually copying the archive over it.
+
+Game data is not redistributed. Source is available at the matching Git tag;
+third-party VR asset credits remain in `assets/packaged_mods_credits.txt`.
 
 ## Troubleshooting
 
-- **"No VR Headset Detected" dialog** — no active OpenXR runtime, or the
-  runtime doesn't expose `XR_KHR_opengl_enable`. Check
-  `~/.config/openxr/1/active_runtime.json` and that the runtime is running
-  (for WiVRn: server running *and* headset client connected).
-- **"no current GLX context" error** — you're on native Wayland; run with
-  `SDL_VIDEODRIVER=x11` (XWayland).
-- **"Failed to load ... library"** — the renderer/game `.so` files are not
-  next to the engine binary (or in `fs_basepath`). See the layout above.
-- **Menus missing / vanilla menus shown** — the `z_vr_assets_*.pk3` files
-  are not in a searched `base/` directory.
+- No headset/session: check the active OpenXR runtime and connected headset.
+- Missing library or renderer API mismatch: reinstall all runtime components from
+  one build, then launch through the updated launcher to refresh the home module.
+- Missing menus: verify that all three VR pk3s for the game are synchronized.
+- No desktop keyboard focus: retain the tested `SDL_VIDEODRIVER=x11` setting.
+
+The build retains `-fno-strict-aliasing` and conservative engine optimization.
+Do not enable package-wide LTO or substitute aggressive compiler flags during
+this cleanup. Performance changes are a separate, measured step.
+
+## Console settings
+
+See the [Console Variable Reference](OpenJK/docs/console-variables.md) for the
+categorized source inventory, reviewed VR/Vulkan settings, flag meanings and
+instructions for changing or resetting values. No headset is needed to generate
+or validate that documentation.

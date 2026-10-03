@@ -1,5 +1,8 @@
 extern cvar_t	*vr_turn_mode;
 extern cvar_t	*vr_turn_angle;
+extern cvar_t *vr_mounted_yaw_speed;
+extern cvar_t *vr_mounted_pitch_speed;
+extern cvar_t *vr_thermal_throw_grace_ms;
 extern cvar_t	*vr_positional_factor;
 extern cvar_t	*vr_walkdirection;
 extern cvar_t	*vr_3rdperson_digital_direction;

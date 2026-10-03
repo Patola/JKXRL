@@ -470,6 +470,8 @@ cgameImport_t CL_ConvertJK2SysCall( cgameJK2Import_t import )
 		case CG_HAPTICEVENT_JK2:
 			return CG_HAPTICEVENT;
 			break;
+		case CG_R_GET_BMODEL_GLASS_POLYGON_JK2:
+			return CG_R_GET_BMODEL_GLASS_POLYGON;
 		case CG_ARGC_JK2:
 			return CG_ARGC;
 			break;
@@ -1118,6 +1120,9 @@ Ghoul2 Insert End
 	case CG_R_WORLD_EFFECT_COMMAND:
 		re.WorldEffectCommand( (const char *) VMA(1) );
 		return 0;
+	case CG_R_GET_BMODEL_GLASS_POLYGON:
+		return re.GetBModelGlassPolygon ? re.GetBModelGlassPolygon(
+			args[1], (float (*)[3])VMA(2), args[3], (float *)VMA(4)) : 0;
 
 	case CG_CIN_PLAYCINEMATIC:
 	  return CIN_PlayCinematic( (const char *) VMA(1), args[2], args[3], args[4], args[5], args[6], (const char *) VMA(7));
@@ -1675,4 +1680,3 @@ void CL_SetCGameTime( void ) {
 		CL_AdjustTimeDelta();
 	}
 }
-

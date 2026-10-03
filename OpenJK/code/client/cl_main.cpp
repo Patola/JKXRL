@@ -108,7 +108,7 @@ static void CL_CopyControllerState(
 		input->Buttons |= xrButton_GripTrigger;
 	}
 
-	tracking->Active = source->active ? GL_TRUE : GL_FALSE;
+	tracking->Active = source->active != 0;
 	if ( !source->active )
 	{
 		return;
@@ -300,6 +300,8 @@ Also called by Com_Error
 =================
 */
 void CL_FlushMemory( void ) {
+	// Retire the spatial console before its scene/renderer resources disappear.
+	Con_Close();
 
 	// clear sounds (moved higher up within this func to avoid the odd sound stutter)
 	S_DisableSounds();
@@ -413,6 +415,7 @@ void CL_Disconnect( void ) {
 	if ( !com_cl_running || !com_cl_running->integer ) {
 		return;
 	}
+	Con_Close();
 
 	if (cls.uiStarted)
 		UI_SetActiveMenu( NULL,NULL );
@@ -1053,6 +1056,7 @@ CL_ShutdownRef
 ============
 */
 static void CL_ShutdownRef( qboolean restarting ) {
+	Con_Close();
 	if ( re.Shutdown ) {
 		re.Shutdown( qtrue, restarting );
 	}
@@ -1233,20 +1237,10 @@ static CMiniHeap *GetG2VertSpaceServer( void ) {
 	return G2VertSpaceServer;
 }
 
-// Windows and desktop (Linux/macOS) use the vanilla renderer; only Android
-// uses the GLES renderer.
-#if (defined(__linux__))
 #ifdef JK2_MODE
-#define DEFAULT_RENDER_LIBRARY	"rdjosp-vanilla"
+#define DEFAULT_RENDER_LIBRARY "rdjosp-vulkan"
 #else
-#define DEFAULT_RENDER_LIBRARY	"rdsp-vanilla"
-#endif
-#else
-#ifdef JK2_MODE
-#define DEFAULT_RENDER_LIBRARY	"rd-gles-jo"
-#else
-#define DEFAULT_RENDER_LIBRARY	"rd-gles-ja"
-#endif
+#define DEFAULT_RENDER_LIBRARY "rdsp-vulkan"
 #endif
 
 void CL_InitRef( void ) {
@@ -1256,7 +1250,13 @@ void CL_InitRef( void ) {
 	GetRefAPI_t	GetRefAPI;
 
 	Com_Printf( "----- Initializing Renderer ----\n" );
-    cl_renderer = Cvar_Get( "cl_renderer", DEFAULT_RENDER_LIBRARY, CVAR_ARCHIVE|CVAR_LATCH|CVAR_PROTECTED );
+	cl_renderer = Cvar_Get( "cl_renderer", DEFAULT_RENDER_LIBRARY, CVAR_ARCHIVE|CVAR_LATCH|CVAR_PROTECTED );
+	if (strcmp(cl_renderer->string, DEFAULT_RENDER_LIBRARY) != 0)
+	{
+		Com_Printf("Replacing unsupported renderer '%s' with '%s'\n",
+			cl_renderer->string, DEFAULT_RENDER_LIBRARY);
+		Cvar_Set2("cl_renderer", DEFAULT_RENDER_LIBRARY, qtrue);
+	}
 
 	Com_sprintf( dllName, sizeof( dllName ), "%s_" ARCH_STRING DLL_EXT, cl_renderer->string );
 
@@ -1331,8 +1331,6 @@ void CL_InitRef( void ) {
 	rit.WIN_SetGamma = WIN_SetGamma;
     rit.WIN_Shutdown = WIN_Shutdown;
     rit.WIN_Present = WIN_Present;
-	rit.GL_GetProcAddress = WIN_GL_GetProcAddress;
-	rit.GL_ExtensionSupported = WIN_GL_ExtensionSupported;
 
 	rit.PD_Load = PD_Load;
 	rit.PD_Store = PD_Store;
@@ -1358,9 +1356,6 @@ void CL_InitRef( void ) {
 	rit.saved_game = &ojk::SavedGame::get_instance();
 
 	rit.TBXR_useScreenLayer = VR_UseScreenLayer;
-	rit.TBXR_GetVRProjection = VR_GetVRProjection;
-	rit.TBXR_GetFovTangentsForEye = VR_GetFovTangentsForEye;
-	rit.TBXR_GetEyeStereoSeparation = VR_GetEyeStereoSeparation;
 	rit.TBXR_UpdateFov = CL_TBXR_UpdateFov;
 	rit.TBXR_UpdateHMDPose = CL_TBXR_UpdateHMDPose;
 	rit.TBXR_UpdateControllers = CL_TBXR_UpdateControllers;

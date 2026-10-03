@@ -27,26 +27,6 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "sys/sys_local.h"
 #include "sdl_icon.h"
 
-
-#if defined(__linux__)
-
-// OpenXR Header - core types only (xr_result helper below). No platform
-// graphics binding is needed here, so XR_USE_PLATFORM_XLIB is deliberately
-// left undefined to avoid pulling in Xlib's macros.
-#ifndef XR_USE_GRAPHICS_API_OPENGL
-#define XR_USE_GRAPHICS_API_OPENGL
-#endif
-#include <openxr.h>
-#include <openxr_platform.h>
-#include <GL/gl.h>
-#include <GL/glext.h>
-
-#define GL_RGBA16F                        0x881A
-
-
-#endif
-
-
 enum rserr_t
 {
 	RSERR_OK,
@@ -58,13 +38,11 @@ enum rserr_t
 };
 
 static SDL_Window *screen = NULL;
-static SDL_GLContext opengl_context;
 static VkInstance vulkanInstance = VK_NULL_HANDLE;
 static VkSurfaceKHR vulkanSurface = VK_NULL_HANDLE;
 static float displayAspect;
 
 cvar_t *r_sdlDriver;
-cvar_t *r_allowSoftwareGL;
 
 // Window cvars
 cvar_t	*r_fullscreen = 0;
@@ -155,23 +133,16 @@ static void R_ModeList_f( void )
 
 /*
 ===============
-GLimp_Minimize
+WIN_Minimize
 
 Minimize the game so that user is back at the desktop
 ===============
 */
-void GLimp_Minimize(void)
+void WIN_Minimize(void)
 {
 	SDL_MinimizeWindow( screen );
 }
 
-
-void WIN_SwapWindow()
-{
-	SDL_GL_SwapWindow(screen);
-}
-
-void TBXR_submitFrame();
 
 static void WIN_DestroyVulkanSurface()
 {
@@ -186,21 +157,6 @@ static void WIN_DestroyVulkanSurface()
 
 void WIN_Present( window_t *window )
 {
-	if ( window->api == GRAPHICS_API_OPENGL )
-	{
-		TBXR_submitFrame();
-
-
-		if ( r_swapInterval->modified )
-		{
-			r_swapInterval->modified = qfalse;
-			if ( !SDL_GL_SetSwapInterval( r_swapInterval->integer ) )
-			{
-				Com_DPrintf( "SDL_GL_SetSwapInterval failed: %s\n", SDL_GetError() );
-			}
-		}
-	}
-
 	if ( r_fullscreen->modified )
 	{
 		bool	fullscreen;
@@ -237,10 +193,10 @@ void WIN_Present( window_t *window )
 
 /*
 ===============
-GLimp_CompareModes
+WIN_CompareModes
 ===============
 */
-static int GLimp_CompareModes( const void *a, const void *b )
+static int WIN_CompareModes( const void *a, const void *b )
 {
 	const float ASPECT_EPSILON = 0.001f;
 	SDL_Rect *modeA = (SDL_Rect *)a;
@@ -263,10 +219,10 @@ static int GLimp_CompareModes( const void *a, const void *b )
 
 /*
 ===============
-GLimp_DetectAvailableModes
+WIN_DetectAvailableModes
 ===============
 */
-static bool GLimp_DetectAvailableModes(void)
+static bool WIN_DetectAvailableModes(void)
 {
 	int i, j;
 	char buf[ MAX_STRING_CHARS ] = { 0 };
@@ -332,7 +288,7 @@ static bool GLimp_DetectAvailableModes(void)
 	SDL_free( displayModes );
 
 	if( numModes > 1 )
-		qsort( modes, numModes, sizeof( SDL_Rect ), GLimp_CompareModes );
+		qsort( modes, numModes, sizeof( SDL_Rect ), WIN_CompareModes );
 
 	for( i = 0; i < numModes; i++ )
 	{
@@ -357,17 +313,12 @@ static bool GLimp_DetectAvailableModes(void)
 
 /*
 ===============
-GLimp_SetMode
+WIN_SetMode
 ===============
 */
 
-void TBXR_GetScreenRes(int*, int*);
-static rserr_t GLimp_SetMode(glconfig_t *glConfig, const windowDesc_t *windowDesc, const char *windowTitle, int mode, qboolean fullscreen, qboolean noborder)
+static rserr_t WIN_SetMode(glconfig_t *glConfig, const windowDesc_t *windowDesc, const char *windowTitle, int mode, qboolean fullscreen, qboolean noborder)
 {
-	int perChannelColorBits;
-	int colorBits, depthBits, stencilBits;
-	int samples;
-	int i = 0;
 	SDL_Surface *icon = NULL;
 	// SDL3 windows are shown by default (SDL_WINDOW_SHOWN was removed; use
 	// SDL_WINDOW_HIDDEN to start hidden). 0 == shown.
@@ -376,11 +327,7 @@ static rserr_t GLimp_SetMode(glconfig_t *glConfig, const windowDesc_t *windowDes
 	const SDL_DisplayMode *desktopMode = NULL;
 	int x = SDL_WINDOWPOS_UNDEFINED, y = SDL_WINDOWPOS_UNDEFINED;
 
-	if ( windowDesc->api == GRAPHICS_API_OPENGL )
-	{
-		flags |= SDL_WINDOW_OPENGL;
-	}
-	else if ( windowDesc->api == GRAPHICS_API_VULKAN )
+	if ( windowDesc->api == GRAPHICS_API_VULKAN )
 	{
 		flags |= SDL_WINDOW_VULKAN;
 	}
@@ -458,12 +405,6 @@ static rserr_t GLimp_SetMode(glconfig_t *glConfig, const windowDesc_t *windowDes
 	}
 
 	// Destroy existing state if it exists
-	if( opengl_context != NULL )
-	{
-		SDL_GL_DestroyContext( opengl_context );
-		opengl_context = NULL;
-	}
-
 	if( screen != NULL )
 	{
 		WIN_DestroyVulkanSurface();
@@ -486,215 +427,14 @@ static rserr_t GLimp_SetMode(glconfig_t *glConfig, const windowDesc_t *windowDes
 		glConfig->isFullscreen = qfalse;
 	}
 
-	colorBits = r_colorbits->integer;
-	if ((!colorBits) || (colorBits >= 32))
-		colorBits = 24;
-
-	if (!r_depthbits->integer)
-		depthBits = 24;
-	else
-		depthBits = r_depthbits->integer;
-
-	stencilBits = r_stencilbits->integer;
-	samples = r_ext_multisample->integer;
-
-	if ( windowDesc->api == GRAPHICS_API_OPENGL )
-	{
-		for (i = 0; i < 16; i++)
-		{
-			int testColorBits, testDepthBits, testStencilBits;
-
-			// 0 - default
-			// 1 - minus colorBits
-			// 2 - minus depthBits
-			// 3 - minus stencil
-			if ((i % 4) == 0 && i)
-			{
-				// one pass, reduce
-				switch (i / 4)
-				{
-					case 2 :
-						if (colorBits == 24)
-							colorBits = 16;
-						break;
-					case 1 :
-						if (depthBits == 24)
-							depthBits = 16;
-						else if (depthBits == 16)
-							depthBits = 8;
-					case 3 :
-						if (stencilBits == 24)
-							stencilBits = 16;
-						else if (stencilBits == 16)
-							stencilBits = 8;
-				}
-			}
-
-			testColorBits = colorBits;
-			testDepthBits = depthBits;
-			testStencilBits = stencilBits;
-
-			if ((i % 4) == 3)
-			{ // reduce colorBits
-				if (testColorBits == 24)
-					testColorBits = 16;
-			}
-
-			if ((i % 4) == 2)
-			{ // reduce depthBits
-				if (testDepthBits == 24)
-					testDepthBits = 16;
-				else if (testDepthBits == 16)
-					testDepthBits = 8;
-			}
-
-			if ((i % 4) == 1)
-			{ // reduce stencilBits
-				if (testStencilBits == 24)
-					testStencilBits = 16;
-				else if (testStencilBits == 16)
-					testStencilBits = 8;
-				else
-					testStencilBits = 0;
-			}
-
-			if (testColorBits == 24)
-				perChannelColorBits = 8;
-			else
-				perChannelColorBits = 4;
-
-			SDL_GL_SetAttribute( SDL_GL_RED_SIZE, perChannelColorBits );
-			SDL_GL_SetAttribute( SDL_GL_GREEN_SIZE, perChannelColorBits );
-			SDL_GL_SetAttribute( SDL_GL_BLUE_SIZE, perChannelColorBits );
-			SDL_GL_SetAttribute( SDL_GL_DEPTH_SIZE, testDepthBits );
-			SDL_GL_SetAttribute( SDL_GL_STENCIL_SIZE, testStencilBits );
-
-			SDL_GL_SetAttribute( SDL_GL_MULTISAMPLEBUFFERS, samples ? 1 : 0 );
-			SDL_GL_SetAttribute( SDL_GL_MULTISAMPLESAMPLES, samples );
-
-			if ( windowDesc->gl.majorVersion )
-			{
-				int compactVersion = windowDesc->gl.majorVersion * 100 + windowDesc->gl.minorVersion * 10;
-
-				SDL_GL_SetAttribute( SDL_GL_CONTEXT_MAJOR_VERSION, windowDesc->gl.majorVersion );
-				SDL_GL_SetAttribute( SDL_GL_CONTEXT_MINOR_VERSION, windowDesc->gl.minorVersion );
-
-				if ( windowDesc->gl.profile == GLPROFILE_ES || compactVersion >= 320 )
-				{
-					int profile;
-					switch ( windowDesc->gl.profile )
-					{
-					default:
-					case GLPROFILE_COMPATIBILITY:
-						profile = SDL_GL_CONTEXT_PROFILE_COMPATIBILITY;
-						break;
-
-					case GLPROFILE_CORE:
-						profile = SDL_GL_CONTEXT_PROFILE_CORE;
-						break;
-
-					case GLPROFILE_ES:
-						profile = SDL_GL_CONTEXT_PROFILE_ES;
-						break;
-					}
-
-					SDL_GL_SetAttribute( SDL_GL_CONTEXT_PROFILE_MASK, profile );
-				}
-			}
-
-			if ( windowDesc->gl.contextFlags & GLCONTEXT_DEBUG )
-			{
-				SDL_GL_SetAttribute( SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_DEBUG_FLAG );
-			}
-
-			if(r_stereo->integer)
-			{
-				glConfig->stereoEnabled = qtrue;
-				SDL_GL_SetAttribute(SDL_GL_STEREO, 1);
-			}
-			else
-			{
-				glConfig->stereoEnabled = qfalse;
-				SDL_GL_SetAttribute(SDL_GL_STEREO, 0);
-			}
-
-			SDL_GL_SetAttribute( SDL_GL_DOUBLEBUFFER, 1 );
-			SDL_GL_SetAttribute( SDL_GL_ACCELERATED_VISUAL, !r_allowSoftwareGL->integer );
-
-			if( ( screen = SDL_CreateWindow( windowTitle,
-					glConfig->vidWidth, glConfig->vidHeight, flags ) ) == NULL )
-			{
-				Com_DPrintf( "SDL_CreateWindow failed: %s\n", SDL_GetError( ) );
-				continue;
-			}
-
-			SDL_SetWindowPosition( screen, x, y );
-			SDL_SetWindowFocusable( screen, true );
-			SDL_ShowWindow( screen );
-			SDL_RaiseWindow( screen );
-			SDL_SyncWindow( screen );
-
-#ifndef MACOS_X
-			SDL_SetWindowIcon( screen, icon );
-#endif
-
-			if( fullscreen )
-			{
-				SDL_DisplayMode mode;
-				SDL_zero( mode );
-				mode.displayID = SDL_GetDisplayForWindow( screen );
-
-				switch( testColorBits )
-				{
-					case 16: mode.format = SDL_PIXELFORMAT_RGB565; break;
-					case 24: mode.format = SDL_PIXELFORMAT_RGB24;  break;
-					default: Com_DPrintf( "testColorBits is %d, can't fullscreen\n", testColorBits ); continue;
-				}
-
-				mode.w = glConfig->vidWidth;
-				mode.h = glConfig->vidHeight;
-				glConfig->displayFrequency = r_displayRefresh->integer;
-				mode.refresh_rate = (float)glConfig->displayFrequency;
-
-				if( !SDL_SetWindowFullscreenMode( screen, &mode ) )
-				{
-					Com_DPrintf( "SDL_SetWindowFullscreenMode failed: %s\n", SDL_GetError( ) );
-					continue;
-				}
-			}
-
-			if( ( opengl_context = SDL_GL_CreateContext( screen ) ) == NULL )
-			{
-				Com_Printf( "SDL_GL_CreateContext failed: %s\n", SDL_GetError( ) );
-				continue;
-			}
-
-			if ( !SDL_GL_SetSwapInterval( r_swapInterval->integer ) )
-			{
-				Com_DPrintf( "SDL_GL_SetSwapInterval failed: %s\n", SDL_GetError() );
-			}
-
-			glConfig->colorBits = testColorBits;
-			glConfig->depthBits = testDepthBits;
-			glConfig->stencilBits = testStencilBits;
-
-			Com_Printf( "Using %d color bits, %d depth, %d stencil display.\n",
-					glConfig->colorBits, glConfig->depthBits, glConfig->stencilBits );
-			break;
-		}
-
-		if (opengl_context == NULL) {
-			SDL_DestroySurface(icon);
-			return RSERR_UNKNOWN;
-		}
-	}
-	else
 	{
 		// Just create a regular window
 		if( ( screen = SDL_CreateWindow( windowTitle,
 				glConfig->vidWidth, glConfig->vidHeight, flags ) ) == NULL )
 		{
-			Com_DPrintf( "SDL_CreateWindow failed: %s\n", SDL_GetError( ) );
+			Com_Printf( "SDL_CreateWindow failed: %s\n", SDL_GetError( ) );
+			SDL_DestroySurface( icon );
+			return RSERR_UNKNOWN;
 		}
 		else
 		{
@@ -738,7 +478,7 @@ static rserr_t GLimp_SetMode(glconfig_t *glConfig, const windowDesc_t *windowDes
 
 	SDL_DestroySurface( icon );
 
-	if (!GLimp_DetectAvailableModes())
+	if (!WIN_DetectAvailableModes())
 	{
 		return RSERR_UNKNOWN;
 	}
@@ -748,10 +488,10 @@ static rserr_t GLimp_SetMode(glconfig_t *glConfig, const windowDesc_t *windowDes
 
 /*
 ===============
-GLimp_StartDriverAndSetMode
+WIN_StartDriverAndSetMode
 ===============
 */
-static qboolean GLimp_StartDriverAndSetMode(glconfig_t *glConfig, const windowDesc_t *windowDesc, int mode, qboolean fullscreen, qboolean noborder)
+static qboolean WIN_StartDriverAndSetMode(glconfig_t *glConfig, const windowDesc_t *windowDesc, int mode, qboolean fullscreen, qboolean noborder)
 {
 	rserr_t err;
 
@@ -794,7 +534,7 @@ static qboolean GLimp_StartDriverAndSetMode(glconfig_t *glConfig, const windowDe
 		fullscreen = qfalse;
 	}
 
-	err = GLimp_SetMode(glConfig, windowDesc, CLIENT_WINDOW_TITLE, mode, fullscreen, noborder);
+	err = WIN_SetMode(glConfig, windowDesc, CLIENT_WINDOW_TITLE, mode, fullscreen, noborder);
 
 	switch ( err )
 	{
@@ -815,37 +555,12 @@ static qboolean GLimp_StartDriverAndSetMode(glconfig_t *glConfig, const windowDe
 }
 
 
-bool xr_result(XrInstance instance, XrResult result, const char* format, ...)
-{
-	if (XR_SUCCEEDED(result))
-		return true;
-
-	char resultString[XR_MAX_RESULT_STRING_SIZE];
-	xrResultToString(instance, result, resultString);
-
-	size_t len1 = strlen(format);
-	size_t len2 = strlen(resultString) + 1;
-	char* formatRes = new  char[len1 + len2 + 4]; // + " []\n"
-	sprintf(formatRes, "%s [%s]\n", format, resultString);
-
-	va_list args;
-	va_start(args, format);
-	vprintf(formatRes, args);
-	va_end(args);
-
-	delete[] formatRes;
-	return false;
-}
-
-void VR_Init();
-
 window_t WIN_Init( const windowDesc_t *windowDesc, glconfig_t *glConfig )
 {
 	Cmd_AddCommand("modelist", R_ModeList_f);
-	Cmd_AddCommand("minimize", GLimp_Minimize);
+	Cmd_AddCommand("minimize", WIN_Minimize);
 
 	r_sdlDriver			= Cvar_Get( "r_sdlDriver",			"",			CVAR_ROM );
-	r_allowSoftwareGL	= Cvar_Get( "r_allowSoftwareGL",	"0",		CVAR_ARCHIVE_ND|CVAR_LATCH );
 
 	// Window cvars
 	r_fullscreen		= Cvar_Get( "r_fullscreen",			"0",		CVAR_ARCHIVE|CVAR_LATCH );
@@ -868,18 +583,22 @@ window_t WIN_Init( const windowDesc_t *windowDesc, glconfig_t *glConfig )
 	Cvar_Get( "r_availableModes", "", CVAR_ROM );
 
 	// Create the window and set up the context
-	if(!GLimp_StartDriverAndSetMode( glConfig, windowDesc, r_mode->integer,
+	if(!WIN_StartDriverAndSetMode( glConfig, windowDesc, r_mode->integer,
 										(qboolean)r_fullscreen->integer, (qboolean)r_noborder->integer ))
 	{
 		if( r_mode->integer != R_MODE_FALLBACK )
 		{
 			Com_Printf( "Setting r_mode %d failed, falling back on r_mode %d\n", r_mode->integer, R_MODE_FALLBACK );
 
-			if (!GLimp_StartDriverAndSetMode( glConfig, windowDesc, R_MODE_FALLBACK, qfalse, qfalse ))
+			if (!WIN_StartDriverAndSetMode( glConfig, windowDesc, R_MODE_FALLBACK, qfalse, qfalse ))
 			{
 				// Nothing worked, give up
-				Com_Error( ERR_FATAL, "GLimp_Init() - could not load OpenGL subsystem" );
+				Com_Error( ERR_FATAL, "WIN_Init() - could not create SDL3 window" );
 			}
+		}
+		else
+		{
+			Com_Error( ERR_FATAL, "WIN_Init() - could not create SDL3 window" );
 		}
 	}
 
@@ -898,23 +617,13 @@ window_t WIN_Init( const windowDesc_t *windowDesc, glconfig_t *glConfig )
 	window.handle = screen;
 	window.vulkanSurface = reinterpret_cast<void *>( vulkanSurface );
 
-	// Bring up the OpenXR VR session only after an OpenGL context is current.
-	// Vulkan renderers use a separate XR graphics binding and must initialize it
-	// from their own backend instead of the legacy GLX path.
-#if defined(__linux__)
-	if ( windowDesc->api == GRAPHICS_API_OPENGL )
-	{
-		VR_Init();
-		TBXR_GetScreenRes(&glConfig->vidWidth, &glConfig->vidHeight);
-	}
-#endif
 
 	return window;
 }
 
 /*
 ===============
-GLimp_Shutdown
+WIN_Shutdown
 ===============
 */
 void WIN_Shutdown( void )
@@ -926,16 +635,9 @@ void WIN_Shutdown( void )
 
 	WIN_DestroyVulkanSurface();
 
+	SDL_DestroyWindow( screen );
 	SDL_QuitSubSystem( SDL_INIT_VIDEO );
 	screen = NULL;
-}
-
-void GLimp_EnableLogging( qboolean enable )
-{
-}
-
-void GLimp_LogComment( char *comment )
-{
 }
 
 void WIN_SetGamma( glconfig_t *glConfig, byte red[256], byte green[256], byte blue[256] )
@@ -945,14 +647,4 @@ void WIN_SetGamma( glconfig_t *glConfig, byte red[256], byte green[256], byte bl
 	// qfalse (see WIN_Init), so callers never rely on this doing anything.
 	// Kept as a no-op to preserve the interface declared in sys_public.h.
 	(void)glConfig; (void)red; (void)green; (void)blue;
-}
-
-void *WIN_GL_GetProcAddress( const char *proc )
-{
-	return reinterpret_cast<void *>( SDL_GL_GetProcAddress( proc ) );
-}
-
-qboolean WIN_GL_ExtensionSupported( const char *extension )
-{
-	return SDL_GL_ExtensionSupported( extension ) ? qtrue : qfalse;
 }

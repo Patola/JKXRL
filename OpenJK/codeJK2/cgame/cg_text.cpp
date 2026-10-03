@@ -23,6 +23,14 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 // cg_text.c --
 #include "cg_local.h"
 #include "cg_media.h"
+#include "../../JKXR/VrTextPlacement.h"
+
+static int CG_CenteredTextX(int pixelWidth)
+{
+	float x = 0, y = 0, originScale = 1;
+	CG_AdjustFrom640(&x, &y, &originScale, nullptr);
+	return VR_CenteredTextOrigin(SCREEN_WIDTH * 0.5f, pixelWidth, originScale);
+}
 
 
 //int precacheWav_i;	// Current high index of precacheWav array
@@ -451,10 +459,8 @@ void CG_DrawCaptionText( bool inImmersiveCamera )
 		w = cgi_R_Font_StrLenPixels(cg.captionText[i], cgs.media.qhFontSmall, fFontScale * FONT_SCALE);
 		if (w)
 		{
-			int offset = w / 2;
-			int tempX = SCREEN_WIDTH / 2;
 			int tempY = y;
-			cgi_R_Font_DrawString(tempX - offset, tempY, cg.captionText[i], textcolor_caption, cgs.media.qhFontSmall, -1, fFontScale * FONT_SCALE);
+			cgi_R_Font_DrawString(CG_CenteredTextX(w), tempY, cg.captionText[i], textcolor_caption, cgs.media.qhFontSmall, -1, fFontScale * FONT_SCALE);
 			y += fontHeight;
 		}
 	}
@@ -768,10 +774,8 @@ void CG_DrawCenterString( void )
 
 		w = cgi_R_Font_StrLenPixels(linebuffer, cgs.media.qhFontSmall, FONT_SCALE);
 
-		int offset = w / 2;
-		int tempX = SCREEN_WIDTH / 2;
 		int tempY = y;
-		cgi_R_Font_DrawString(tempX - offset, tempY,linebuffer, textcolor_center, cgs.media.qhFontSmall, -1, FONT_SCALE);
+		cgi_R_Font_DrawString(CG_CenteredTextX(w), tempY,linebuffer, textcolor_center, cgs.media.qhFontSmall, -1, FONT_SCALE);
 
 		y += fontHeight;
 

@@ -30,7 +30,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "../ghoul2/G2.h"
 #include "../ghoul2/ghoul2_gore.h"
 
-#define	REF_API_VERSION		21
+#define	REF_API_VERSION		24
 
 typedef enum vrControllerType_e {
 	VR_CONTROLLER_TYPE_UNKNOWN = -1,
@@ -137,9 +137,6 @@ typedef struct {
 	void			(*WIN_Present)						( window_t *window );
 	void            (*WIN_Shutdown)                     ( void );
 
-	// OpenGL-specific
-	void *			(*GL_GetProcAddress)				( const char *name );
-	qboolean		(*GL_ExtensionSupported)			( const char *extension );
 
 	CMiniHeap *			(*GetG2VertSpaceServer)				( void );
 
@@ -168,9 +165,6 @@ typedef struct {
 
 	//JKXR Functions
 	bool 				(*TBXR_useScreenLayer)				( void );
-	bool 				(*TBXR_GetVRProjection)				(int eye, float zNear, float zFar, float zZoomX, float zZoomY, float* projection);
-	bool 				(*TBXR_GetFovTangentsForEye)		(int eye, float *tanLeft, float *tanRight, float *tanUp, float *tanDown);
-	float				(*TBXR_GetEyeStereoSeparation)		(int eye);
 	void				(*TBXR_UpdateFov)					(float fovX, float fovY);
 	void				(*TBXR_UpdateHMDPose)				(float px, float py, float pz,
 												 float qx, float qy, float qz, float qw);
@@ -435,6 +429,11 @@ typedef struct {
 	// Performance analysis (perform anal)
 	void		(*G2Time_ResetTimers)(void);
 	void		(*G2Time_ReportTimers)(void);
+	// Bounded convex glass contour; returns zero on failure, never a truncated polygon.
+	int (*GetBModelGlassPolygon)(int model, vec3_t *vertices, int capacity, vec3_t normal);
+	// Optional on-demand VR save preview: request, render a normal frame, read RGB.
+	qboolean (*RequestSavePreview)(int width, int height);
+	qboolean (*ReadSavePreview)(byte *rgb, int width, int height);
 } refexport_t;
 
 // this is the only function actually exported at the linker level

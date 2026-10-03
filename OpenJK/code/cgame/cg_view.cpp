@@ -33,6 +33,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "../game/g_vehicles.h"
 #include "bg_local.h"
 #include <VrClientInfo.h>
+#include <VrWalkerView.h>
 
 #define MASK_CAMERACLIP (MASK_SOLID)
 #define CAMERA_SIZE	4
@@ -739,6 +740,26 @@ static void CG_OffsetThirdPersonView( void )
 {
 	vec3_t diff;
 	float deltayaw;
+
+	if ((cg.predicted_player_state.eFlags & EF_IN_ATST) && !cg.snap->ps.viewEntity)
+	{
+		vec3_t offset, focus, desired;
+		const float aimYaw = vr->clientviewangles[YAW] + SHORT2ANGLE(cg.snap->ps.delta_angles[YAW]);
+		JKXR_WalkerCameraOffset(aimYaw,
+			vr->hmdorientation[YAW], vr->hmdorientation_first[YAW], ATST_MAXS2, offset);
+		VectorCopy(cg.refdef.vieworg, focus);
+		focus[2] += offset[2];
+		VectorAdd(cg.refdef.vieworg, offset, desired);
+		trace_t trace;
+		CG_Trace(&trace, focus, cameramins, cameramaxs, desired,
+			cg.predicted_player_state.clientNum, MASK_CAMERACLIP);
+		VectorCopy(trace.endpos, cg.refdef.vieworg);
+		// The room-scale offset uses the chase frame, independent of head aim.
+		VectorSet(cg.refdefViewAngles, 0,
+			aimYaw - vr->hmdorientation[YAW] +
+			vr->hmdorientation_first[YAW], 0);
+		return;
+	}
 
 	camWaterAdjust = 0;
 	cameraStiffFactor = 0.0;
@@ -1685,6 +1706,10 @@ static qboolean CG_CalcViewValues( void ) {
 			VectorCopy( cg_entities[cg.snap->ps.viewEntity].lerpOrigin, cg.refdef.vieworg );
 		}
 		VectorCopy( cg_entities[cg.snap->ps.viewEntity].lerpAngles, cg.refdefViewAngles );
+		if ( !Q_stricmp( "misc_camera", g_entities[cg.snap->ps.viewEntity].classname ) )
+		{
+			cg.refdef.rdflags |= RDF_SECURITY_CAMERA;
+		}
 		if ( !Q_stricmp( "misc_camera", g_entities[cg.snap->ps.viewEntity].classname ) || g_entities[cg.snap->ps.viewEntity].s.weapon == WP_TURRET )
 		{
 			viewEntIsCam = qtrue;
@@ -2044,6 +2069,9 @@ static qboolean cg_rangedFogging = qfalse; //so we know if we should go back to 
 void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	qboolean	inwater = qfalse;
 
+    if (!vr->item_selector || vr->spatial_console_visible || cg.infoScreenText[0])
+        CG_ItemSelectorReleaseTime(); // A queued selection still owns its highlight.
+
 	if ( stereoView != STEREO_RIGHT ) {
 		cg.time = serverTime;
 	}
@@ -2155,6 +2183,7 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	// decide on third person view
 	cg.renderingThirdPerson = (qboolean)(
 		cg_thirdPerson.integer
+		|| ((cg.snap->ps.eFlags & EF_IN_ATST) && !cg.snap->ps.viewEntity)
 		|| (cg.snap->ps.stats[STAT_HEALTH] <= 0)
 		|| (cg.snap->ps.eFlags&EF_HELD_BY_SAND_CREATURE)
 //		|| (
@@ -2164,6 +2193,15 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	);
 
 	vr->third_person = cg.renderingThirdPerson;
+	static bool wasPilotingWalker = false;
+	const bool pilotingWalker = (cg.snap->ps.eFlags & EF_IN_ATST) && !cg.snap->ps.viewEntity;
+	if (pilotingWalker != wasPilotingWalker)
+	{
+		VectorCopy(vr->hmdposition, vr->hmdposition_snap);
+		VectorClear(vr->hmdposition_offset);
+		VectorCopy(vr->hmdorientation, vr->hmdorientation_first);
+		wasPilotingWalker = pilotingWalker;
+	}
 	vr->dualsabers = player->client->ps.dualSabers && cg.snap->ps.weapon == WP_SABER;
 
 	if ( cg.zoomMode )
@@ -2302,7 +2340,8 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 		{
 			VectorCopy(vr->hmdorientation, cg.refdef.viewangles);
 			cg.refdef.viewangles[YAW] = vr->clientviewangles[YAW] +
-										(vr->hmdorientation[YAW] - vr->hmdorientation_first[YAW]) +
+										(pilotingWalker ? 0.0f :
+										(vr->hmdorientation[YAW] - vr->hmdorientation_first[YAW])) +
 										SHORT2ANGLE(cg.snap->ps.delta_angles[YAW]);
 			AnglesToAxis(cg.refdef.viewangles, cg.refdef.viewaxis);
 		}
@@ -2312,6 +2351,13 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 
 	// NOTE: this may completely override the camera
 	CG_RunEmplacedWeapon();
+	if (vr->emplaced_gun && !in_camera && !in_misccamera)
+	{
+		VectorCopy(vr->hmdorientation, cg.refdef.viewangles);
+		cg.refdef.viewangles[YAW] = cg.predicted_player_state.viewangles[YAW] +
+			AngleSubtract(vr->hmdorientation[YAW], vr->hmdorientation_first[YAW]);
+		AnglesToAxis(cg.refdef.viewangles, cg.refdef.viewaxis);
+	}
 
 	// first person blend blobs, done after AnglesToAxis
 	if ( !cg.renderingThirdPerson ) {

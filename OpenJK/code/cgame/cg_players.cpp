@@ -3639,6 +3639,17 @@ static void _PlayerFootStep( const vec3_t origin,
 	VectorMA( origin, FOOTSTEP_DISTANCE, traceDir, end );//was end[2] -= FOOTSTEP_DISTANCE;
 
 	cgi_CM_BoxTrace( &trace, origin, end, mins, maxs, 0, MASK_PLAYERSOLID );
+	if ( cent->currentState.number == 0 )
+	{
+		static unsigned reports[2] = {};
+		const bool right = footStepType == FOOTSTEP_R || footStepType == FOOTSTEP_HEAVY_R;
+		const unsigned count = ++reports[right];
+		if ( count <= 16 || count % 64 == 0 )
+			CG_Printf("jkxr-footprint: foot=%s count=%u origin=(%.1f %.1f %.1f) down=(%.2f %.2f %.2f) trace=%.3f solid=%d material=%d\n",
+				right ? "right" : "left", count, origin[0], origin[1], origin[2],
+				traceDir[0], traceDir[1], traceDir[2], trace.fraction, trace.startsolid,
+				trace.surfaceFlags & MATERIAL_MASK);
+	}
 
 	// no shadow if too high
 	if ( trace.fraction >= 1.0f )
@@ -8172,17 +8183,19 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 			if ( cent->gent->client->ps.forcePowersActive&(1<<FP_LIGHTNING) )
 			{//doing the electrocuting
 				//FIXME: if the target is absorbing or blocking lightning w/saber, draw a beam from my hand to his (hand?chest?saber?)
-				vec3_t tAng, fxDir;
+				vec3_t tAng, fxDir, fxOrigin;
 				VectorCopy( cent->lerpAngles, tAng );
+				VectorCopy( cent->gent->client->renderInfo.handLPoint, fxOrigin );
+				const bool trackedLightning = BG_CalculateVRLightningPose(cent->gent, fxOrigin, tAng);
 				if ( cent->gent->client->ps.forcePowerLevel[FP_LIGHTNING] > FORCE_LEVEL_2 )
 				{//arc
 					vec3_t	fxAxis[3];
 					AnglesToAxis( tAng, fxAxis );
-					theFxScheduler.PlayEffect( cgs.effects.forceLightningWide, cent->gent->client->renderInfo.handLPoint, fxAxis );
-					if ( cent->gent->client->ps.torsoAnim == BOTH_FORCE_2HANDEDLIGHTNING
+					theFxScheduler.PlayEffect( cgs.effects.forceLightningWide, fxOrigin, fxAxis );
+					if ( !trackedLightning && (cent->gent->client->ps.torsoAnim == BOTH_FORCE_2HANDEDLIGHTNING
 						|| cent->gent->client->ps.torsoAnim == BOTH_FORCE_2HANDEDLIGHTNING_START
 						|| cent->gent->client->ps.torsoAnim == BOTH_FORCE_2HANDEDLIGHTNING_HOLD
-						|| cent->gent->client->ps.torsoAnim == BOTH_FORCE_2HANDEDLIGHTNING_RELEASE )
+						|| cent->gent->client->ps.torsoAnim == BOTH_FORCE_2HANDEDLIGHTNING_RELEASE) )
 					{//jackin' 'em up, Palpatine-style
 						theFxScheduler.PlayEffect( cgs.effects.forceLightningWide, cent->gent->client->renderInfo.handRPoint, fxAxis );
 					}
@@ -8190,7 +8203,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 				else
 				{//line
 					AngleVectors( tAng, fxDir, NULL, NULL );
-					theFxScheduler.PlayEffect( cgs.effects.forceLightning, cent->gent->client->renderInfo.handLPoint, fxDir );
+					theFxScheduler.PlayEffect( cgs.effects.forceLightning, fxOrigin, fxDir );
 				}
 			}
 
