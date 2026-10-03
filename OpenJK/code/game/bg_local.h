@@ -84,10 +84,8 @@ void BG_CalculateVRWeaponPosition( vec3_t origin, vec3_t angles );
 void BG_CalculateVRSaberPosition( int saberNum, vec3_t origin, vec3_t angles );
 void BG_CalculateVRDefaultPosition( int hand, vec3_t origin, vec3_t angles );
 void BG_CalculateVROffHandPosition( vec3_t origin, vec3_t angles );
+bool BG_CalculateVRLightningPose( gentity_t *ent, vec3_t origin, vec3_t angles );
 void BG_ConvertFromVR(vec3_t in, vec3_t offset, vec3_t out);
 void BG_CalculateVRPositionInWorld( const vec3_t in_position,  vec3_t in_offset, vec3_t in_orientation, vec3_t origin, vec3_t angles );
 
 #endif
-
-
-

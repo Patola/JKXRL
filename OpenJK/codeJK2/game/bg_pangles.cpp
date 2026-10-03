@@ -33,6 +33,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "bg_local.h"
 #include "anims.h"
 #include "wp_saber.h"
+#include <VrClientInfo.h>
 
 extern qboolean PM_InAnimForSaberMove( int anim, int saberMove );
 extern qboolean PM_InForceGetUp( playerState_t *ps );
@@ -455,6 +456,12 @@ void PM_UpdateViewAngles( playerState_t *ps, usercmd_t *cmd, gentity_t *gent )
 
 	const short pitchClampMin = ANGLE2SHORT(pitchMin);
 	const short pitchClampMax = ANGLE2SHORT(pitchMax);
+	if (vr && ps->clientNum == 0)
+	{
+		vr->mounted_pitch_limits_valid = (ps->eFlags & EF_LOCKED_TO_WEAPON) != 0;
+		vr->mounted_pitch_min = SHORT2ANGLE(pitchClampMin);
+		vr->mounted_pitch_max = SHORT2ANGLE(pitchClampMax);
+	}
 
 	// circularly clamp the angles with deltas
 	for (i=0 ; i<3 ; i++) 
@@ -609,4 +616,3 @@ void PM_UpdateViewAngles( playerState_t *ps, usercmd_t *cmd, gentity_t *gent )
 		cmd->buttons &= ~BUTTON_USE;
 	}
 }
-

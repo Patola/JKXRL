@@ -13,8 +13,8 @@
 #   /games/SteamLibrary/steamapps/common/Jedi Academy/GameData
 #
 # Layout installed:
-#   GameData/<engine binary + renderer .so + gamecode .so>
-#   GameData/base/<z_vr_assets_*.pk3, z_vr_weapons_*.pk3>
+#   GameData/<engine binary + renderer .so>
+#   GameData/base/<gamecode .so, z_vr_assets_*.pk3, z_vr_weapons_*.pk3>
 set -e
 
 cd "$(dirname "$0")"
@@ -33,7 +33,7 @@ usage() {
 case "$GAME" in
 	jka)
 		ENGINE=openjk_sp.x86_64
-		RENDERER=code/rd-vanilla/rdsp-vanilla_x86_64.so
+		RENDERER=code/rd-vulkan/rdsp-vulkan_x86_64.so
 		GAMECODE=code/game/jagamex86_64.so
 		GAME_PK3=assets/z_vr_assets_jka.pk3
 		WEAPONS_PK3=assets/weapons/z_vr_weapons_jka_Crusty_and_Elin.pk3
@@ -41,7 +41,7 @@ case "$GAME" in
 		;;
 	jko)
 		ENGINE=openjo_sp.x86_64
-		RENDERER=code/rd-vanilla/rdjosp-vanilla_x86_64.so
+		RENDERER=code/rd-vulkan/rdjosp-vulkan_x86_64.so
 		GAMECODE=codeJK2/game/jospgamex86_64.so
 		GAME_PK3=assets/z_vr_assets_jko.pk3
 		WEAPONS_PK3=assets/weapons/z_vr_weapons_jko_Crusty_and_Elin.pk3
@@ -56,6 +56,9 @@ esac
 	echo "error: $BUILD/$ENGINE not found - run ./build_linux.sh first" >&2
 	exit 1
 }
+for file in "$BUILD/$RENDERER" "$BUILD/$GAMECODE" "$WEAPONS_PK3"; do
+	[ -f "$file" ] || { echo "error: missing runtime file '$file'" >&2; exit 1; }
+done
 [ -f assets/z_vr_assets_base.pk3 ] && [ -f "$GAME_PK3" ] || ./make_z_vr_assets_pk3.sh
 
 [ -d "$DEST" ] || { echo "error: '$DEST' is not a directory" >&2; exit 1; }
@@ -63,7 +66,8 @@ esac
 	echo "warning: '$DEST/base/assets0.pk3' not found - is this really the game's GameData directory?" >&2
 
 mkdir -p "$DEST/base"
-install -m755 "$BUILD/$ENGINE" "$BUILD/$RENDERER" "$BUILD/$GAMECODE" "$DEST/"
+install -m755 "$BUILD/$ENGINE" "$BUILD/$RENDERER" "$DEST/"
+install -m755 "$BUILD/$GAMECODE" "$DEST/base/"
 install -m644 assets/z_vr_assets_base.pk3 "$GAME_PK3" "$WEAPONS_PK3" "$DEST/base/"
 
 # OpenJK/OpenJO load pk3s from the home path with HIGHER priority than the game
@@ -71,8 +75,9 @@ install -m644 assets/z_vr_assets_base.pk3 "$GAME_PK3" "$WEAPONS_PK3" "$DEST/base
 # installed ones, so refresh the home-path copies too whenever that base exists.
 HOMEBASE="${XDG_DATA_HOME:-$HOME/.local/share}/$HOMENAME/base"
 if [ -d "$HOMEBASE" ]; then
+	install -m755 "$BUILD/$GAMECODE" "$HOMEBASE/"
 	install -m644 assets/z_vr_assets_base.pk3 "$GAME_PK3" "$WEAPONS_PK3" "$HOMEBASE/"
-	echo "Also refreshed VR asset pk3s in home path '$HOMEBASE'."
+	echo "Also refreshed game module and VR asset pk3s in home path '$HOMEBASE'."
 fi
 
 echo "Installed JKXR ($GAME) into '$DEST'."

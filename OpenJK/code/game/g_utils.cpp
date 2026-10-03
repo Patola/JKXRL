@@ -1424,9 +1424,28 @@ ValidUseTarget
 Returns whether or not the targeted entity is useable
 ==============
 */
+static qboolean G_HasPlayerUseAffordance( const gentity_t *ent )
+{
+	return (ent
+		&& ent->e_UseFunc != useF_NULL
+		&& (ent->svFlags & SVF_PLAYER_USABLE)
+		&& (!ent->classname || Q_strncmp( ent->classname, "trigger", 7 )))
+		? qtrue : qfalse;
+}
+
+static qboolean G_IsCompletedOneShotUseTarget( const gentity_t *ent )
+{
+	return (ent->e_UseFunc == useF_misc_model_use
+		&& (ent->spawnflags & 64)
+		&& !(ent->spawnflags & 32)
+		&& !VALIDSTRING( ent->behaviorSet[BSET_USE] )
+		&& !VALIDSTRING( ent->target3 )
+		&& !VALIDSTRING( ent->target4 )) ? qtrue : qfalse;
+}
+
 qboolean ValidUseTarget( gentity_t *ent )
 {
-	if ( ent->e_UseFunc == useF_NULL )
+	if ( !G_HasPlayerUseAffordance( ent ) )
 	{
 		return qfalse;
 	}
@@ -1436,13 +1455,7 @@ qboolean ValidUseTarget( gentity_t *ent )
 		return qfalse;
 	}
 
-	if ( !(ent->svFlags & SVF_PLAYER_USABLE) )
-	{//Check for flag that denotes BUTTON_USE useability
-		return qfalse;
-	}
-
-	//FIXME: This is only a temp fix..
-	if ( !Q_strncmp( ent->classname, "trigger", 7) )
+	if ( G_IsCompletedOneShotUseTarget( ent ) )
 	{
 		return qfalse;
 	}
@@ -1628,11 +1641,32 @@ static qboolean CanUseInfrontOfPartOfLevel(gentity_t* ent )	//originally from VV
 
 #define USE_DISTANCE	64.0f
 extern qboolean eweb_can_be_used( gentity_t *self, gentity_t *other, gentity_t *activator );
+
+static void G_SetVRUseTargetContext( qboolean active )
+{
+	if ( !vr )
+	{
+		return;
+	}
+
+	// Reserve before extension: the Force history threshold can be crossed
+	// before either hand reaches the use-gesture boundary.
+	if ( active )
+	{
+		vr->useGestureState |= USE_GESTURE_TARGET;
+	}
+	else
+	{
+		vr->useGestureState &= ~USE_GESTURE_TARGET;
+	}
+}
+
 qboolean CanUseInfrontOf(gentity_t *ent)
 {
 	gentity_t	*target;
 	trace_t		trace;
 	vec3_t		src, dest, vf;
+	G_SetVRUseTargetContext( qfalse );
 
 	if ( ent->s.number && ent->client->NPC_class == CLASS_ATST )
 	{//a player trying to get out of his ATST
@@ -1655,6 +1689,7 @@ qboolean CanUseInfrontOf(gentity_t *ent)
 			{//found another one
 				if ( !Q_stricmp( "misc_camera", next->classname ) )
 				{//make sure it's another camera
+					G_SetVRUseTargetContext( qtrue );
 					return qtrue;
 				}
 			}
@@ -1673,6 +1708,7 @@ qboolean CanUseInfrontOf(gentity_t *ent)
 	if (ent->client->ps.groundEntityNum < ENTITYNUM_WORLD) {
 		target = &g_entities[ent->client->ps.groundEntityNum];
 		if (target && target->e_UseFunc == useF_misc_atst_use) {
+			G_SetVRUseTargetContext( qtrue );
 			return qtrue;
 		}
 	}
@@ -1681,6 +1717,16 @@ qboolean CanUseInfrontOf(gentity_t *ent)
 	if (thirdPersonActive) {
 		VectorCopy(ent->currentOrigin, src);
 		AngleVectors(ent->currentAngles, vf, NULL, NULL);
+	} else if (vr && ent->client->ps.clientNum == 0
+		&& (vr->useGestureState & USE_GESTURE_WEAPON_HAND)) {
+		vec3_t angles;
+		BG_CalculateVRWeaponPosition(src, angles);
+		AngleVectors(angles, vf, NULL, NULL);
+	} else if (vr && ent->client->ps.clientNum == 0
+		&& (vr->useGestureState & USE_GESTURE_OFF_HAND)) {
+		vec3_t angles;
+		BG_CalculateVROffHandPosition(src, angles);
+		AngleVectors(angles, vf, NULL, NULL);
 	} else {
 		VectorCopy( ent->client->renderInfo.eyePoint, src );
 		AngleVectors( ent->client->ps.viewangles, vf, NULL, NULL );
@@ -1694,10 +1740,18 @@ qboolean CanUseInfrontOf(gentity_t *ent)
 
 	if ( trace.fraction == 1.0f || trace.entityNum >= ENTITYNUM_WORLD )
 	{
-		return (CanUseInfrontOfPartOfLevel(ent));
+		const qboolean usable = CanUseInfrontOfPartOfLevel( ent );
+		G_SetVRUseTargetContext( usable );
+		return usable;
 	}
 
 	target = &g_entities[trace.entityNum];
+	if ( G_HasPlayerUseAffordance( target ) )
+	{
+		// A completed panel still owns a reaching gesture even though it no
+		// longer advertises a successful action.
+		G_SetVRUseTargetContext( qtrue );
+	}
 
 	if ( target && target->e_UseFunc == useF_misc_atst_use )
 	{
@@ -1707,6 +1761,7 @@ qboolean CanUseInfrontOf(gentity_t *ent)
 	if ( target && target->client && target->client->NPC_class == CLASS_VEHICLE )
 	{
 		// Attempt to board this vehicle.
+		G_SetVRUseTargetContext( qtrue );
 		return qtrue;
 	}
 	//Check for a use command
@@ -1747,10 +1802,12 @@ qboolean CanUseInfrontOf(gentity_t *ent)
 		&& !(target->NPC->scriptFlags&SCF_NO_RESPONSE)
 		&& G_ValidActivateBehavior (target, BSET_USE))
 	{
+		G_SetVRUseTargetContext( qtrue );
 		return qtrue;
 	}
 
 	if (CanUseInfrontOfPartOfLevel(ent)) {
+		G_SetVRUseTargetContext( qtrue );
 		return qtrue;
 	}
 
@@ -1770,6 +1827,122 @@ Try and use an entity in the world, directly ahead of us
 // Move controller origin a bit back to prevent reach
 // through usable entities when use gesture is active
 #define USE_OFFSET				-10.0f
+#define USE_EMPLACED_HAND_RADIUS	8.0f
+
+qboolean g_vrEmplacedHandUse = qfalse;
+
+static void G_VRUseFailureFeedback( gentity_t *ent, bool offHand )
+{
+	static int nextFeedbackTime[2] = { 0, 0 };
+	const int hand = offHand ? 1 : 0;
+	if ( !vr || !ent || !ent->client || ent->client->ps.clientNum != 0
+		|| level.time < nextFeedbackTime[hand] )
+	{
+		return;
+	}
+
+	G_Sound( ent, G_SoundIndex( "sound/movers/sec_panel_fail.mp3" ) );
+	nextFeedbackTime[hand] = level.time + USE_HAPTIC_FEEDBACK_DELAY;
+}
+
+qboolean TryUseNearbyHandTarget( gentity_t *ent, bool offHand, bool active )
+{
+	static int latchedTarget[2] = { ENTITYNUM_NONE, ENTITYNUM_NONE };
+	const int hand = offHand ? 1 : 0;
+	if ( !active )
+	{
+		latchedTarget[hand] = ENTITYNUM_NONE;
+		return qfalse;
+	}
+	if ( !ent || !ent->client || (ent->client->ps.eFlags & EF_LOCKED_TO_WEAPON) )
+	{
+		latchedTarget[hand] = ENTITYNUM_NONE;
+		return qfalse;
+	}
+
+	vec3_t handOrigin, handAngles;
+	if ( offHand )
+	{
+		BG_CalculateVROffHandPosition( handOrigin, handAngles );
+	}
+	else
+	{
+		BG_CalculateVRWeaponPosition( handOrigin, handAngles );
+	}
+
+	vec3_t mins, maxs;
+	VectorSet( mins, handOrigin[0] - USE_EMPLACED_HAND_RADIUS,
+		handOrigin[1] - USE_EMPLACED_HAND_RADIUS,
+		handOrigin[2] - USE_EMPLACED_HAND_RADIUS );
+	VectorSet( maxs, handOrigin[0] + USE_EMPLACED_HAND_RADIUS,
+		handOrigin[1] + USE_EMPLACED_HAND_RADIUS,
+		handOrigin[2] + USE_EMPLACED_HAND_RADIUS );
+
+	gentity_t *nearby[MAX_GENTITIES];
+	const int nearbyCount = gi.EntitiesInBox( mins, maxs, nearby, MAX_GENTITIES );
+	gentity_t *target = NULL;
+	float nearestDistance = FLT_MAX;
+	for ( int i = 0; i < nearbyCount; ++i )
+	{
+		gentity_t *candidate = nearby[i];
+		if ( !candidate || candidate == ent || !G_HasPlayerUseAffordance( candidate ) )
+		{
+			continue;
+		}
+
+		vec3_t closest;
+		for ( int axis = 0; axis < 3; ++axis )
+		{
+			closest[axis] = std::max(
+				candidate->absmin[axis],
+				std::min( handOrigin[axis], candidate->absmax[axis] ) );
+		}
+		const float distance = DistanceSquared( handOrigin, closest );
+		if ( distance < nearestDistance )
+		{
+			nearestDistance = distance;
+			target = candidate;
+		}
+	}
+
+	if ( !target )
+	{
+		latchedTarget[hand] = ENTITYNUM_NONE;
+		return qfalse;
+	}
+	G_SetVRUseTargetContext( qtrue );
+	if ( latchedTarget[hand] == target->s.number )
+	{
+		return qfalse;
+	}
+	latchedTarget[hand] = target->s.number;
+	if ( !ValidUseTarget( target )
+		|| (target->e_UseFunc == useF_eweb_use
+			&& !eweb_can_be_used( target, ent, ent )) )
+	{
+		G_VRUseFailureFeedback( ent, offHand );
+		return qfalse;
+	}
+
+	const int channel = vr->right_handed != offHand ? 1 : 2;
+	if ( level.time <= vr->useHapticFeedbackTime[channel - 1] )
+	{
+		// A ray use already activated this target as the hand entered its bounds.
+		return qfalse;
+	}
+	if ( level.time > vr->useHapticFeedbackTime[channel - 1] )
+	{
+		cgi_HapticEvent( "use_button", 0, channel, 60, 0, 0 );
+		vr->useHapticFeedbackTime[channel - 1] = level.time + USE_HAPTIC_FEEDBACK_DELAY;
+	}
+	const qboolean emplaced =
+		( target->e_UseFunc == useF_emplaced_gun_use
+			|| target->e_UseFunc == useF_eweb_use ) ? qtrue : qfalse;
+	g_vrEmplacedHandUse = emplaced;
+	GEntity_UseFunc( target, ent, ent );
+	g_vrEmplacedHandUse = qfalse;
+	return qtrue;
+}
 
 void TryUse_Internal( bool offHand, gentity_t *ent, vec3_t src, vec3_t vf )
 {
@@ -1823,6 +1996,13 @@ void TryUse_Internal( bool offHand, gentity_t *ent, vec3_t src, vec3_t vf )
 	//Check for a use command
 	if ( ValidUseTarget( target ) )
 	{
+		if ( target->e_UseFunc == useF_eweb_use
+			&& !eweb_can_be_used( target, ent, ent ) )
+		{
+			G_VRUseFailureFeedback( ent, offHand );
+			return;
+		}
+
 		NPC_SetAnim( ent, SETANIM_TORSO, BOTH_BUTTON_HOLD, SETANIM_FLAG_OVERRIDE|SETANIM_FLAG_HOLD );
 		/*
 		if ( !VectorLengthSquared( ent->client->ps.velocity ) && !PM_CrouchAnim( ent->client->ps.legsAnim ) )
@@ -1839,6 +2019,11 @@ void TryUse_Internal( bool offHand, gentity_t *ent, vec3_t src, vec3_t vf )
 			}
 		}
 		GEntity_UseFunc( target, ent, ent );
+		return;
+	}
+	else if ( G_HasPlayerUseAffordance( target ) )
+	{
+		G_VRUseFailureFeedback( ent, offHand );
 		return;
 	}
 	else if ( target->client
@@ -2143,4 +2328,3 @@ void G_SetBoltSurfaceRemoval( const int entNum, const int modelIndex, const int 
 /*
 Ghoul2 Insert End
 */
-

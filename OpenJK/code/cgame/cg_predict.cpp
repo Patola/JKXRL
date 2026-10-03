@@ -374,6 +374,8 @@ void CG_InterpolatePlayerState( qboolean grabAngles ) {
 	out = &cg.predicted_player_state;
 	prev = cg.snap;
 	next = cg.nextSnap;
+	const bool teleported = cg.validPPS &&
+		((out->eFlags ^ cg.snap->ps.eFlags) & EF_TELEPORT_BIT);
 
 	VectorCopy(out->origin,oldOrg);
 	*out = cg.snap->ps;
@@ -393,6 +395,15 @@ void CG_InterpolatePlayerState( qboolean grabAngles ) {
 			//NULL so that it doesn't execute a block of code that must be run from game
 			PM_UpdateViewAngles( out, &cmd, NULL );
 		}
+	}
+
+	// Never smooth a teleport from the old predicted position. Besides dragging
+	// the camera across the map, it would strand a recaptured spatial console.
+	if ( teleported )
+	{
+		if ( !in_camera && !in_misccamera )
+			client_camera.smooth_active = false;
+		return;
 	}
 
 	// if the next frame is a teleport, we can't lerp to it
@@ -775,5 +786,3 @@ void CG_PredictPlayerState( void ) {
 	// fire events and other transition triggered things
 	CG_TransitionPlayerState( &cg.predicted_player_state, &oldPlayerState );
 }
-
-

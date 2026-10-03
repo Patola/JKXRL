@@ -19,6 +19,7 @@ extern float remote_movementForward;
 extern float remote_movementUp;
 extern float positional_movementSideways;
 extern float positional_movementForward;
+extern float mounted_aim_pitch;
 
 void sendButtonAction(const char* action, long buttonDown);
 void sendButtonActionSimple(const char* action);

@@ -1,5 +1,8 @@
 extern cvar_t	*vr_turn_mode;
 extern cvar_t	*vr_turn_angle;
+extern cvar_t *vr_mounted_yaw_speed;
+extern cvar_t *vr_mounted_pitch_speed;
+extern cvar_t *vr_thermal_throw_grace_ms;
 extern cvar_t	*vr_positional_factor;
 extern cvar_t	*vr_walkdirection;
 extern cvar_t	*vr_3rdperson_digital_direction;
@@ -25,6 +28,7 @@ extern cvar_t   *vr_irl_crouch_enabled;
 extern cvar_t   *vr_irl_crouch_to_stand_ratio;
 extern cvar_t   *vr_saber_block_debounce_time;
 extern cvar_t   *vr_haptic_intensity;
+extern cvar_t   *vr_saber_haptic_intensity;
 extern cvar_t   *vr_comfort_vignette;
 extern cvar_t   *vr_saber_3rdperson_mode;
 extern cvar_t   *vr_vehicle_use_hmd_direction;

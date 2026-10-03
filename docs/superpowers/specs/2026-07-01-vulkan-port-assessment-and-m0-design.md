@@ -114,6 +114,79 @@ with its own spec→plan→implement cycle.
 | M5 | The five-level shadow system (blob, stencil, translucent stencil, soft/Ultra) | All shadow levels work |
 | M6 | VR stereo-replay (port `rd-gles` capture/replay), optimization, polish, deprecate `rd-vanilla` | Feature parity; `rd-vanilla` removed |
 
+### Known-good C++17 checkpoint
+
+- [x] Require standard C++17 without compiler extensions and build both game
+  variants with the shared Vulkan renderer.
+- [x] Verify Jedi Academy and Jedi Outcast gameplay, cinematics, menus, tracked
+  controls, effects, and representative save loading in VR before M5 begins.
+
+### Tracked M3 follow-up: full Ghoul2 physical ragdolls
+
+- [ ] Port the Ghoul2 ragdoll solver behind `G2API_SetRagDoll` and
+  `G2API_AnimateG2Models` to the Vulkan model/skeleton representation.
+- [ ] Implement ragdoll bone position queries, constraints, effector goals and
+  kicks, force-solve control, collision response, settling, and corpse shots.
+- [ ] Verify upright, airborne, Force Lightning, saber, firearm, dismemberment,
+  body-dragging, and save/load corpse cases in stereo VR without model damage or
+  frame-time regressions.
+- [ ] Remove the temporary Vulkan guard in `G_RagDoll`; until the native solver
+  is ready, Vulkan deliberately uses authored death animations rather than
+  entering the renderer's currently stubbed physical-ragdoll path.
+
+### Tracked post-port follow-up: optional remastered cinematics
+
+- [ ] Inventory the legally installed RoQ assets in each game's
+  `GameData/base/assets*.pk3`; keep the source archives immutable and record
+  checksums for every extracted clip.
+- [ ] Build a reproducible offline pipeline that decodes RoQ video/audio to
+  lossless intermediates, restores and upscales frames without changing frame
+  count or timing, and re-encodes engine-compatible media.
+- [ ] Evaluate deterministic restoration/upscaling tools before generative
+  video editing. Validate temporal consistency, text and logo fidelity, faces,
+  aspect ratio, color, frame rate, audio synchronization, and VR comfort.
+- [ ] Treat shader-driven wall videos and holograms separately from fullscreen
+  cinematics: preserve alpha/compositing behavior and unusual dimensions such
+  as Jedi Outcast's 256x512 Mon Mothma clips.
+- [ ] Ship remasters only as an optional, user-generated high-priority PK3 that
+  preserves the original `video/*.roq` virtual paths, with an immediate
+  fallback to the original game assets. Do not redistribute copyrighted source
+  media with JKXR packages.
+- [ ] Investigate modern-codec playback as a separate renderer/engine feature
+  if high-resolution RoQ quality, size, or decode cost proves unsuitable.
+
+### Tracked cinematic parity follow-ups
+
+- [x] Correct the Jedi Academy Star Wars crawl start time so its first line
+  enters from the bottom after the logo instead of appearing partly advanced.
+- [x] Restore the original yellow crawl color in both Jedi Academy and Jedi
+  Outcast; the current Vulkan result is too close to white.
+- [x] Diagnose the choppy audio in the short startup logo cinematics in both
+  games. This predates the Vulkan backend, so keep the SDL3 buffering/timing
+  work isolated from renderer video playback changes.
+- [ ] Level the immersive-cinematic reference frame at entry so a temporarily
+  leaned or tilted headset does not rotate the entire sequence, while
+  preserving comfortable yaw recentering and live 6DOF tracking.
+- [x] Correct Jedi Outcast's rear Mon Mothma camera framing and hologram-plane
+  placement for VR while preserving cinematic 6DOF.
+
+### Tracked controller-pose parity follow-ups
+
+- [ ] Align the Jedi Academy rendered lightsaber blade origin with each hilt's
+  emitter instead of leaving a visible gap above the physical controller-held
+  hilt. Jedi Outcast's distinct hilt model already aligns correctly, so compare
+  its model bolt and per-hilt transform path before changing the global blade
+  origin.
+- [ ] Align the saber collision sweep with the rendered blade so low targets,
+  including Yavin howlers and the scripted cuttable trunks, register hits at
+  their visible height rather than only when aiming into the ground.
+
+### Tracked UI parity follow-up
+
+- [x] Verify that the rotating Jedi Outcast menu logo now renders its blue
+  `tcGen environment` layer and no longer reads as a transient gray mesh moving
+  toward the lower-left when opening the exit menu.
+
 ---
 
 ## M0 Detailed Design (Foundation / vertical-slice)

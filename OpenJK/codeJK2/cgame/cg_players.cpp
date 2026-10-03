@@ -4821,6 +4821,7 @@ Ghoul2 Insert End
 	}
 
 	if (CG_getPlayer1stPersonSaber(cent) &&
+			!vr->spatial_console_visible &&
 			cent->gent->client->ps.saberLockEnemy != ENTITYNUM_NONE)
 	{
 		cgi_HapticEvent("shotgun_fire", 0, 0, 100, 0, 0);
@@ -5160,6 +5161,10 @@ Ghoul2 Insert Start
 		{
 			ent.renderfx |= RF_SHADOW_PLANE;
 		}
+		if ( cent->gent->client->NPC_class == CLASS_STORMTROOPER )
+		{
+			ent.renderfx |= RF_LIGHT_SHADOW_RECEIVER;
+		}
 		ent.shadowPlane = shadowPlane;
 		ent.renderfx |= RF_LIGHTING_ORIGIN;			// use the same origin for all
 		if ( cent->gent->NPC && cent->gent->NPC->scriptFlags & SCF_MORELIGHT )
@@ -5276,7 +5281,14 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 		}
 
 		// We want to be able to do cool full-body type effects
-		CG_AddRefEntityWithPowerups( &ent, cent->currentState.powerups, cent );
+		const bool hideLocalVrModel =
+			vr->spatial_console_visible &&
+			cent->currentState.number == cg.snap->ps.clientNum &&
+			!cg.renderingThirdPerson;
+		if ( !hideLocalVrModel )
+		{
+			CG_AddRefEntityWithPowerups( &ent, cent->currentState.powerups, cent );
+		}
 
 		if ( cg_debugBB.integer)
 		{
@@ -5430,7 +5442,8 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 //						CGhoul2Info *nextModel = &cent->gent->ghoul2[1];
 					//FIXME: need a version of this that *doesn't* need the mFileName in the ghoul2
 					//FIXME: use an actual surfaceIndex?
-					if ( !gi.G2API_GetSurfaceRenderStatus( &cent->gent->ghoul2[cent->gent->playerModel], "r_hand" ) )//surf is still on
+					if ( !hideLocalVrModel &&
+						 !gi.G2API_GetSurfaceRenderStatus( &cent->gent->ghoul2[cent->gent->playerModel], "r_hand" ) )//surf is still on
 					{
 						CG_AddSaberBlade( cent, cent, NULL, CG_getPlayer1stPersonSaber(cent) ? 0 : ent.renderfx, cent->gent->weaponModel, ent.origin, tempAngles);
 					}//else, the limb will draw the blade itself
@@ -5687,16 +5700,10 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 
 		if ( cent->gent->client->ps.forcePowersActive&(1<<FP_LIGHTNING) )
 		{//doing the electrocuting
-			vec3_t tAng, fxDir;
-			if (cent->gent->client->ps.clientNum == 0)
-			{
-				vec3_t origin, angles;
-				BG_CalculateVROffHandPosition(origin, tAng);
-			}
-			else
-			{
-				VectorCopy( cent->lerpAngles, tAng );
-			}
+			vec3_t tAng, fxDir, fxOrigin;
+			VectorCopy( cent->lerpAngles, tAng );
+			VectorCopy( cent->gent->client->renderInfo.handLPoint, fxOrigin );
+			BG_CalculateVRLightningPose(cent->gent, fxOrigin, tAng);
 
 			/*
             if ( cent->currentState.number )
@@ -5712,12 +5719,12 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 			{//arc
 				vec3_t	fxAxis[3];
 				AnglesToAxis( tAng, fxAxis );
-				theFxScheduler.PlayEffect( cgs.effects.forceLightningWide, cent->gent->client->renderInfo.handLPoint, fxAxis );
+				theFxScheduler.PlayEffect( cgs.effects.forceLightningWide, fxOrigin, fxAxis );
 			}
 			else
 			{//line
 				AngleVectors( tAng, fxDir, NULL, NULL );
-				theFxScheduler.PlayEffect( cgs.effects.forceLightning, cent->gent->client->renderInfo.handLPoint, fxDir );
+				theFxScheduler.PlayEffect( cgs.effects.forceLightning, fxOrigin, fxDir );
 			}
 		}
 
@@ -5829,6 +5836,10 @@ Ghoul2 Insert End
 		renderfx |= RF_SHADOW_PLANE;
 	}
 	renderfx |= RF_LIGHTING_ORIGIN;			// use the same origin for all
+	if ( cent->gent->client->NPC_class == CLASS_STORMTROOPER )
+	{
+		renderfx |= RF_LIGHT_SHADOW_RECEIVER;
+	}
 	if ( cent->gent->NPC && cent->gent->NPC->scriptFlags & SCF_MORELIGHT )
 	{
 		renderfx |= RF_MORELIGHT;			//bigger than normal min light
@@ -6153,7 +6164,8 @@ Ghoul2 Insert End
 
 	}
 
-	if (CG_getPlayer1stPersonSaber(cent) && !cent->currentState.saberInFlight && !vr->item_selector &&
+	if (CG_getPlayer1stPersonSaber(cent) && !vr->spatial_console_visible &&
+			!cent->currentState.saberInFlight && !vr->item_selector &&
 			cent->gent->client->ps.saberLockEnemy == ENTITYNUM_NONE)
 	{
 		refEntity_t hiltEnt;
@@ -6289,4 +6301,3 @@ void CG_ResetPlayerEntity( centity_t *cent ) {
 		CG_Printf("%i ResetPlayerEntity yaw=%i\n", cent->currentState.number, cent->pe.torso.yawAngle );
 	}
 }
-

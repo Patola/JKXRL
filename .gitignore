@@ -2,6 +2,8 @@
 OpenJK/build/
 OpenJK/build-debug/
 OpenJK/build-linux/
+OpenJK/build-vulkan-port/
+OpenJK/build-vulkan-clean/
 
 # Build artifacts
 *.o
@@ -20,6 +22,9 @@ packaging/arch/JKXR/
 packaging/arch/JKXRL/
 *.pkg.tar.*
 *.src.tar.*
+__pycache__/
+*.py[cod]
+/release-build/
 
 # Release signing key
 drbeef-release-key.keystore

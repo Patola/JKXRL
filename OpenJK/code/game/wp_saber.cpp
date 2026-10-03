@@ -50,6 +50,21 @@ static float	sabersCrossed;
 static int		saberHitEntity;
 static int		numVictims = 0;
 
+static float WP_DistanceToBladeSegment( const vec3_t point, const vec3_t base, const vec3_t tip )
+{
+	vec3_t segment;
+	vec3_t relative;
+	VectorSubtract( tip, base, segment );
+	VectorSubtract( point, base, relative );
+	const float lengthSquared = VectorLengthSquared( segment );
+	const float fraction = lengthSquared > 0.0001f
+		? std::clamp( DotProduct( relative, segment ) / lengthSquared, 0.0f, 1.0f )
+		: 0.0f;
+	vec3_t closest;
+	VectorMA( base, fraction, segment, closest );
+	return Distance( point, closest );
+}
+
 extern cvar_t	*g_sex;
 extern cvar_t	*g_timescale;
 extern cvar_t	*g_dismemberment;
@@ -1653,7 +1668,29 @@ qboolean WP_SaberApplyDamage( gentity_t *ent, float baseDamage, int baseDFlags,
 						{
 							damage = ceil(totalDmg[i]);
 						}
+						const bool auditHowler =
+							ent->s.number == 0 && victim->client != nullptr &&
+							victim->client->NPC_class == CLASS_HOWLER;
+						const int healthBefore = victim->health;
+						if ( auditHowler )
+						{
+							gi.Printf(
+								"jkxr-saber-howler: apply ent=%d health=%d damage=%d accumulated=%.3f "
+								"base=%.3f dflags=0x%x fraction=%.5f stopFraction=%.5f "
+								"anim=(%d/%d %d/%d) localState=%d\n",
+								victim->s.number, healthBefore, damage, totalDmg[i],
+								baseDamage, dFlags, dmgFraction[i], saberHitFraction,
+								victim->client->ps.legsAnim, victim->client->ps.legsAnimTimer,
+								victim->client->ps.torsoAnim, victim->client->ps.torsoAnimTimer,
+								victim->NPC != nullptr ? victim->NPC->localState : -1 );
+						}
 						G_Damage( victim, inflictor, ent, dmgDir[i], dmgSpot[i], damage, dFlags, MOD_SABER, hitDismemberLoc[i] );
+						if ( auditHowler )
+						{
+							gi.Printf( "jkxr-saber-howler: result ent=%d health=%d delta=%d takedamage=%d\n",
+								victim->s.number, victim->health, victim->health - healthBefore,
+								victim->takedamage );
+						}
 						if ( damage > 0 && cg.time )
 						{
 							float sizeTimeScale = 1.0f;
@@ -2538,7 +2575,6 @@ qboolean WP_SaberDamageForTrace( int ignore, vec3_t start, vec3_t end, float dmg
 	{
 		gi.trace( &tr, start, NULL, NULL, end2, ignore, mask, G2_NOCOLLIDE, 10 );
 	}
-
 
 #ifndef FINAL_BUILD
 	if ( d_saberCombat->integer > 1 )
@@ -4519,6 +4555,14 @@ void WP_SaberDamageTrace( gentity_t *ent, int saberNum, int bladeNum )
 #define MAX_SABER_SWING_INC 0.33f
 void WP_SaberDamageTrace( gentity_t *ent, int saberNum, int bladeNum )
 {
+	if ( ent->s.number == 0 && ent->client && saberNum == 1 && vr->dual_saber_casting )
+	{
+		// Do not sweep the casting movement into a later offhand strike.
+		bladeInfo_t &blade = ent->client->ps.saber[saberNum].blade[bladeNum];
+		VectorCopy( blade.muzzlePoint, blade.muzzlePointOld );
+		VectorCopy( blade.muzzleDir, blade.muzzleDirOld );
+		return;
+	}
 	vec3_t		mp1, mp2, md1, md2, baseOld, baseNew, baseDiff, endOld, endNew, bladePointOld, bladePointNew;
 	float		tipDmgMod = 1.0f;
 	float		baseDamage;
@@ -4824,6 +4868,25 @@ void WP_SaberDamageTrace( gentity_t *ent, int saberNum, int bladeNum )
 					baseDamage = 0;//was 1.0f;//was 0.25
 				}
 				*/
+			}
+		}
+
+		const bool sonicPainAnimation =
+			ent->client->ps.torsoAnim == BOTH_SONICPAIN_START ||
+			ent->client->ps.torsoAnim == BOTH_SONICPAIN_HOLD ||
+			ent->client->ps.torsoAnim == BOTH_SONICPAIN_END;
+		if ( ent->s.number == 0 && vr->primaryVelocityTriggeredAttack &&
+			 sonicPainAnimation && baseDamage <= 0.1f )
+		{
+			// A tracked VR hand remains physically free while the legacy player
+			// model is forced into the two-handed sonic-pain animation.
+			baseDamage = entPowerLevel > 0 ? 2.5f * static_cast<float>( entPowerLevel ) : 2.5f;
+			baseDFlags &= ~( DAMAGE_NO_DAMAGE | DAMAGE_NO_KILL );
+			static qboolean loggedSonicPainSwing = qfalse;
+			if ( !loggedSonicPainSwing )
+			{
+				gi.Printf( "jkxr-saber: tracked swing overrides sonic-pain animation gate\n" );
+				loggedSonicPainSwing = qtrue;
 			}
 		}
 
@@ -5818,6 +5881,12 @@ void WP_SabersDamageTrace( gentity_t *ent, qboolean noEffects )
 	{
 		return;
 	}
+	static cvar_t *controllerDebug = gi.cvar( "vr_controller_debug", "0", 0 );
+	static int lastControllerDebugTime = 0;
+	const bool debugControllerSaber =
+		controllerDebug->integer && ent->s.number == 0 &&
+		level.time - lastControllerDebugTime >= 250;
+
 	// Saber 1.
 	g_saberNoEffects = noEffects;
 	for ( int i = 0; i < ent->client->ps.saber[0].numBlades; i++ )
@@ -5842,6 +5911,59 @@ void WP_SabersDamageTrace( gentity_t *ent, qboolean noEffects )
 			g_noClashFlare = qtrue;
 		}
 		WP_SaberDamageTrace( ent, 0, i );
+		if ( debugControllerSaber && i == 0 )
+		{
+			const bladeInfo_t &blade = ent->client->ps.saber[0].blade[0];
+			vec3_t bladeTip;
+			VectorMA( blade.muzzlePoint, blade.length, blade.muzzleDir, bladeTip );
+			int nearestHowler = ENTITYNUM_NONE;
+			float nearestHowlerDistance = 999999.0f;
+			for ( int entityNum = MAX_CLIENTS; entityNum < ENTITYNUM_WORLD; ++entityNum )
+			{
+				gentity_t *candidate = &g_entities[entityNum];
+				if ( !candidate->inuse || candidate->client == nullptr ||
+					 candidate->client->NPC_class != CLASS_HOWLER )
+				{
+					continue;
+				}
+				vec3_t center;
+				VectorAdd( candidate->absmin, candidate->absmax, center );
+				VectorScale( center, 0.5f, center );
+				const float distance = WP_DistanceToBladeSegment(
+					center, blade.muzzlePoint, bladeTip );
+				if ( distance < nearestHowlerDistance )
+				{
+					nearestHowler = entityNum;
+					nearestHowlerDistance = distance;
+				}
+			}
+			gi.Printf(
+				"jkxr-saber-debug: speed=%.3f triggered=%d active=%d move=%d weaponState=%d "
+				"base=(%.1f %.1f %.1f) old=(%.1f %.1f %.1f) dir=(%.3f %.3f %.3f) "
+				"victims=%d hitEntity=%d nearestHowler=%d distance=%.2f\n",
+				vr->primaryswingvelocity,
+				vr->primaryVelocityTriggeredAttack,
+				vr->velocitytriggeractive,
+				ent->client->ps.saberMove,
+				ent->client->ps.weaponstate,
+				blade.muzzlePoint[0], blade.muzzlePoint[1], blade.muzzlePoint[2],
+				blade.muzzlePointOld[0], blade.muzzlePointOld[1], blade.muzzlePointOld[2],
+				blade.muzzleDir[0], blade.muzzleDir[1], blade.muzzleDir[2],
+				numVictims, saberHitEntity, nearestHowler, nearestHowlerDistance );
+			if ( nearestHowler != ENTITYNUM_NONE && nearestHowlerDistance < 96.0f )
+			{
+				const gentity_t *howler = &g_entities[nearestHowler];
+				gi.Printf(
+					"jkxr-saber-howler: nearby ent=%d distance=%.2f health=%d "
+					"anim=(%d/%d %d/%d) localState=%d victims=%d hitEntity=%d\n",
+					nearestHowler, nearestHowlerDistance, howler->health,
+					howler->client->ps.legsAnim, howler->client->ps.legsAnimTimer,
+					howler->client->ps.torsoAnim, howler->client->ps.torsoAnimTimer,
+					howler->NPC != nullptr ? howler->NPC->localState : -1,
+					numVictims, saberHitEntity );
+			}
+			lastControllerDebugTime = level.time;
+		}
 	}
 	// Saber 2.
 	g_saberNoEffects = noEffects;
@@ -9216,19 +9338,16 @@ void ForceThrowEx( gentity_t *self, qboolean pull, qboolean fake, qboolean aimBy
 		}
 	}
 
-	if (self->client->ps.clientNum == 0)
-	{
-		//Handle this here so it is refreshed on every frame, not just when the lightning gun is first fired
-		cgi_HapticEvent("RTCWQuest:fire_tesla", 0, (vr->right_handed ? 2 : 1), 100, 0, 0);
-	}
-
-
 	NPC_SetAnim( self, parts, anim, SETANIM_FLAG_OVERRIDE|SETANIM_FLAG_HOLD|SETANIM_FLAG_RESTART );
 	self->client->ps.saberMove = self->client->ps.saberBounceMove = LS_READY;//don't finish whatever saber anim you may have been in
 	self->client->ps.saberBlocked = BLOCKED_NONE;
 	if ( self->client->ps.forcePowersActive&(1<<FP_SPEED) )
 	{
 		hold = floor( hold*g_timescale->value );
+	}
+	if ( self->client->ps.clientNum == 0 )
+	{
+		cgi_HapticEvent( "force_push_pull", 0, vr->right_handed ? 2 : 1, 100, 0, 0 );
 	}
 	self->client->ps.weaponTime = hold;//was 1000, but want to swing sooner
 	//do effect... FIXME: build-up or delay this until in proper part of anim
@@ -10371,23 +10490,43 @@ int FP_ForceHealInterval( gentity_t *self )
 
 void ForceHeal( gentity_t *self )
 {
+	const auto audit = [&]( const char *result )
+	{
+		static cvar_t *debug = gi.cvar( "vr_controller_debug", "0", 0 );
+		if ( self->s.number == 0 && debug->integer )
+			gi.Printf( "jkxr-force-heal: result=%s health=%d/%d force=%d active=0x%x "
+				"weaponTime=%d painRemaining=%d saberLockRemaining=%d anim=%d/%d "
+				"dual=%d casting=%d blades=%d/%d restrictions=0x%x/0x%x\n",
+				result, self->health, self->client->ps.stats[STAT_MAX_HEALTH],
+				self->client->ps.forcePower, self->client->ps.forcePowersActive,
+				self->client->ps.weaponTime, self->painDebounceTime - level.time,
+				self->client->ps.saberLockTime - level.time,
+				self->client->ps.torsoAnim, self->client->ps.torsoAnimTimer,
+				self->client->ps.dualSabers, vr->dual_saber_casting,
+				self->client->ps.saber[0].Active(), self->client->ps.saber[1].Active(),
+				self->client->ps.saber[0].forceRestrictions, self->client->ps.saber[1].forceRestrictions );
+	};
 	if ( self->health <= 0 || self->client->ps.stats[STAT_MAX_HEALTH] <= self->health )
 	{
+		audit( "health" );
 		return;
 	}
 
 	if ( !WP_ForcePowerUsable( self, FP_HEAL, 20 ) )
 	{//must have enough force power for at least 5 points of health
+		audit( "unusable" );
 		return;
 	}
 
 	if ( self->painDebounceTime > level.time || (self->client->ps.weaponTime&&self->client->ps.weapon!=WP_NONE) )
 	{//can't initiate a heal while taking pain or attacking
+		audit( "pain-or-attack" );
 		return;
 	}
 
 	if ( self->client->ps.saberLockTime > level.time )
 	{//FIXME: can this be a way to break out?
+		audit( "saber-lock" );
 		return;
 	}
 	/*
@@ -10413,6 +10552,7 @@ void ForceHeal( gentity_t *self )
 		//start health going up
 		//NPC_SetAnim( self, SETANIM_TORSO, ?, SETANIM_FLAG_OVERRIDE );
 		WP_ForcePowerStart( self, FP_HEAL, 0 );
+		audit( "started" );
 		if ( self->client->ps.forcePowerLevel[FP_HEAL] < FORCE_LEVEL_2 )
 		{//must meditate
 			//FIXME: holster weapon (select WP_NONE?)
@@ -11367,7 +11507,7 @@ void ForceLightningDamage( gentity_t *self, gentity_t *traceEnt, vec3_t dir, flo
 void ForceShootLightning( gentity_t *self )
 {
 	trace_t	tr;
-	vec3_t	end, forward;
+	vec3_t	end, forward, castOrigin, castAngles;
 	gentity_t	*traceEnt;
 
 	if ( self->health <= 0 )
@@ -11379,18 +11519,23 @@ void ForceShootLightning( gentity_t *self )
 		return;
 	}
 
-	if (self->client->ps.clientNum == 0 && !cg.renderingThirdPerson)
-	{
-		vec3_t origin, angles;
-		BG_CalculateVROffHandPosition(origin, angles);
-		AngleVectors(angles, forward, NULL, NULL);
-	}
-	else
-	{
-		AngleVectors(self->client->ps.viewangles, forward, NULL, NULL);
-	}
-
+	VectorCopy(self->client->renderInfo.handLPoint, castOrigin);
+	VectorCopy(self->client->ps.viewangles, castAngles);
+	const bool trackedLightning = BG_CalculateVRLightningPose(self, castOrigin, castAngles);
+	AngleVectors(castAngles, forward, NULL, NULL);
 	VectorNormalize( forward );
+
+	if ( trackedLightning )
+	{
+		static int lastAimLogTime = -2000;
+		if ( level.time < lastAimLogTime || level.time - lastAimLogTime >= 2000 )
+		{
+			lastAimLogTime = level.time;
+			gi.Printf("jkxr-lightning-aim: offhand origin=(%.1f %.1f %.1f) angles=(%.1f %.1f %.1f) view=(%.1f %.1f)\n",
+				castOrigin[0], castOrigin[1], castOrigin[2], castAngles[0], castAngles[1], castAngles[2],
+				self->client->ps.viewangles[0], self->client->ps.viewangles[1]);
+		}
+	}
 
 	if (self->client->ps.clientNum == 0)
 	{
@@ -11406,7 +11551,7 @@ void ForceShootLightning( gentity_t *self )
 		gentity_t	*entityList[MAX_GENTITIES];
 		int		e, numListedEntities, i;
 
-		VectorCopy( self->currentOrigin, center );
+		VectorCopy( trackedLightning ? castOrigin : self->currentOrigin, center );
 		for ( i = 0 ; i < 3 ; i++ )
 		{
 			mins[i] = center[i] - radius;
@@ -11466,13 +11611,13 @@ void ForceShootLightning( gentity_t *self )
 			}
 
 			//in PVS?
-			if ( !traceEnt->bmodel && !gi.inPVS( ent_org, self->client->renderInfo.handLPoint ) )
+			if ( !traceEnt->bmodel && !gi.inPVS( ent_org, castOrigin ) )
 			{//must be in PVS
 				continue;
 			}
 
 			//Now check and see if we can actually hit it
-			gi.trace( &tr, self->client->renderInfo.handLPoint, vec3_origin, vec3_origin, ent_org, self->s.number, MASK_SHOT, (EG2_Collision)0, 0 );
+			gi.trace( &tr, castOrigin, vec3_origin, vec3_origin, ent_org, self->s.number, MASK_SHOT, (EG2_Collision)0, 0 );
 			if ( tr.fraction < 1.0f && tr.entityNum != traceEnt->s.number )
 			{//must have clear LOS
 				continue;
@@ -11491,8 +11636,8 @@ void ForceShootLightning( gentity_t *self )
 		int traces = 0;
 		vec3_t	start;
 
-		VectorCopy( self->client->renderInfo.handLPoint, start );
-		VectorMA( self->client->renderInfo.handLPoint, 2048, forward, end );
+		VectorCopy( castOrigin, start );
+		VectorMA( castOrigin, 2048, forward, end );
 
 		while ( traces < 10 )
 		{//need to loop this in case we hit a Jedi who dodges the shot

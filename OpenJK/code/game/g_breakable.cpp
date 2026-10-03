@@ -21,6 +21,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 */
 
 #include "g_local.h"
+#include "../qcommon/glass_geometry.h"
 #include "g_functions.h"
 #include "../cgame/cg_media.h"
 #include "g_navigator.h"
@@ -1401,12 +1402,14 @@ void SP_misc_model_breakable( gentity_t *ent )
 // Really naughty cheating.  Put in an EVENT at some point...
 extern void cgi_R_GetBModelVerts(int bmodelIndex, vec3_t *verts, vec3_t normal );
 extern void CG_DoGlass( vec3_t verts[4], vec3_t normal, vec3_t dmgPt, vec3_t dmgDir, float dmgRadius );
+extern int cgi_R_GetBModelGlassPolygon(int model, vec3_t *vertices, int capacity, vec3_t normal);
+extern bool CG_DoGlassPolygon(vec3_t *vertices, int count, vec3_t normal, vec3_t point, vec3_t direction, float radius);
 extern	cgs_t			cgs;
 
 //-----------------------------------------------------
 void funcGlassDie( gentity_t *self, gentity_t *inflictor, gentity_t *attacker, int damage, int mod,int dFlags,int hitLoc )
 {
-	vec3_t		verts[4], normal;
+	vec3_t		verts[4] = {}, normal = {};
 
 	// if a missile is stuck to us, blow it up so we don't look dumb....we could, alternately, just let the missile drop off??
 	for ( int i = 0; i < MAX_GENTITIES; i++ )
@@ -1419,7 +1422,18 @@ void funcGlassDie( gentity_t *self, gentity_t *inflictor, gentity_t *attacker, i
 
 	// Really naughty cheating.  Put in an EVENT at some point...
 	cgi_R_GetBModelVerts( cgs.inlineDrawModel[self->s.modelindex], verts, normal );
-	CG_DoGlass( verts, normal, self->pos1, self->pos2, self->splashRadius );
+	// Failed queries must not seed shard tessellation with degenerate geometry.
+	// Sound, collision removal and target activation still belong to the break.
+	if ( GlassQuadValid( verts ) )
+		CG_DoGlass( verts, normal, self->pos1, self->pos2, self->splashRadius );
+	else
+	{
+		vec3_t polygon[GLASS_MAX_VERTICES] = {};
+		const int count = cgi_R_GetBModelGlassPolygon(cgs.inlineDrawModel[self->s.modelindex],
+			polygon, GLASS_MAX_VERTICES, normal);
+		if (!CG_DoGlassPolygon(polygon, count, normal, self->pos1, self->pos2, self->splashRadius))
+			G_Sound(self, G_SoundIndex("sound/effects/glassbreak1.wav"));
+	}
 
 	self->takedamage = qfalse;//stop chain reaction runaway loops
 

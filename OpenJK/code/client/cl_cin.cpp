@@ -136,6 +136,7 @@ typedef struct {
 	long				drawX, drawY;
 	sfxHandle_t	hSFX;	// 0 = none
 	qhandle_t		hCRAWLTEXT;	// 0 = none
+	int				crawlStartTime;
 } cin_cache;
 
 static cinematics_t		cin;
@@ -1532,6 +1533,7 @@ int CIN_PlayCinematic( const char *arg, int x, int y, int w, int h, int systemBi
 		cinTable[currentHandle].hSFX = 0;
 	}
 	cinTable[currentHandle].hCRAWLTEXT = 0;
+	cinTable[currentHandle].crawlStartTime = 0;
 
 	if (cinTable[currentHandle].alterGameState)
 	{
@@ -1565,10 +1567,13 @@ int CIN_PlayCinematic( const char *arg, int x, int y, int w, int h, int systemBi
 			cls.state = CA_CINEMATIC;
 		}
 
-		Con_Close();
-
 		if ( !cinTable[currentHandle].silent )
+		{
+			// The audio device may have advanced while startup registration was
+			// muted. Synchronize its clock before anchoring the RoQ stream.
+			S_Update();
 			s_rawend = s_soundtime;
+		}
 
 		return currentHandle;
 	}
@@ -1601,10 +1606,12 @@ void CIN_SetLooping(int handle, qboolean loop) {
 
 #define TC_DELAY 9000
 #define TC_STOPTIME 81000
+#define TC_DURATION (TC_STOPTIME - TC_DELAY)
 static void CIN_AddTextCrawl()
 {
 	refdef_t	refdef;
 	polyVert_t	verts[4];
+	const int crawlElapsed = cls.realtime - cinTable[CL_handle].crawlStartTime;
 
 	// Set up refdef
 	memset( &refdef, 0, sizeof( refdef ));
@@ -1626,9 +1633,9 @@ static void CIN_AddTextCrawl()
 
 	// Set up the poly verts
 	float fadeDown = 1.0;
-	if (cls.realtime-CL_iPlaybackStartTime >= (TC_STOPTIME-2500))
+	if (crawlElapsed >= (TC_DURATION-2500))
 	{
-		fadeDown = (TC_STOPTIME - (cls.realtime-CL_iPlaybackStartTime))/ 2480.0f;
+		fadeDown = (TC_DURATION - crawlElapsed) / 2480.0f;
 		if (fadeDown < 0)
 		{
 			fadeDown = 0;
@@ -1640,16 +1647,18 @@ static void CIN_AddTextCrawl()
 	}
 	for ( int i = 0; i < 4; i++ )
 	{
-		verts[i].modulate[0] = 255*fadeDown; // gold color?
-		verts[i].modulate[1] = 235*fadeDown;
-		verts[i].modulate[2] = 127*fadeDown;
+		// The Vulkan legacy color path preserves authored byte-space values.
+		// Use the logo's gold directly instead of applying a second sRGB decode.
+		verts[i].modulate[0] = 241*fadeDown;
+		verts[i].modulate[1] = 220*fadeDown;
+		verts[i].modulate[2] = 113*fadeDown;
 		verts[i].modulate[3] = 255*fadeDown;
 	}
 
 	VectorScaleM( verts[2].modulate, 0.1f, verts[2].modulate ); // darken at the top??
 	VectorScaleM( verts[3].modulate, 0.1f, verts[3].modulate );
 
-#define TIMEOFFSET  +(cls.realtime-CL_iPlaybackStartTime-TC_DELAY)*0.000015f -1
+#define TIMEOFFSET  +crawlElapsed*0.000015f -1
 	VectorSet( verts[0].xyz, TC_PLANE_NEAR, -TC_PLANE_WIDTH, TC_PLANE_TOP );
 	verts[0].st[0] = 1;
 	verts[0].st[1] = 1 TIMEOFFSET;
@@ -1672,7 +1681,7 @@ static void CIN_AddTextCrawl()
 	re.RenderScene( &refdef );
 
 	//time's up
-	if (cls.realtime-CL_iPlaybackStartTime >= TC_STOPTIME)
+	if (crawlElapsed >= TC_DURATION)
 	{
 //		cinTable[currentHandle].holdAtEnd = qfalse;
 		cinTable[CL_handle].status = FMV_EOF;
@@ -1920,6 +1929,9 @@ static void PlayCinematic(const char *arg, const char *s, qboolean qbInGame)
 		CL_handle = CIN_PlayCinematic( arg, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, bits, psAudioFile );
 		if (CL_handle >= 0)
 		{
+			// Foreground movies own the view even when reusing a cached handle.
+			// Background videoMap/UI previews must not dismiss the debug console.
+			Con_Close();
 			cinTable[CL_handle].hCRAWLTEXT = hCrawl;
 			do
 			{
@@ -2032,6 +2044,12 @@ void SCR_DrawCinematic (void)
 		CIN_DrawCinematic(CL_handle);
 		if (cinTable[CL_handle].hCRAWLTEXT && (cls.realtime - CL_iPlaybackStartTime >= TC_DELAY))
 		{
+			if (cinTable[CL_handle].crawlStartTime == 0)
+			{
+				cinTable[CL_handle].crawlStartTime = cls.realtime;
+				Com_Printf("Cinematic crawl: first visible frame at playback +%d ms\n",
+					cls.realtime - CL_iPlaybackStartTime);
+			}
 			CIN_AddTextCrawl();
 		}
 	}
@@ -2172,5 +2190,3 @@ qboolean CL_InGameCinematicOnStandBy(void)
 {
 	return qbInGameCinematicOnStandBy;
 }
-
-

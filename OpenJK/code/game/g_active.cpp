@@ -30,6 +30,9 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "b_local.h"
 #include "g_navigator.h"
 #include <VrClientInfo.h>
+#include <VrTriggerTouch.h>
+
+#include <cmath>
 
 #ifdef _DEBUG
 	#include <float.h>
@@ -44,8 +47,11 @@ extern void G_MaintainFormations(gentity_t *self);
 extern void BG_CalculateOffsetAngles( gentity_t *ent, usercmd_t *ucmd );//in bg_pangles.cpp
 extern void BG_CalculateVRWeaponPosition( vec3_t origin, vec3_t angles );//in bg_pmisc.cpp
 extern void BG_CalculateVROffHandPosition( vec3_t origin, vec3_t angles );//in bg_pmisc.cpp
+extern void PM_BeginMovementAudit( qboolean enabled );
+extern void PM_DumpMovementAudit( void );
 extern void TryUse( gentity_t *ent );
 extern void TryAltUse( gentity_t *ent );
+extern qboolean TryUseNearbyHandTarget( gentity_t *ent, bool offHand, bool active );
 extern void ChangeWeapon( gentity_t *ent, int newWeapon );
 extern void ScoreBoardReset(void);
 extern void WP_SaberReflectCheck( gentity_t *self, usercmd_t *ucmd  );
@@ -1388,7 +1394,7 @@ void	G_TouchTriggersWithHand( bool offHand, gentity_t *ent, vec3_t src, vec3_t v
 			// Already touched this move
 			continue;
 		}
-		if ( !( hit->spawnflags & 4 ) ) {
+		if ( !VR_IsUseButtonTrigger( hit->e_TouchFunc == touchF_Touch_Multi, hit->spawnflags ) ) {
 			// Non-BUTTON entities were already processed
 			continue;
 		}
@@ -1433,7 +1439,7 @@ void	G_TouchTriggersLerped( gentity_t *ent ) {
 	trace_t		trace;
 	vec3_t		end, mins, maxs, diff;
 	const vec3_t	range = { 40, 40, 52 };
-	qboolean	touched[MAX_GENTITIES];
+	VrTriggerTouchSet<MAX_GENTITIES> touched;
 	qboolean	done = qfalse;
 
 	if ( !ent->client ) {
@@ -1466,8 +1472,6 @@ void	G_TouchTriggersLerped( gentity_t *ent ) {
 	{
 		return;
 	}
-	memset (touched, qfalse, sizeof(touched) );
-
 	bool thirdPersonActive = gi.cvar("cg_thirdPerson", "0", CVAR_TEMP)->integer;
 	bool useGestureEnabled = gi.cvar("vr_gesture_triggered_use", "1", CVAR_ARCHIVE)->integer; // defined in VrCvars.h
 	bool useGestureAllowed = useGestureEnabled && !thirdPersonActive && !(vr && vr->remote_droid);
@@ -1502,7 +1506,7 @@ void	G_TouchTriggersLerped( gentity_t *ent ) {
 				continue;
 			}
 
-			if ( touched[i] == qtrue ) {
+			if ( touched.Seen( hit->s.number ) ) {
 				continue;//already touched this move
 			}
 			if ( ent->client->ps.stats[STAT_HEALTH] <= 0 )
@@ -1526,18 +1530,33 @@ void	G_TouchTriggersLerped( gentity_t *ent ) {
 				}
 			}
 
-			if (ent->client && ent->client->ps.clientNum == 0 && hit->spawnflags & 4 && useGestureAllowed) {
+			if (ent->client && ent->client->ps.clientNum == 0 && useGestureAllowed &&
+				VR_IsUseButtonTrigger( hit->e_TouchFunc == touchF_Touch_Multi, hit->spawnflags )) {
 				// Entity is BUTTON touched by player with enabled use gestures. Skip it as we want to touch
 				// buttons by hands and not by body in this case
 				continue;
 			}
 
-			touched[i] = qtrue;
+			touched.Mark( hit->s.number );
 
 			memset( &trace, 0, sizeof(trace) );
 
 			if ( hit->e_TouchFunc != touchF_NULL ) {
+				const bool pushTrigger = hit->e_TouchFunc == touchF_trigger_push_touch;
 				GEntity_TouchFunc(hit, ent, &trace);
+				if ( pushTrigger && ent->s.number == 0 && gi.cvar("vr_controller_debug", "0", 0)->integer )
+				{
+					static int lastReport = -1000;
+					if ( level.time < lastReport || level.time - lastReport >= 1000 )
+					{
+						gi.Printf("jkxr-push-trigger: entity=%d model=%d flags=%d origin=(%.1f %.1f %.1f) velocity=(%.1f %.1f %.1f) pushed=%d\n",
+							hit->s.number, hit->s.modelindex, hit->spawnflags,
+							ent->currentOrigin[0], ent->currentOrigin[1], ent->currentOrigin[2],
+							ent->client->ps.velocity[0], ent->client->ps.velocity[1], ent->client->ps.velocity[2],
+							(ent->client->ps.pm_flags & PMF_TRIGGER_PUSHED) != 0);
+						lastReport = level.time;
+					}
+				}
 			}
 
 			//WTF?  Why would a trigger ever fire off the NPC's touch func??!!!
@@ -4855,6 +4874,7 @@ void ClientThink_real( gentity_t *ent, usercmd_t *ucmd )
 	gclient_t	*client;
 	pmove_t		pm;
 	vec3_t		oldOrigin;
+	const usercmd_t movementDebugInput = *ucmd;
 	int			oldEventSequence;
 	int			msec;
 	qboolean	inSpinFlipAttack = PM_AdjustAnglesForSpinningFlip( ent, ucmd, qfalse );
@@ -5328,6 +5348,7 @@ extern cvar_t	*g_skippingcin;
 	{
 		ClientAlterSpeed(ent, ucmd, controlledByPlayer, 0);
 	}
+	const float movementDebugSpeedLimit = client->ps.speed;
 
 
 	//FIXME: need to do this before check to avoid walls and cliffs (or just cliffs?)
@@ -5505,8 +5526,82 @@ extern cvar_t	*g_skippingcin;
 	VectorCopy( client->ps.origin, oldOrigin );
 
 	// perform a pmove
+	static cvar_t *controllerDebug = gi.cvar( "vr_controller_debug", "0", 0 );
+	PM_BeginMovementAudit(
+		ent->s.number == 0 && controllerDebug != nullptr && controllerDebug->integer
+			? qtrue : qfalse );
+	const usercmd_t movementDebugPmoveCmd = pm.cmd;
 	Pmove( &pm );
 	pm.gent = 0;
+
+	if ( ent->s.number == 0 )
+	{
+		static int lastMovementDebugTime = 0;
+		static qboolean movementAnomalyActive = qfalse;
+		const float commandMagnitude = std::sqrt(
+			static_cast<float>(
+				movementDebugPmoveCmd.forwardmove * movementDebugPmoveCmd.forwardmove +
+				movementDebugPmoveCmd.rightmove * movementDebugPmoveCmd.rightmove ) ) / 127.0f;
+		const qboolean movementAnomaly =
+			commandMagnitude >= 0.75f && ent->resultspeed < 25.0f &&
+			client->ps.pm_type == PM_NORMAL &&
+			( client->ps.eFlags & EF_LOCKED_TO_WEAPON ) == 0 ? qtrue : qfalse;
+		if ( controllerDebug->integer &&
+			( level.time - lastMovementDebugTime >= 250 ||
+				movementAnomaly != movementAnomalyActive ) )
+		{
+			const float horizontalVelocity = std::sqrt(
+				client->ps.velocity[0] * client->ps.velocity[0] +
+				client->ps.velocity[1] * client->ps.velocity[1] );
+			gi.Printf(
+				"jkxr-movement-debug: anomaly=%d input=(%d %d %d) "
+				"pmcmd=(%d %d %d) postcmd=(%d %d %d) mag=%.3f "
+				"speedLimit=%.2f result=%.2f velocity=%.2f "
+				"delta=(%.3f %.3f %.3f) msec=%d pm=%d pmFlags=0x%x pmTime=%d "
+				"eFlags=0x%x ground=%d water=(%d 0x%x) anim=(%d/%d %d/%d) "
+				"touches=%d [%d %d %d %d]\n",
+				movementAnomaly,
+				movementDebugInput.forwardmove,
+				movementDebugInput.rightmove,
+				movementDebugInput.upmove,
+				movementDebugPmoveCmd.forwardmove,
+				movementDebugPmoveCmd.rightmove,
+				movementDebugPmoveCmd.upmove,
+				pm.cmd.forwardmove,
+				pm.cmd.rightmove,
+				pm.cmd.upmove,
+				commandMagnitude,
+				movementDebugSpeedLimit,
+				ent->resultspeed,
+				horizontalVelocity,
+				client->ps.origin[0] - oldOrigin[0],
+				client->ps.origin[1] - oldOrigin[1],
+				client->ps.origin[2] - oldOrigin[2],
+				msec,
+				client->ps.pm_type,
+				client->ps.pm_flags,
+				client->ps.pm_time,
+				client->ps.eFlags,
+				client->ps.groundEntityNum,
+				pm.waterlevel,
+				pm.watertype,
+				client->ps.legsAnim,
+				client->ps.legsAnimTimer,
+				client->ps.torsoAnim,
+				client->ps.torsoAnimTimer,
+				pm.numtouch,
+				pm.numtouch > 0 ? pm.touchents[0] : -1,
+				pm.numtouch > 1 ? pm.touchents[1] : -1,
+				pm.numtouch > 2 ? pm.touchents[2] : -1,
+				pm.numtouch > 3 ? pm.touchents[3] : -1 );
+			lastMovementDebugTime = level.time;
+			if ( movementAnomaly )
+			{
+				PM_DumpMovementAudit();
+			}
+		}
+		movementAnomalyActive = movementAnomaly;
+	}
 
 	ProcessGenericCmd(ent, pm.cmd.generic_cmd);
 
@@ -5569,6 +5664,21 @@ extern cvar_t	*g_skippingcin;
 	if ( pm.altUseEvent )
 	{
 		TryAltUse( ent );
+	}
+	if ( vr )
+	{
+		const bool weaponHandUse = (vr->useGestureState & USE_GESTURE_WEAPON_HAND)
+			&& (ucmd->buttons & BUTTON_USE);
+		const bool offHandUse = (vr->useGestureState & USE_GESTURE_OFF_HAND)
+			&& (ucmd->buttons & BUTTON_ALT_USE);
+		if ( !pm.useEvent || !weaponHandUse )
+		{
+			TryUseNearbyHandTarget( ent, false, weaponHandUse );
+		}
+		if ( !pm.altUseEvent || !offHandUse )
+		{
+			TryUseNearbyHandTarget( ent, true, offHandUse );
+		}
 	}
 
 	// link entity now, after any personal teleporters have been used
@@ -5853,5 +5963,3 @@ void ClientEndFrame( gentity_t *ent )
 
 //	G_SetClientSound (ent);
 }
-
-

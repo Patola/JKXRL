@@ -27,6 +27,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "w_local.h"
 #include "bg_local.h"
 #include <VrClientInfo.h>
+#include <VrThrowGesture.h>
 
 //---------------------
 //	Thermal Detonator
@@ -320,16 +321,28 @@ gentity_t *WP_FireThermalDetonator( gentity_t *ent, qboolean alt_fire )
 		vec3_t	angs;
 		BG_CalculateVRWeaponPosition(start, angs);
 
-		//Caclulate speed between two controller position readings
-		float distance = VectorDistance(vr->weaponoffset_history[NEWEST_READING], vr->weaponoffset_history[OLDEST_READING]);
-		float t = vr->weaponoffset_history_timestamp[NEWEST_READING] - vr->weaponoffset_history_timestamp[OLDEST_READING];
-		float velocity = distance / (t/(float)1000.0);
-
-		//Calculate trajectory
-		VectorSubtract(vr->weaponoffset_history[NEWEST_READING], vr->weaponoffset_history[OLDEST_READING], dir);
-		VectorNormalize( dir );
+		const int releaseAge = gi.Milliseconds() - vr->thermal_throw_time;
+		const bool capturedRelease = vr->thermal_throw_ready && releaseAge >= 0 && releaseAge <= 750;
+		if (capturedRelease)
+		{
+			VectorCopy(vr->thermal_throw_velocity, dir);
+		}
+		else
+		{
+			JKXR_ThermalHistoryVelocity(
+				vr->weaponoffset_history[NEWEST_READING],
+				vr->weaponoffset_history[OLDEST_READING],
+				vr->weaponoffset_history_timestamp[NEWEST_READING] -
+				vr->weaponoffset_history_timestamp[OLDEST_READING], dir);
+		}
+		vr->thermal_throw_ready = false;
+		// Convert metres/second once; preserve the existing throw-speed multiplier.
 		BG_ConvertFromVR(dir, NULL, dir);
-		VectorScale( dir, velocity * TD_REAL_THROW_VEL_MULT, bolt->s.pos.trDelta );
+		VectorScale(dir, TD_REAL_THROW_VEL_MULT, bolt->s.pos.trDelta);
+		if (gi.cvar("vr_controller_debug", "0", 0)->integer)
+			gi.Printf("jkxr-thermal-spawn: captured=%d releaseAge=%dms velocity=(%.2f %.2f %.2f)\n",
+				capturedRelease, releaseAge, bolt->s.pos.trDelta[0],
+				bolt->s.pos.trDelta[1], bolt->s.pos.trDelta[2]);
 		realThrow = true;
 	}
 	else {

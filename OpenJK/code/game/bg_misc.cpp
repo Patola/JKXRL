@@ -29,6 +29,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 
 #include "g_local.h"
 #include "bg_public.h"
+#include "bg_local.h"
 #include "g_items.h"
 #include "g_vehicles.h"
 #include <VrClientInfo.h>
@@ -716,7 +717,7 @@ void rotateAboutOrigin(float x, float y, float rotation, vec2_t out)
 
 float getHMDYawForCalc()
 {
-	if (vr->in_vehicle || vr->third_person)
+	if (vr->in_vehicle || vr->third_person || vr->emplaced_gun)
 	{
 		return vr->hmdorientation_first[YAW];
 	}
@@ -780,6 +781,17 @@ void BG_CalculateVROffHandPosition( vec3_t origin, vec3_t angles )
 	BG_CalculateVRPositionInWorld(vr->offhandposition[0], vr->offhandoffset, vr->offhandangles[ANGLES_ADJUSTED], origin, angles);
 }
 
+bool BG_CalculateVRLightningPose( gentity_t *ent, vec3_t origin, vec3_t angles )
+{
+	if ( !ent || ent->s.number != 0 || in_camera || !BG_UseVRPosition(ent) ||
+		(ent->client->ps.viewEntity > 0 && ent->client->ps.viewEntity < ENTITYNUM_WORLD) )
+		return false;
+	// Use the pointing pose, independent of weapon pitch/saber grip adjustments.
+	// Shared by damage and both visual paths; handedness already maps the offhand.
+	BG_CalculateVRDefaultPosition(1, origin, angles);
+	return true;
+}
+
 void BG_CalculateVRWeaponPosition( vec3_t origin, vec3_t angles )
 {
 	BG_CalculateVRPositionInWorld(vr->weaponposition, vr->weaponoffset, vr->weaponangles[ANGLES_ADJUSTED], origin, angles);
@@ -812,7 +824,8 @@ void BG_CalculateVRSaberPosition( int saberNum, vec3_t origin, vec3_t angles )
 
 bool BG_UseVRPosition( gentity_t *ent )
 {
-	return ( ent->client && ent->client->ps.clientNum == 0 && !cg.renderingThirdPerson);
+	return ( ent->client && ent->client->ps.clientNum == 0 &&
+		!(ent->client->ps.eFlags & EF_IN_ATST) && !cg.renderingThirdPerson);
 }
 
 /*

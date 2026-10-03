@@ -3,7 +3,7 @@ CONFIG W:\bin\striped.cfg
 ID 100
 REFERENCE MENUS_VR
 DESCRIPTION "VR Menu Localizations"
-COUNT 177
+COUNT 190
 INDEX 0
 {
    REFERENCE COMMON_CONTROLS_ITEM
@@ -727,7 +727,7 @@ INDEX 143
 INDEX 144
 {
    REFERENCE HELP_BUTTON_ITEM
-   TEXT_LANGUAGE1 "JKXR Help"
+   TEXT_LANGUAGE1 "JKXRL Help"
 }
 INDEX 145
 {
@@ -822,7 +822,7 @@ INDEX 162
 INDEX 163
 {
    REFERENCE RESTART_JKXR_TO_APPLY
-   TEXT_LANGUAGE1 "You will need to manually restart JKXR."
+   TEXT_LANGUAGE1 "You will need to manually restart JKXRL."
 }
 INDEX 164
 {
@@ -888,4 +888,69 @@ INDEX 176
 {
    REFERENCE SUPER_SAMPLING_DESC
    TEXT_LANGUAGE1 "Configures super sampling value."
+}
+INDEX 177
+{
+   REFERENCE FORCE_SPEED_MOTION_BLUR_ITEM
+   TEXT_LANGUAGE1 "Force Speed Motion Blur:"
+}
+INDEX 178
+{
+   REFERENCE FORCE_SPEED_MOTION_BLUR_DESC
+   TEXT_LANGUAGE1 "Applies a radial motion blur while Force Speed is active."
+}
+INDEX 179
+{
+   REFERENCE ENERGY_BLOOM_ITEM
+   TEXT_LANGUAGE1 "Energy Bloom:"
+}
+INDEX 180
+{
+   REFERENCE ENERGY_BLOOM_DESC
+   TEXT_LANGUAGE1 "Adds wide halos to lightsabers, energy beams, and other bright effects."
+}
+INDEX 181
+{
+   REFERENCE CONSOLE_BUTTON_ITEM
+   TEXT_LANGUAGE1 "Console Button:"
+}
+INDEX 182
+{
+   REFERENCE CONSOLE_BUTTON_DESC
+   TEXT_LANGUAGE1 "Select the button whose long press opens the spatial console. A short press opens the datapad."
+}
+INDEX 183
+{
+   REFERENCE CONSOLE_BUTTON_Y
+   TEXT_LANGUAGE1 "Y"
+}
+INDEX 184
+{
+   REFERENCE CONSOLE_BUTTON_B
+   TEXT_LANGUAGE1 "B"
+}
+INDEX 185
+{
+   REFERENCE CONSOLE_BUTTON_DATAPAD
+   TEXT_LANGUAGE1 "Datapad Button"
+}
+INDEX 186
+{
+   REFERENCE CONSOLE_HOLD_ITEM
+   TEXT_LANGUAGE1 "Console Hold Time:"
+}
+INDEX 187
+{
+   REFERENCE CONSOLE_HOLD_DESC
+   TEXT_LANGUAGE1 "Select how long the console button must be held."
+}
+INDEX 188
+{
+   REFERENCE CONSOLE_ANIMATION_ITEM
+   TEXT_LANGUAGE1 "Console Animation:"
+}
+INDEX 189
+{
+   REFERENCE CONSOLE_ANIMATION_DESC
+   TEXT_LANGUAGE1 "Animate the spatial console and keyboard when opening and closing."
 }

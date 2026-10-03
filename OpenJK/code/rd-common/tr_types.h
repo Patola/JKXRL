@@ -77,6 +77,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #define RF_FORCE_ENT_ALPHA	0x800000 // override shader alpha settings
 
 #define RF_VRVIEWMODEL     0x1000000 // specifically drawing a VR hand/weapon model
+#define RF_LIGHT_SHADOW_RECEIVER 0x2000000 // attenuate added renderer shadows on bright armor
 
 // refdef flags
 #define RDF_NOWORLDMODEL	1		// used for player configuration screen
@@ -88,6 +89,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #define RDF_doLAGoggles		32		// Light Amp goggles
 #define RDF_doFullbright	64		// Light Amp goggles
 #define RDF_ForceSightOn	128		// using force sight
+#define RDF_SECURITY_CAMERA 256		// remote camera feed on a stationary VR monitor
 
 
 extern int	skyboxportal;
@@ -213,6 +215,8 @@ typedef struct {
 	// text messages for deform text shaders
 //	char		text[MAX_RENDER_STRINGS][MAX_RENDER_STRING_LENGTH];
 	float worldscale;
+	// Normalized gameplay envelope for the stereo-safe Force Speed post effect.
+	float forceSpeedBlur;
 } refdef_t;
 
 

@@ -9,6 +9,10 @@ Authors		:	Simon Brown
 
 #include "VrInput.h"
 #include "VrCvars.h"
+#include "VrJumpInput.h"
+#include "VrMountedAim.h"
+#include "VrThrowGesture.h"
+#include "VrForceCast.h"
 
 #include "qcommon/q_shared.h"
 #include <qcommon/qcommon.h>
@@ -21,7 +25,305 @@ Authors		:	Simon Brown
 #include "game/wp_saber.h"
 #include "game/g_vehicles.h"
 
+#include <algorithm>
+
 void Sys_QueEvent(int time, sysEventType_t type, int value, int value2, int ptrLength, void* ptr);
+
+static float JKXR_VectorLength( const XrVector3f &vector )
+{
+    return sqrtf(
+            vector.x * vector.x +
+            vector.y * vector.y +
+            vector.z * vector.z);
+}
+
+static float JKXR_SaberSwingSpeed( const ovrTrackedController *controller,
+                                   float linearSpeed )
+{
+    const float angularSpeed = JKXR_VectorLength(controller->Velocity.angularVelocity);
+
+    // Approximate the speed at the middle of a one-metre blade. This captures
+    // wrist-driven cuts whose controller centre has little linear movement.
+    constexpr float saberCentreFromController = 0.55f;
+    const float rotationalSpeed = angularSpeed * saberCentreFromController;
+    return sqrtf(linearSpeed * linearSpeed + rotationalSpeed * rotationalSpeed);
+}
+
+static float JKXR_ForceRadialDistance( const vec3_t position )
+{
+    vec3_t chest;
+    vec3_t relative;
+    VectorCopy(vr.hmdposition, chest);
+    chest[1] -= 0.2f;
+    VectorSubtract(position, chest, relative);
+    return VectorLength(relative);
+}
+
+static bool JKXR_ForcePalmAway()
+{
+    vec3_t offhandRightXY = {};
+    vec3_t hmdForwardXY = {};
+    AngleVectors(vr.hmdorientation, hmdForwardXY, NULL, NULL);
+    AngleVectors(vr.offhandangles[ANGLES_DEFAULT], NULL, offhandRightXY, NULL);
+
+    hmdForwardXY[1] = 0.0f;
+    offhandRightXY[1] = 0.0f;
+    VectorNormalize(hmdForwardXY);
+    VectorNormalize(offhandRightXY);
+
+    bool palmAway = DotProduct(hmdForwardXY, offhandRightXY) > 0.0f;
+    if (!vr.right_handed)
+    {
+        palmAway = !palmAway;
+    }
+    return palmAway;
+}
+
+static bool JKXR_DispatchForceGesture(
+        float deltaLength,
+        const char *source,
+        int historyAgeMs = 0 )
+{
+    if (fabsf(deltaLength) <= vr_force_distance_trigger->value)
+    {
+        return false;
+    }
+
+    const bool palmAway = JKXR_ForcePalmAway();
+    int forcePower = -1;
+    const char *forceName = "rejected";
+    if (deltaLength < 0.0f && !palmAway)
+    {
+        forcePower = vr_force_motion_pull->integer;
+        forceName = "pull";
+    }
+    else if (deltaLength > 0.0f && palmAway)
+    {
+        forcePower = vr_force_motion_push->integer;
+        forceName = "push";
+    }
+
+    if (Cvar_VariableIntegerValue("vr_controller_debug"))
+    {
+        Com_Printf(
+                "jkxr-force-input: source=%s result=%s delta=%.4f speed=%.4f "
+                "palmAway=%d samples=%d ageMs=%d\n",
+                source,
+                forceName,
+                deltaLength,
+                vr.secondaryswingvelocity,
+                palmAway ? 1 : 0,
+                vr.forceGestureHistorySampleCount,
+                historyAgeMs);
+    }
+    if (forcePower < 0)
+    {
+        return false;
+    }
+
+    sendButtonActionSimple(va("useGivenForce %i", forcePower));
+    return true;
+}
+
+static void JKXR_RecordForceGestureSample( int timestamp )
+{
+    const float radialDistance = JKXR_ForceRadialDistance(vr.offhandposition[0]);
+    if (vr.forceGestureHistorySampleCount > 0 &&
+            vr.forceGestureHistoryTimestamp[0] == timestamp)
+    {
+        vr.forceGestureRadialHistory[0] = radialDistance;
+        return;
+    }
+
+    const int lastSample = std::min(
+            vr.forceGestureHistorySampleCount,
+            NUM_FORCE_GESTURE_SAMPLES - 1);
+    for (int sample = lastSample; sample > 0; --sample)
+    {
+        vr.forceGestureRadialHistory[sample] =
+                vr.forceGestureRadialHistory[sample - 1];
+        vr.forceGestureHistoryTimestamp[sample] =
+                vr.forceGestureHistoryTimestamp[sample - 1];
+    }
+    vr.forceGestureRadialHistory[0] = radialDistance;
+    vr.forceGestureHistoryTimestamp[0] = timestamp;
+    if (vr.forceGestureHistorySampleCount < NUM_FORCE_GESTURE_SAMPLES)
+    {
+        ++vr.forceGestureHistorySampleCount;
+    }
+}
+
+static void JKXR_ResetForceGestureHistory()
+{
+    if (vr.forceGestureHistorySampleCount > 0)
+    {
+        vr.forceGestureHistorySampleCount = 1;
+    }
+}
+
+static bool JKXR_ForceHistoryDelta(
+        int timestamp,
+        float *deltaLength,
+        int *historyAgeMs )
+{
+    if (deltaLength == nullptr || historyAgeMs == nullptr ||
+            vr.forceGestureHistorySampleCount < 2)
+    {
+        return false;
+    }
+
+    constexpr int minimumHistoryAgeMs = 20;
+    constexpr int maximumHistoryAgeMs = 320;
+    const float currentRadius = vr.forceGestureRadialHistory[0];
+    float strongestDelta = 0.0f;
+    int strongestAgeMs = 0;
+    for (int sample = 1; sample < vr.forceGestureHistorySampleCount; ++sample)
+    {
+        const int sampleAgeMs =
+                timestamp - vr.forceGestureHistoryTimestamp[sample];
+        if (sampleAgeMs < minimumHistoryAgeMs)
+        {
+            continue;
+        }
+        if (sampleAgeMs > maximumHistoryAgeMs)
+        {
+            break;
+        }
+
+        const float sampleDelta = currentRadius -
+                vr.forceGestureRadialHistory[sample];
+        if (fabsf(sampleDelta) > fabsf(strongestDelta))
+        {
+            strongestDelta = sampleDelta;
+            strongestAgeMs = sampleAgeMs;
+        }
+    }
+    *deltaLength = strongestDelta;
+    *historyAgeMs = strongestAgeMs;
+    return fabsf(strongestDelta) > vr_force_distance_trigger->value;
+}
+
+struct jkxr_stick_dropout_state_t
+{
+    bool outerArmed = false;
+    bool compensating = false;
+    float latchedMagnitude = 0.0f;
+    XrVector2f latchedDirection = {};
+    float previousMagnitude = 0.0f;
+};
+
+static XrVector2f JKXR_ConditionLocomotionStick(
+        const XrVector2f &raw,
+        bool movementEnabled,
+        bool stickTouched )
+{
+    static jkxr_stick_dropout_state_t state;
+    static cvar_t *dropoutGuard = Cvar_Get(
+            "vr_openxr_stick_dropout_guard", "1", CVAR_ARCHIVE);
+
+    const float magnitude = length(raw.x, raw.y);
+    if (!movementEnabled || dropoutGuard->integer == 0)
+    {
+        state = {};
+        return raw;
+    }
+
+    constexpr float outerThreshold = 0.82f;
+    constexpr float dropoutThreshold = 0.58f;
+    constexpr float minimumDirectionDot = 0.75f;
+
+    if (magnitude <= 0.06f)
+    {
+        if (state.compensating && stickTouched)
+        {
+            if (Cvar_VariableIntegerValue("vr_controller_debug") &&
+                    state.previousMagnitude > 0.06f)
+            {
+                Com_Printf(
+                        "jkxr-stick-dropout: holding through false center "
+                        "touch=1 latched=%.3f\n",
+                        state.latchedMagnitude);
+            }
+            state.previousMagnitude = magnitude;
+            return {
+                state.latchedDirection.x * state.latchedMagnitude,
+                state.latchedDirection.y * state.latchedMagnitude,
+            };
+        }
+        if (state.compensating &&
+                Cvar_VariableIntegerValue("vr_controller_debug"))
+        {
+            Com_Printf(
+                    "jkxr-stick-dropout: released at center touch=%d\n",
+                    stickTouched ? 1 : 0);
+        }
+        state = {};
+        return raw;
+    }
+
+    const XrVector2f direction = {
+        raw.x / magnitude,
+        raw.y / magnitude,
+    };
+    if (magnitude >= outerThreshold)
+    {
+        if (state.compensating &&
+                Cvar_VariableIntegerValue("vr_controller_debug"))
+        {
+            Com_Printf(
+                    "jkxr-stick-dropout: raw signal recovered "
+                    "raw=(%.3f %.3f) magnitude=%.3f\n",
+                    raw.x, raw.y, magnitude);
+        }
+        state.outerArmed = true;
+        state.compensating = false;
+        state.latchedMagnitude = magnitude;
+        state.latchedDirection = direction;
+        state.previousMagnitude = magnitude;
+        return raw;
+    }
+
+    if (!state.outerArmed)
+    {
+        return raw;
+    }
+
+    const float directionDot =
+            direction.x * state.latchedDirection.x +
+            direction.y * state.latchedDirection.y;
+    if (directionDot < minimumDirectionDot)
+    {
+        state = {};
+        return raw;
+    }
+
+    const bool abruptAttenuation =
+            state.previousMagnitude >= outerThreshold &&
+            magnitude <= dropoutThreshold;
+    if (!state.compensating && abruptAttenuation)
+    {
+        state.compensating = true;
+        if (Cvar_VariableIntegerValue("vr_controller_debug"))
+        {
+            Com_Printf(
+                    "jkxr-stick-dropout: compensating raw attenuation "
+                    "raw=(%.3f %.3f) magnitude=%.3f latched=%.3f dot=%.3f\n",
+                    raw.x, raw.y, magnitude, state.latchedMagnitude,
+                    directionDot);
+        }
+    }
+    state.previousMagnitude = magnitude;
+
+    if (!state.compensating)
+    {
+        return raw;
+    }
+
+    return {
+        direction.x * state.latchedMagnitude,
+        direction.y * state.latchedMagnitude,
+    };
+}
 
 
 void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew, ovrInputStateTrackedRemote *pDominantTrackedRemoteOld, ovrTrackedController* pDominantTracking,
@@ -36,6 +338,7 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
     bool thirdPersonActive = !!((int) Cvar_VariableValue("cg_thirdPerson"));
 
     static bool dominantGripPushed = false;
+    static bool disruptorZoomHeld = false;
 
     //Need this for the touch screen
     ovrTrackedController * pWeapon = pDominantTracking;
@@ -48,12 +351,11 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
     uint32_t primaryButtonsOld;
     uint32_t secondaryButtonsNew;
     uint32_t secondaryButtonsOld;
+    uint32_t secondaryTouchesNew;
     int primaryButton1;
     bool primaryButton2New;
     bool primaryButton2Old;
     int secondaryButton1;
-    bool secondaryButton2New;
-    bool secondaryButton2Old;
     bool secondaryButton1New;
     bool secondaryButton1Old;
     int primaryThumb;
@@ -83,6 +385,7 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
         pPrimaryJoystick = &pOffTrackedRemoteNew->Joystick;
         secondaryButtonsNew = pDominantTrackedRemoteNew->Buttons;
         secondaryButtonsOld = pDominantTrackedRemoteOld->Buttons;
+        secondaryTouchesNew = pDominantTrackedRemoteNew->Touches;
         primaryButtonsNew = pOffTrackedRemoteNew->Buttons;
         primaryButtonsOld = pOffTrackedRemoteOld->Buttons;
         primaryButton1 = offButton1;
@@ -96,6 +399,7 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
         primaryButtonsOld = pDominantTrackedRemoteOld->Buttons;
         secondaryButtonsNew = pOffTrackedRemoteNew->Buttons;
         secondaryButtonsOld = pOffTrackedRemoteOld->Buttons;
+        secondaryTouchesNew = pOffTrackedRemoteNew->Touches;
         primaryButton1 = domButton1;
         secondaryButton1 = offButton1;
     }
@@ -103,8 +407,6 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
     //Don't switch B/Y buttons even if switched sticks
     primaryButton2New = domButton2 & pDominantTrackedRemoteNew->Buttons;
     primaryButton2Old = domButton2 & pDominantTrackedRemoteOld->Buttons;
-    secondaryButton2New = offButton2 & pOffTrackedRemoteNew->Buttons;
-    secondaryButton2Old = offButton2 & pOffTrackedRemoteOld->Buttons;
     secondaryButton1New = offButton1 & pOffTrackedRemoteNew->Buttons;
     secondaryButton1Old = offButton1 & pOffTrackedRemoteOld->Buttons;
 
@@ -235,8 +537,211 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
 	handleTrackedControllerButton(&leftTrackedRemoteState_new, &leftTrackedRemoteState_old, xrButton_Enter, A_ESCAPE);
 	handleTrackedControllerButton(&rightTrackedRemoteState_new, &rightTrackedRemoteState_old, xrButton_Enter, A_ESCAPE);
 
+    // The zoom stick owns +altattack while the Tenloss scope is active. If the
+    // scope disengages before the stick centers, release it here so the game
+    // cannot remain in a hidden alt-fire/scope transition loop.
+    if (vr.cgzoommode != 2 && disruptorZoomHeld)
+    {
+        sendButtonAction("+altattack", false);
+        disruptorZoomHeld = false;
+        if (Cvar_VariableIntegerValue("vr_controller_debug"))
+        {
+            Com_Printf("jkxr-scope-input: released zoom altattack on scope exit\n");
+        }
+    }
+
+    static bool cameraUseHeld = false;
+    if ((!vr.misc_camera || vr.remote_droid || vr.cin_camera) && cameraUseHeld)
+    {
+        sendButtonAction("+use", false);
+        cameraUseHeld = false;
+    }
+
+    const bool screenLayer = VR_UseScreenLayer();
+    const bool mountedGun = (cl.frame.ps.eFlags & EF_LOCKED_TO_WEAPON) && !vr.remote_turret;
+    const bool forceTriggerDown = (pOffTrackedRemoteNew->Buttons & xrButton_Trigger) != 0;
+    const bool forceGripDown = (pOffTrackedRemoteNew->Buttons & xrButton_GripTrigger) != 0;
+    const bool dualForceMode = vr.dualsabers && cl.frame.ps.weapon == WP_SABER &&
+            vr_force_motion_controlled->integer;
+    static bool forceGripConsumed = false;
+    if (!forceGripDown)
+        forceGripConsumed = false;
+    if (dualForceMode && forceTriggerDown && forceGripDown)
+    {
+        forceGripConsumed = true;
+        // Cancel, rather than commit, a wheel opened by the first half of the chord.
+        if (vr.item_selector == 2)
+        {
+            sendButtonActionSimple("itemselectorcancel");
+            vr.item_selector = 0;
+        }
+    }
+    const bool forceInputAllowed = cl.frame.ps.stats[STAT_HEALTH] > 0 &&
+            !screenLayer && !vr.spatial_console_visible &&
+            !(Key_GetCatcher() & (KEYCATCH_UI | KEYCATCH_CONSOLE)) &&
+            !vr.cin_camera && !vr.misc_camera && !vr.remote_turret &&
+            !mountedGun && !vr.in_vehicle && !vr.item_selector && pOff->Active;
+    static jkxr_force_cast_t forceCast;
+    static int forceServerTime = 0;
+    static bool forceRightHanded = vr.right_handed;
+    const bool forceContextChanged = cl.serverTime < forceServerTime ||
+            forceRightHanded != vr.right_handed;
+    forceServerTime = cl.serverTime;
+    forceRightHanded = vr.right_handed;
+    const auto castEvent = forceCast.Update(forceTriggerDown,
+            forceInputAllowed && !forceContextChanged && dualForceMode &&
+            (!vr.weapon_stabilised || forceGripConsumed), forceGripDown);
+    vr.dual_saber_casting = castEvent.ownsTrigger;
+    if (vr.dual_saber_casting)
+        vr.secondaryVelocityTriggeredAttack = false;
+    if (castEvent.armed)
+    {
+        vr.forceGestureArmed = false;
+        vr.forceGestureHistorySampleCount = 0;
+        TBXR_Vibrate(24, vr.right_handed ? 2 : 1, 0.16f);
+        if (Cvar_VariableIntegerValue("vr_controller_debug"))
+            Com_Printf("jkxr-force-mode: dual gesture chord armed\n");
+    }
+    static bool selectedForceHeld = false;
+    if (forceTriggerDown != ((pOffTrackedRemoteOld->Buttons & xrButton_Trigger) != 0) &&
+            Cvar_VariableIntegerValue("vr_controller_debug"))
+        Com_Printf("jkxr-force-state: trigger=%d grip=%d dual=%d allowed=%d owned=%d "
+                "active=%d gesture=%d consumed=%d selector=%d stabilised=%d weaponTime=%d\n",
+                forceTriggerDown, forceGripDown, dualForceMode, forceInputAllowed,
+                forceCast.owned, forceCast.active, forceCast.gestureMode, forceCast.dispatched,
+                vr.item_selector, vr.weapon_stabilised, cl.frame.ps.weaponTime);
+    const bool selectedForceDown = forceInputAllowed && !forceContextChanged &&
+            forceTriggerDown && (forceCast.SelectedPowerHeld() ||
+            (!castEvent.ownsTrigger && !dualForceMode));
+    if (selectedForceDown != selectedForceHeld)
+    {
+        sendButtonAction("+useforce", selectedForceDown);
+        selectedForceHeld = selectedForceDown;
+        if (Cvar_VariableIntegerValue("vr_controller_debug"))
+            Com_Printf("jkxr-force-mode: selected power held=%d dual=%d\n",
+                    selectedForceHeld ? 1 : 0, dualForceMode ? 1 : 0);
+    }
+    static bool saberMotionAttackHeld = false;
+    const bool saberMotionAllowed = vr.velocitytriggered && vr.velocitytriggeractive &&
+            (cl.frame.ps.weapon == WP_SABER || cl.frame.ps.weapon == WP_STUN_BATON) &&
+            cl.frame.ps.stats[STAT_HEALTH] > 0 && pWeapon->Active &&
+            !screenLayer && !vr.spatial_console_visible && !vr.item_selector &&
+            !(Key_GetCatcher() & (KEYCATCH_UI | KEYCATCH_CONSOLE)) &&
+            !vr.cin_camera && !vr.misc_camera && !vr.remote_turret && !mountedGun;
+    // Release the command itself, even when a UI/camera path skips swing handling.
+    if (saberMotionAttackHeld && !saberMotionAllowed)
+    {
+        sendButtonAction("+attack", false);
+        saberMotionAttackHeld = false;
+        vr.primaryVelocityTriggeredAttack = vr.secondaryVelocityTriggeredAttack = false;
+    }
+    static bool wasMountedGun = false;
+    static jkxr_mounted_stick_t mountedStick;
+    if (mountedGun && !wasMountedGun)
+    {
+        mounted_aim_pitch = AngleNormalize180(cl.frame.ps.viewangles[PITCH]);
+        if (vr.useGestureState & USE_GESTURE_OFF_HAND)
+            sendButtonAction("+altuse", false);
+        if (vr.useGestureState & USE_GESTURE_WEAPON_HAND)
+            sendButtonAction("+use", false);
+        vr.useGestureState &= ~(USE_GESTURE_OFF_HAND | USE_GESTURE_WEAPON_HAND);
+        VectorCopy(vr.hmdorientation, vr.hmdorientation_first);
+        VectorCopy(vr.hmdposition, vr.hmdposition_snap);
+        VectorClear(vr.hmdposition_offset);
+        mountedStick.centered = false;
+    }
+    wasMountedGun = mountedGun;
+    float mountedYawDelta, mountedPitchDelta;
+    mountedStick.Update(pPrimaryJoystick->x, pPrimaryJoystick->y, Sys_Milliseconds(),
+            mountedGun && !screenLayer && !vr.cin_camera && !vr.item_selector &&
+            !(Key_GetCatcher() & (KEYCATCH_UI | KEYCATCH_CONSOLE)),
+            Com_Clamp(1.0f, 180.0f, vr_mounted_yaw_speed->value),
+            Com_Clamp(1.0f, 180.0f, vr_mounted_pitch_speed->value),
+            mountedYawDelta, mountedPitchDelta);
+    if (mountedGun)
+    {
+        vr.snapTurn = AngleNormalize180(vr.snapTurn + mountedYawDelta);
+        if (vr.mounted_pitch_limits_valid)
+        {
+            // CL_FinishMove already cancels delta_angles: this is a world pitch,
+            // so clamp the accumulator itself instead of winding past the stop.
+            mounted_aim_pitch = JKXR_AdvanceMountedPitch(mounted_aim_pitch,
+                    mountedPitchDelta, vr.mounted_pitch_min, vr.mounted_pitch_max);
+        }
+        static int nextMountedLog = 0;
+        const int now = Sys_Milliseconds();
+        if (Cvar_VariableIntegerValue("vr_controller_debug") && now >= nextMountedLog)
+        {
+            Com_Printf("jkxr-mounted-aim: stick=(%.3f %.3f) ready=%d "
+                    "step=(%.3f %.3f) actual=(%.2f %.2f) pitchTarget=%.2f pitchDelta=%d limits=%d(%.3f %.3f)\n",
+                    pPrimaryJoystick->x, pPrimaryJoystick->y, mountedStick.centered,
+                    mountedYawDelta, mountedPitchDelta, cl.frame.ps.viewangles[YAW],
+                    cl.frame.ps.viewangles[PITCH], mounted_aim_pitch, cl.frame.ps.delta_angles[PITCH],
+                    vr.mounted_pitch_limits_valid, vr.mounted_pitch_min, vr.mounted_pitch_max);
+            nextMountedLog = now + 1000;
+        }
+    }
+    const bool jumpAllowed = !vr.cin_camera && (!screenLayer || vr.misc_camera) &&
+            !(Key_GetCatcher() & (KEYCATCH_UI | KEYCATCH_CONSOLE));
+    static jkxr_jump_input_t jumpInput;
+    const int jumpEdge = jumpInput.Update(
+            (primaryButtonsNew & primaryButton1) != 0, jumpAllowed,
+            (vr.misc_camera && !vr.remote_droid && !vr.remote_turret) || mountedGun);
+    if (jumpEdge != 0)
+    {
+        // A separate key identity releases only the controller, not Space.
+        sendButtonActionSimple(va("%cmoveup -10001 %d",
+                jumpEdge > 0 ? '+' : '-', Sys_Milliseconds()));
+        if (Cvar_VariableIntegerValue("vr_controller_debug"))
+        {
+            Com_Printf("jkxr-jump-input: held=%d allowed=%d camera=%d edge=%d\n",
+                    jumpInput.held, jumpAllowed, jumpInput.wasCamera, jumpEdge);
+        }
+    }
+
+    static jkxr_throw_gesture_t thermalGesture;
+    static int thermalServerTime = 0;
+    static bool thermalRightHanded = vr.right_handed;
+    const bool thermalHeld = primaryButton2New ||
+            (pDominantTrackedRemoteNew->Buttons & xrButton_Trigger);
+    const bool thermalAllowed = cl.frame.ps.weapon == WP_THERMAL &&
+            cl.frame.ps.stats[STAT_HEALTH] > 0 && !thirdPersonActive &&
+            !screenLayer && !vr.cin_camera && !vr.misc_camera && !mountedGun &&
+            !vr.in_vehicle && !vr.item_selector && pWeapon->Active &&
+            !(Key_GetCatcher() & (KEYCATCH_UI | KEYCATCH_CONSOLE));
+    const bool thermalContextChanged = cl.serverTime < thermalServerTime ||
+            thermalRightHanded != vr.right_handed;
+    thermalServerTime = cl.serverTime;
+    thermalRightHanded = vr.right_handed;
+    const int thermalNow = Sys_Milliseconds();
+    if (!thermalAllowed || thermalContextChanged || thermalHeld ||
+            thermalNow - vr.thermal_throw_time > 750)
+        vr.thermal_throw_ready = false;
+    jkxr_throw_gesture_t::Release thermalRelease;
+    if (thermalGesture.Update(thermalNow,
+            {pWeapon->Pose.position.x, pWeapon->Pose.position.y, pWeapon->Pose.position.z},
+            {pWeapon->Pose.position.x - vr.hmdposition[0],
+             pWeapon->Pose.position.y - vr.hmdposition[1] + 0.2f,
+             pWeapon->Pose.position.z - vr.hmdposition[2]},
+            thermalHeld, thermalAllowed && !thermalContextChanged,
+            vr_thermal_throw_grace_ms->integer, thermalRelease))
+    {
+        vr.thermal_throw_ready = true;
+        vr.thermal_throw_time = thermalNow;
+        for (int axis = 0; axis < 3; ++axis)
+            vr.thermal_throw_velocity[axis] = thermalRelease.velocity[axis];
+        if (Cvar_VariableIntegerValue("vr_controller_debug"))
+            Com_Printf("jkxr-thermal-release: assisted=%d strokeAge=%dms "
+                    "current=%.3f selected=%.3fm/s velocity=(%.3f %.3f %.3f)\n",
+                    thermalRelease.assisted, thermalRelease.strokeAgeMs,
+                    thermalRelease.currentSpeed,
+                    jkxr_throw_gesture_t::Length(thermalRelease.velocity),
+                    vr.thermal_throw_velocity[0], vr.thermal_throw_velocity[1],
+                    vr.thermal_throw_velocity[2]);
+    }
+
     static float menuYaw = 0;
-    if (VR_UseScreenLayer() && !vr.misc_camera)
+    if (screenLayer && !vr.misc_camera)
     {
         if (vr.cin_camera && cinCameraTimestamp + 1000 < Sys_Milliseconds())
         {
@@ -279,11 +784,6 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
             }
         }
 
-        //Close the datapad
-        if (secondaryButton2New && !secondaryButton2Old) {
-                Sys_QueEvent(0, SE_KEY, A_TAB, true, 0, NULL);
-        }
-
         //Close the menu
         if (secondaryButton1New && !secondaryButton1Old) {
                 Sys_QueEvent(0, SE_KEY, A_ESCAPE, true, 0, NULL);
@@ -309,7 +809,7 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
 
         float controllerYawHeading = 0.0f;
         //Turn on weapon stabilisation?
-        bool offhandGripPushed = (pOffTrackedRemoteNew->Buttons & xrButton_GripTrigger);
+        bool offhandGripPushed = forceGripDown && !forceGripConsumed;
         if (offhandGripPushed)
         {
             if (!vr.weapon_stabilised && vr.item_selector == 0 &&
@@ -480,23 +980,27 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
         }
         else if (vr.misc_camera && !vr.remote_droid)
         {
-            if (between(-0.2f, primaryJoystickX, 0.2f)) {
-                sendButtonAction("+use", pPrimaryJoystick->y < -0.8f || pPrimaryJoystick->y > 0.8f);
-            }
+            cameraUseHeld = between(-0.2f, primaryJoystickX, 0.2f) &&
+                    (pPrimaryJoystick->y < -0.8f || pPrimaryJoystick->y > 0.8f);
+            sendButtonAction("+use", cameraUseHeld);
         }
         else if (vr.cgzoommode)
         {
             if (between(-0.2f, primaryJoystickX, 0.2f)) {
                 if (vr.cgzoommode == 2)
                 { // We are in disruptor scope
+                    bool zoomRequested = false;
                     if (pPrimaryJoystick->y > 0.8f) {
                         vr.cgzoomdir = -1; // zooming in
-                        sendButtonAction("+altattack", true);
+                        zoomRequested = true;
                     } else if (pPrimaryJoystick->y < -0.8f) {
                         vr.cgzoomdir = 1; // zooming out
-                        sendButtonAction("+altattack", true);
-                    } else {
-                        sendButtonAction("+altattack", false);
+                        zoomRequested = true;
+                    }
+                    if (zoomRequested != disruptorZoomHeld)
+                    {
+                        sendButtonAction("+altattack", zoomRequested);
+                        disruptorZoomHeld = zoomRequested;
                     }
                 }
                 else if (vr.cgzoommode == 1)
@@ -546,13 +1050,13 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
         }
 
         //Switch movement speed
-        if (!vr.cgzoommode && !vr_always_run->integer)
+        if (!mountedGun && !vr.cgzoommode && !vr_always_run->integer)
         {
             static bool switched = false;
             if (between(-0.2f, primaryJoystickX, 0.2f) &&
                 between(0.8f, pPrimaryJoystick->y, 1.0f)) {
                 if (!switched) {
-                    vr.move_speed = (++vr.move_speed) % 3;
+                    vr.move_speed = (vr.move_speed + 1) % 3;
                     switched = true;
                 }
             }
@@ -605,14 +1109,20 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
             vr.weaponoffset_timestamp = Sys_Milliseconds();
 
 
-            vec3_t velocity;
-            VectorSet(velocity, pWeapon->Velocity.linearVelocity.x,
-                      pWeapon->Velocity.linearVelocity.y, pWeapon->Velocity.linearVelocity.z);
-            vr.primaryswingvelocity = VectorLength(velocity);
+            const float primaryLinearVelocity =
+                    JKXR_VectorLength(pWeapon->Velocity.linearVelocity);
+            const float secondaryLinearVelocity =
+                    JKXR_VectorLength(pOff->Velocity.linearVelocity);
 
-            VectorSet(velocity, pOff->Velocity.linearVelocity.x,
-                      pOff->Velocity.linearVelocity.y, pOff->Velocity.linearVelocity.z);
-            vr.secondaryswingvelocity = VectorLength(velocity);
+            if (cl.frame.ps.weapon == WP_SABER) {
+                vr.primaryswingvelocity = JKXR_SaberSwingSpeed(
+                        pWeapon, primaryLinearVelocity);
+                vr.secondaryswingvelocity = JKXR_SaberSwingSpeed(
+                        pOff, secondaryLinearVelocity);
+            } else {
+                vr.primaryswingvelocity = primaryLinearVelocity;
+                vr.secondaryswingvelocity = secondaryLinearVelocity;
+            }
 
 
             //For melee right hand is alt attack and left hand is attack
@@ -657,43 +1167,16 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
                 }
             } else if (cl.frame.ps.weapon == WP_SABER ||
                     cl.frame.ps.weapon == WP_STUN_BATON) {
-                //Does weapon velocity trigger attack
-                if (vr.velocitytriggered && !vr.remote_turret) {
-                    if (vr.velocitytriggeractive)
-                    {
-                        static bool fired = false;
-
-                        float velocityRequired = (cl.frame.ps.weapon == WP_SABER)
-                                                 ? vr_weapon_velocity_trigger->value :
-                                                 (vr_weapon_velocity_trigger->value / 2.0f);
-
-                        vr.primaryVelocityTriggeredAttack = (vr.primaryswingvelocity >
-                                                             velocityRequired);
-                        //player has to be dual wielding for this to be true
-                        if (vr.dualsabers)
-                        {
-                            vr.secondaryVelocityTriggeredAttack = (vr.secondaryswingvelocity >
-                                                                   velocityRequired);
-                        }
-
-                        bool triggered = vr.primaryVelocityTriggeredAttack ||
-                                         (vr.dualsabers && vr.secondaryVelocityTriggeredAttack);
-                        if (fired != triggered)
-                        {
-                            ALOGV("**WEAPON EVENT**  veocity triggered %s",
-                                  triggered ? "+attack" : "-attack");
-
-                            //normal attack is a punch with the left hand
-                            sendButtonAction("+attack", triggered);
-                            fired = triggered;
-                        }
-                    }
-                } else if (vr.primaryVelocityTriggeredAttack || vr.secondaryVelocityTriggeredAttack) {
-                    //send a stop attack as we have an unfinished velocity attack
-                    vr.primaryVelocityTriggeredAttack = false;
-                    vr.secondaryVelocityTriggeredAttack = false;
-                    ALOGV("**WEAPON EVENT**  veocity triggered -attack");
-                    sendButtonAction("+attack", vr.primaryVelocityTriggeredAttack);
+                const float velocityRequired = (cl.frame.ps.weapon == WP_SABER)
+                        ? vr_weapon_velocity_trigger->value : vr_weapon_velocity_trigger->value / 2.0f;
+                vr.primaryVelocityTriggeredAttack = saberMotionAllowed &&
+                        (vr.primaryswingvelocity > velocityRequired);
+                vr.secondaryVelocityTriggeredAttack = saberMotionAllowed && vr.dualsabers &&
+                        !vr.dual_saber_casting && (vr.secondaryswingvelocity > velocityRequired);
+                const bool triggered = vr.primaryVelocityTriggeredAttack || vr.secondaryVelocityTriggeredAttack;
+                if (saberMotionAttackHeld != triggered) {
+                    sendButtonAction("+attack", triggered);
+                    saberMotionAttackHeld = triggered;
                 }
             }
 
@@ -799,6 +1282,11 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
                 vr.offhandposition[0][0] = pOff->Pose.position.x;
                 vr.offhandposition[0][1] = pOff->Pose.position.y;
                 vr.offhandposition[0][2] = pOff->Pose.position.z;
+                if (vr.offhandPositionSampleCount < 5)
+                {
+                    ++vr.offhandPositionSampleCount;
+                }
+				JKXR_RecordForceGestureSample(Sys_Milliseconds());
 
                 vr.offhandoffset[0] = pOff->Pose.position.x - vr.hmdposition[0];
                 vr.offhandoffset[1] = pOff->Pose.position.y - vr.hmdposition[1];
@@ -819,25 +1307,28 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
             //player is facing for positional tracking
 
             //Positional movement speed correction for when we are not hitting target framerate
-            static double lastframetime = 0;
-            int refresh = TBXR_GetRefresh();
-            double newframetime = Sys_Milliseconds();
-            float multiplier = (float) ((1000.0 / refresh) / (newframetime - lastframetime));
-            lastframetime = newframetime;
+			static int lastframetime = 0;
+			int refresh = TBXR_GetRefresh();
+			const int newframetime = Sys_Milliseconds();
+			const int frameDelta = newframetime - lastframetime;
+			float multiplier = 1.0f;
+			if ( lastframetime > 0 && frameDelta > 0 && frameDelta < 250 && refresh > 0 )
+			{
+				multiplier = Com_Clamp(
+					0.25f, 4.0f, ( 1000.0f / refresh ) / frameDelta );
+			}
+			lastframetime = newframetime;
 
             vec2_t v;
             float factor = (refresh / 72.0F) *
                            vr_positional_factor->value; // adjust positional factor based on refresh rate
-            rotateAboutOrigin(-vr.hmdposition_delta[0] * factor * multiplier,
-                              vr.hmdposition_delta[2] * factor * multiplier,
-                              -vr.hmdorientation[YAW], v);
-            positional_movementSideways = v[0];
-            positional_movementForward = v[1];
-
-              //Jump (A Button)
-            if ((primaryButtonsNew & primaryButton1) != (primaryButtonsOld & primaryButton1)) {
-                sendButtonAction("+moveup", (primaryButtonsNew & primaryButton1));
-            }
+			rotateAboutOrigin(-vr.hmdposition_delta[0] * factor * multiplier,
+							  vr.hmdposition_delta[2] * factor * multiplier,
+							  -vr.hmdorientation[YAW], v);
+			positional_movementSideways =
+				std::isfinite( v[0] ) ? Com_Clamp( -1.0f, 1.0f, v[0] ) : 0.0f;
+			positional_movementForward =
+				std::isfinite( v[1] ) ? Com_Clamp( -1.0f, 1.0f, v[1] ) : 0.0f;
 
             //B Button
             if (primaryButton2New != primaryButton2Old) {
@@ -934,15 +1425,24 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
 
         {
             //Apply a filter and quadratic scaler so small movements are easier to make
+            const bool movementEnabled =
+                    vr.item_selector != (vr_switch_sticks->integer ? 1 : 2);
+            const bool movementStickTouched =
+                    (secondaryTouchesNew & secondaryThumb) != 0;
+            const XrVector2f movementJoystick =
+                    JKXR_ConditionLocomotionStick(
+                            *pSecondaryJoystick,
+                            movementEnabled,
+                            movementStickTouched);
             float dist = 0;
-            if (vr.item_selector != (vr_switch_sticks->integer ? 1 : 2))
+            if (movementEnabled)
             {
-                dist = length(pSecondaryJoystick->x, pSecondaryJoystick->y);
+                dist = length(movementJoystick.x, movementJoystick.y);
             }
-            float nlf = nonLinearFilter(dist);
-            dist = (dist > 1.0f) ? dist : 1.0f;
-            float x = nlf * (pSecondaryJoystick->x / dist);
-            float y = nlf * (pSecondaryJoystick->y / dist);
+			const float nlf = nonLinearFilter(dist);
+			const float directionDivisor = dist > 0.0001f ? dist : 1.0f;
+			float x = nlf * (movementJoystick.x / directionDivisor);
+			float y = nlf * (movementJoystick.y / directionDivisor);
 
             vr.player_moving = (fabs(x) + fabs(y)) > 0.05f;
 
@@ -982,6 +1482,23 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
 
             remote_movementSideways = move_speed_multiplier * v[0];
             remote_movementForward = move_speed_multiplier * v[1];
+
+			const float rawMoveMagnitude = length(
+				pSecondaryJoystick->x, pSecondaryJoystick->y);
+			const float filteredMoveMagnitude = length(
+				remote_movementSideways, remote_movementForward);
+			if (Cvar_VariableIntegerValue("vr_controller_debug") &&
+				rawMoveMagnitude >= 0.75f && filteredMoveMagnitude < 0.2f &&
+				vr.item_selector != (vr_switch_sticks->integer ? 1 : 2))
+			{
+				Com_Printf(
+					"jkxr-stick-pipeline: time=%d raw=(%.3f %.3f) dist=%.3f "
+					"filtered=(%.3f %.3f) nlf=%.3f divisor=%.3f thirdPerson=%d\n",
+					Sys_Milliseconds(), pSecondaryJoystick->x,
+					pSecondaryJoystick->y, dist, remote_movementSideways,
+					remote_movementForward, nlf, directionDivisor,
+					thirdPersonActive ? 1 : 0);
+			}
             
 
             //X button invokes menu now
@@ -991,26 +1508,13 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
                 Sys_QueEvent(0, SE_KEY, A_ESCAPE, true, 0, NULL);
             }
 
-            //Open the datapad
-            if (secondaryButton2New && !secondaryButton2Old) {
-                Sys_QueEvent(0, SE_KEY, A_TAB, true, 0, NULL);
-            }
-
-            //Use Force - off hand trigger
-            {
-                if ((pOffTrackedRemoteNew->Buttons & xrButton_Trigger) !=
-                    (pOffTrackedRemoteOld->Buttons & xrButton_Trigger))
-                {
-                    sendButtonAction("+useforce", (pOffTrackedRemoteNew->Buttons & xrButton_Trigger));
-                }
-            }
-
             //JKA stuff for speeder bikes (and other vehicles)
 #ifndef JK2_MODE
             if (vr.in_vehicle)
             {
+                const bool pilotingWalker = (cl.frame.ps.eFlags & EF_IN_ATST) != 0;
                 //Allow the controllers to affect the yaw rotation of the vehicle
-                if (!vr_vehicle_use_hmd_direction->integer)
+                if (!pilotingWalker && !vr_vehicle_use_hmd_direction->integer)
                 {
                     float refresh = TBXR_GetRefresh();
                     float weaponAngleToUse = cl.frame.ps.weapon == WP_SABER ? vr.offhandangles[ANGLES_ADJUSTED][ROLL] : vr.weaponangles[ANGLES_ADJUSTED][ROLL];
@@ -1029,13 +1533,11 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
                     remote_movementForward = Com_Clamp(-1.0f, 1.0f, value);
                 }
 
-                if (vr_vehicle_use_3rd_person->integer)
+                // The AT-ST owns its chase view without changing on-foot preferences.
+                if (!pilotingWalker)
                 {
-                    sendButtonActionSimple("cg_thirdPerson 1");
-                }
-                else
-                {
-                    sendButtonActionSimple("cg_thirdPerson 0");
+                    sendButtonActionSimple(vr_vehicle_use_3rd_person->integer ?
+                            "cg_thirdPerson 1" : "cg_thirdPerson 0");
                 }
             }
 #endif
@@ -1046,7 +1548,15 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
 
             float previousSnap = vr.snapTurn;
             static int increaseSnap = true;
-            if (!vr.item_selector) {
+            static int lastSmoothTurnTime = 0;
+            const int smoothTurnTime = Sys_Milliseconds();
+            const int smoothTurnDelta = smoothTurnTime - lastSmoothTurnTime;
+            float smoothTurnSeconds = 1.0f / 72.0f;
+            if (lastSmoothTurnTime > 0 && smoothTurnDelta > 0 && smoothTurnDelta < 250) {
+                smoothTurnSeconds = smoothTurnDelta * 0.001f;
+            }
+            lastSmoothTurnTime = smoothTurnTime;
+            if (!vr.item_selector && !mountedGun) {
                 if (usingSnapTurn) {
                     if (primaryJoystickX > 0.7f) {
                         if (increaseSnap) {
@@ -1079,11 +1589,13 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
 
                 if (!usingSnapTurn && fabs(primaryJoystickX) > 0.1f) //smooth turn
                 {
-                    vr.snapTurn -= ((vr_turn_angle->value / 25.0f) *
-                                    primaryJoystickX);
-                    if (vr.snapTurn > 180.0f) {
-                        vr.snapTurn -= 360.f;
-                    }
+                    // Preserve the original 72 Hz turn rate while making it
+                    // independent of rendering and controller update rate.
+                    constexpr float referenceRefresh = 72.0f;
+                    const float degreesPerSecond =
+                            (vr_turn_angle->value / 25.0f) * referenceRefresh;
+                    vr.snapTurn = AngleNormalize180(
+                            vr.snapTurn - degreesPerSecond * smoothTurnSeconds * primaryJoystickX);
                 }
             } else {
                 if (fabs(primaryJoystickX) > 0.5f) {
@@ -1096,76 +1608,98 @@ void HandleInput_Default( ovrInputStateTrackedRemote *pDominantTrackedRemoteNew,
             //If we snapped/turned on a vehicle then resync the hmdorientation
             if (previousSnap != vr.snapTurn && vr.in_vehicle)
             {
+#ifndef JK2_MODE
+                if (!(cl.frame.ps.eFlags & EF_IN_ATST))
+#endif
                 VectorCopy(vr.hmdorientation, vr.hmdorientation_first);
             }
         }
 
         //process force motion controls here
-        if (vr_force_motion_controlled->integer &&
+        if (forceInputAllowed && vr_force_motion_controlled->integer &&
+                !vr.cin_camera && !vr.misc_camera && !vr.remote_turret && !mountedGun &&
                 cl.frame.ps.weapon != WP_MELEE &&
                 !vr.weapon_stabilised &&
-                // If dual sabers we can't really use motion control force as the off hand could be swinging for an attack
-                !vr.dualsabers)
+                (!vr.dualsabers || forceCast.CanGesture()))
         {
-            if (vr.secondaryswingvelocity > vr_force_velocity_trigger->value)
+            const int forceGestureTime = Sys_Milliseconds();
+            const bool useGestureOwnsOffhand =
+                    vr_gesture_triggered_use->integer &&
+                    (vr.useGestureState & USE_GESTURE_TARGET) != 0;
+            const bool aboveVelocityThreshold =
+                    vr.secondaryswingvelocity > vr_force_velocity_trigger->value;
+
+            if (useGestureOwnsOffhand)
             {
-                if (!vr.secondaryVelocityTriggeredAttack)
+                if (vr.forceGestureArmed &&
+                        Cvar_VariableIntegerValue("vr_controller_debug"))
                 {
-                    VectorCopy(vr.offhandposition[0], vr.secondaryVelocityTriggerLocation);
-                    vr.secondaryVelocityTriggeredAttack = true;
+                    Com_Printf("jkxr-force-input: use target owns off-hand gesture\n");
+                }
+                vr.forceGestureArmed = false;
+                vr.forceGestureCooldownTime = forceGestureTime + 150;
+                JKXR_ResetForceGestureHistory();
+            }
+            else if (forceGestureTime >= vr.forceGestureCooldownTime)
+            {
+                bool dispatched = false;
+                float historyDelta = 0.0f;
+                int historyAgeMs = 0;
+                if (JKXR_ForceHistoryDelta(
+                        forceGestureTime,
+                        &historyDelta,
+                        &historyAgeMs))
+                {
+                    dispatched = JKXR_DispatchForceGesture(
+                            historyDelta, "history", historyAgeMs);
+                }
+
+                if (aboveVelocityThreshold)
+                {
+                    if (!dispatched && !vr.forceGestureArmed)
+                    {
+                        VectorCopy(
+                                vr.offhandposition[0],
+                                vr.forceGestureStartLocation);
+                        vr.forceGestureArmed = true;
+                    }
+                }
+                else
+                {
+                    if (!dispatched && vr.forceGestureArmed)
+                    {
+                        const float armedDelta =
+                                JKXR_ForceRadialDistance(vr.offhandposition[0]) -
+                                JKXR_ForceRadialDistance(vr.forceGestureStartLocation);
+                        dispatched = JKXR_DispatchForceGesture(
+                                armedDelta, "velocity");
+                    }
+                    vr.forceGestureArmed = false;
+                }
+
+                if (dispatched)
+                {
+                    if (vr.dualsabers)
+                        forceCast.Consume();
+                    vr.forceGestureArmed = false;
+                    vr.forceGestureCooldownTime = forceGestureTime + 250;
+                    JKXR_ResetForceGestureHistory();
                 }
             }
             else
             {
-                if (vr.secondaryVelocityTriggeredAttack)
-                {
-                    vec3_t start, end, chest;
-
-                    vec3_t offhandRightXY = {};
-                    vec3_t hmdForwardXY = {};
-                    float hmdToOffhandDotProduct = 0;
-                    AngleVectors(vr.hmdorientation, hmdForwardXY, NULL, NULL);
-                    AngleVectors(vr.offhandangles[ANGLES_DEFAULT], NULL, offhandRightXY, NULL);
-
-                    hmdForwardXY[1] = 0;
-                    VectorNormalize(hmdForwardXY);
-
-                    offhandRightXY[1] = 0;
-                    VectorNormalize(offhandRightXY);
-
-                    hmdToOffhandDotProduct = DotProduct(hmdForwardXY, offhandRightXY);
-                    bool palmAway = hmdToOffhandDotProduct > 0;
-                    if (!vr.right_handed)
-                    {
-                        //Opposite direction for the other controller
-                        palmAway = !palmAway;
-                    }
-
-                    //Estimate that middle of chest is about 20cm below HMD
-                    VectorCopy(vr.hmdposition, chest);
-                    chest[1] -= 0.2f;
-                    VectorSubtract(vr.secondaryVelocityTriggerLocation, chest, start);
-                    VectorSubtract(vr.offhandposition[0], chest, end);
-                    float deltaLength = VectorLength(end) - VectorLength(start);
-                    if (fabs(deltaLength) > vr_force_distance_trigger->value) {
-                        if (deltaLength < 0 && !palmAway)
-                        {
-                            sendButtonActionSimple(va("useGivenForce %i", vr_force_motion_pull->integer));
-                        }
-                        else if (deltaLength > 0 && palmAway)
-                        {
-                            sendButtonActionSimple(va("useGivenForce %i", vr_force_motion_push->integer));
-                        }
-
-                        vr.secondaryVelocityTriggeredAttack = false;
-                    }
-                }
+                JKXR_ResetForceGestureHistory();
             }
+        }
+        else
+        {
+            vr.forceGestureArmed = false;
+            vr.forceGestureHistorySampleCount = 0;
         }
 
         // Process "use" gesture
         if (vr_gesture_triggered_use->integer) {
-            bool gestureUseAllowed = !vr.weapon_stabilised && !vr.cin_camera && !vr.misc_camera && !vr.remote_turret && !vr.emplaced_gun && !vr.in_vehicle && !thirdPersonActive;
+            bool gestureUseAllowed = !mountedGun && !vr.weapon_stabilised && !vr.cin_camera && !vr.misc_camera && !vr.remote_turret && !vr.emplaced_gun && !vr.in_vehicle && !thirdPersonActive;
             // Off-hand gesture
             float distanceToBody = sqrt(vr.offhandoffset[0]*vr.offhandoffset[0] + vr.offhandoffset[2]*vr.offhandoffset[2]);
             if (gestureUseAllowed && (distanceToBody > vr_use_gesture_boundary->value)) {

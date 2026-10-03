@@ -493,7 +493,7 @@ void G_DriveATST( gentity_t *pEnt, gentity_t *atst )
 		//HACKHACKHACKTEMP
 		//FIXME: these get lost in load/save!  Must use variables that are set every frame or saved/loaded
 		//camera
-		gi.cvar_set( "cg_thirdperson", "1" );
+		// The VR AT-ST chase view is selected from EF_IN_ATST, including after loads.
 		cg.overrides.active |= CG_OVERRIDE_3RD_PERSON_RNG;
 		cg.overrides.thirdPersonRange = 240;
 		//cg.overrides.thirdPersonVertOffset = 100;

@@ -22,6 +22,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <atomic>
 
 #include <SDL3/SDL.h>
 
@@ -42,6 +43,10 @@ cvar_t *s_sdlMixSamps;
 /* The audio callback. All the magic happens here. */
 static int dmapos = 0;
 static int dmasize = 0;
+static std::atomic<int> firstCallbackBytes{0};
+static std::atomic<int> firstCallbackQueuedBytes{0};
+static std::atomic<int> largestCallbackBytes{0};
+static qboolean callbackStatsPrinted = qfalse;
 
 /*
 ===============
@@ -49,9 +54,9 @@ SNDDMA_AudioCallback
 
 SDL3 stream-callback signature: SDL calls us on its audio thread when it
 needs more data. We push bytes from the engine's dma.buffer (the mixer
-output) into the stream via SDL_PutAudioStreamData(). The dmapos/wraparound
-copy logic is preserved verbatim from the SDL2 callback so the mix output is
-byte-for-byte equivalent.
+output) into the stream via SDL_PutAudioStreamData(). SDL may request more
+than one contiguous portion of the engine ring, so copy in chunks until the
+whole request has been supplied.
 
 NB: The SDL3 stream's internal mutex is held while this callback runs (see
 SDL_audio.h docs for SDL_LockAudioStream), so SNDDMA_BeginPainting/Submit
@@ -61,37 +66,45 @@ protection SDL2's SDL_LockAudioDevice gave us.
 */
 static void SNDDMA_AudioCallback(void *userdata, SDL_AudioStream *stream, int additional_amount, int total_amount)
 {
-	int pos = (dmapos * (dma.samplebits/8));
-	if (pos >= dmasize)
-		dmapos = pos = 0;
-
-	if (!snd_inited)  /* shouldn't happen, but just in case... */
+	int expected = 0;
+	if (firstCallbackBytes.compare_exchange_strong(expected, additional_amount))
 	{
-		return;  /* nothing pushed => SDL3 outputs silence */
+		firstCallbackQueuedBytes.store(total_amount);
 	}
-	else
+	int previousLargest = largestCallbackBytes.load();
+	while (additional_amount > previousLargest &&
+		!largestCallbackBytes.compare_exchange_weak(previousLargest, additional_amount))
 	{
-		int tobufend = dmasize - pos;  /* bytes to buffer's end. */
-		int len1 = additional_amount;
-		int len2 = 0;
-
-		if (len1 > tobufend)
-		{
-			len1 = tobufend;
-			len2 = additional_amount - len1;
-		}
-		SDL_PutAudioStreamData(stream, dma.buffer + pos, len1);
-		if (len2 <= 0)
-			dmapos += (len1 / (dma.samplebits/8));
-		else  /* wraparound? */
-		{
-			SDL_PutAudioStreamData(stream, dma.buffer, len2);
-			dmapos = (len2 / (dma.samplebits/8));
-		}
 	}
 
-	if (dmapos >= dmasize)
-		dmapos = 0;
+	if (!snd_inited || dma.buffer == NULL || dmasize <= 0)
+	{
+		return;
+	}
+
+	const int bytesPerSample = dma.samplebits / 8;
+	int remaining = additional_amount;
+	while (remaining > 0)
+	{
+		int pos = dmapos * bytesPerSample;
+		if (pos >= dmasize)
+		{
+			dmapos = 0;
+			pos = 0;
+		}
+		const int chunk = SDL_min(remaining, dmasize - pos);
+		if (chunk <= 0)
+		{
+			break;
+		}
+		SDL_PutAudioStreamData(stream, dma.buffer + pos, chunk);
+		dmapos += chunk / bytesPerSample;
+		if (dmapos >= dma.samples)
+		{
+			dmapos = 0;
+		}
+		remaining -= chunk;
+	}
 }
 
 static struct
@@ -221,6 +234,14 @@ qboolean SNDDMA_Init(int sampleFrequencyInKHz)
 			devSamples = 2048;  // (*shrug*)
 	}
 
+	char sampleFrames[16];
+	SDL_snprintf(sampleFrames, sizeof(sampleFrames), "%d", devSamples);
+	if (!SDL_SetHint(SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES, sampleFrames))
+	{
+		Com_Printf("SDL audio: could not set %s=%s\n",
+			SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES, sampleFrames);
+	}
+
 	dev = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &desired, SNDDMA_AudioCallback, NULL);
 	if (!dev)
 	{
@@ -259,12 +280,27 @@ qboolean SNDDMA_Init(int sampleFrequencyInKHz)
 	dma.speed = desired.freq;
 	dmasize = (dma.samples * (dma.samplebits/8));
 	dma.buffer = (byte *)calloc(1, dmasize);
+	firstCallbackBytes.store(0);
+	firstCallbackQueuedBytes.store(0);
+	largestCallbackBytes.store(0);
+	callbackStatsPrinted = qfalse;
 
 	Com_Printf("Starting SDL audio callback...\n");
-	SDL_ResumeAudioStreamDevice(dev);  // SDL3 devices open paused; this starts the callback.
+	snd_inited = qtrue;
+	if (!SDL_ResumeAudioStreamDevice(dev))
+	{
+		Com_Printf("SDL_ResumeAudioStreamDevice() failed: %s\n", SDL_GetError());
+		snd_inited = qfalse;
+		SDL_DestroyAudioStream(dev);
+		dev = NULL;
+		free(dma.buffer);
+		dma.buffer = NULL;
+		dmapos = dmasize = 0;
+		SDL_QuitSubSystem(SDL_INIT_AUDIO);
+		return qfalse;
+	}
 
 	Com_Printf("SDL audio initialized.\n");
-	snd_inited = qtrue;
 	return qtrue;
 }
 
@@ -275,6 +311,13 @@ SNDDMA_GetDMAPos
 */
 int SNDDMA_GetDMAPos(void)
 {
+	const int firstBytes = firstCallbackBytes.load();
+	if (!callbackStatsPrinted && firstBytes > 0)
+	{
+		Com_Printf("SDL audio callback: first=%d queued=%d largest=%d ring=%d bytes\n",
+			firstBytes, firstCallbackQueuedBytes.load(), largestCallbackBytes.load(), dmasize);
+		callbackStatsPrinted = qtrue;
+	}
 	return dmapos;
 }
 

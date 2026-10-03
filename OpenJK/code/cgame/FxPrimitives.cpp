@@ -783,6 +783,11 @@ void CLine::Draw()
 //----------------------------
 bool CLine::Update()
 {
+	const bool longRelativeLine = ( mFlags & FX_RELATIVE ) &&
+		VectorLengthSquared( mVel ) > 400.0f * 400.0f;
+	static bool loggedLongRelativeUpdate = false;
+	static bool loggedLongRelativeFailure = false;
+
 	// Game pausing can cause dumb time things to happen, so kill the effect in this instance
 	if ( mTimeStart > theFxHelper.mTime )
 	{
@@ -793,6 +798,11 @@ bool CLine::Update()
 	{
 		if ( mClientID < 0 || mClientID >= ENTITYNUM_WORLD )
 		{	// we are somehow not bolted even though the flag is on?
+			if ( longRelativeLine && !loggedLongRelativeFailure )
+			{
+				theFxHelper.Print( "jkxr-scepter: line update rejected invalid entity=%d\n", mClientID );
+				loggedLongRelativeFailure = true;
+			}
 			return false;
 		}
 
@@ -803,11 +813,23 @@ bool CLine::Update()
 			const centity_t &cent = cg_entities[mClientID];
 			if (!cent.gent->ghoul2.IsValid())
 			{
+				if ( longRelativeLine && !loggedLongRelativeFailure )
+				{
+					theFxHelper.Print( "jkxr-scepter: line update rejected invalid ghoul2 entity=%d\n", mClientID );
+					loggedLongRelativeFailure = true;
+				}
 				return false;
 			}
 
 			if (!theFxHelper.GetOriginAxisFromBolt(cent, mModelNum, mBoltNum, mOrigin1, ax))
 			{	//could not get bolt
+				if ( longRelativeLine && !loggedLongRelativeFailure )
+				{
+					theFxHelper.Print(
+						"jkxr-scepter: line update rejected missing bolt entity=%d model=%d bolt=%d\n",
+						mClientID, mModelNum, mBoltNum );
+					loggedLongRelativeFailure = true;
+				}
 				return false;
 			}
 		}
@@ -840,6 +862,14 @@ bool CLine::Update()
 			VectorMA( mOrigin1, mVel[0], ax[0], mOrigin2 );
 			VectorMA( mOrigin2, mVel[1], ax[1], mOrigin2 );
 			VectorMA( mOrigin2, mVel[2], ax[2], mOrigin2 );
+		}
+		if ( longRelativeLine && !loggedLongRelativeUpdate )
+		{
+			theFxHelper.Print(
+				"jkxr-scepter: line update start=(%.1f %.1f %.1f) end=(%.1f %.1f %.1f)\n",
+				mOrigin1[0], mOrigin1[1], mOrigin1[2],
+				mOrigin2[0], mOrigin2[1], mOrigin2[2] );
+			loggedLongRelativeUpdate = true;
 		}
 	}
 

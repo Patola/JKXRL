@@ -30,6 +30,7 @@ USER INTERFACE MAIN
 */
 
 #include <algorithm>
+#include <string>
 #include <vector>
 
 #include "../server/exe_headers.h"
@@ -39,6 +40,7 @@ USER INTERFACE MAIN
 #include "menudef.h"
 
 #include "ui_shared.h"
+#include "ui_list_selection.h"
 
 #include "../ghoul2/G2.h"
 
@@ -80,6 +82,7 @@ static struct
 
 #ifdef JK2_MODE
 byte screenShotBuf[SG_SCR_WIDTH * SG_SCR_HEIGHT * 4];
+static bool screenShotValid;
 #endif
 
 typedef struct
@@ -480,18 +483,18 @@ void Text_Paint(float x, float y, float scale, vec4_t color, const char *text, i
 int Key_GetCatcher( void );
 
 #define	UI_FPS_FRAMES	4
-void _UI_Refresh( int realtime )
-{
-	static int index;
-	static int	previousTimes[UI_FPS_FRAMES];
-
-	if ( !( Key_GetCatcher() & KEYCATCH_UI ) )
+	void _UI_Refresh( int realtime )
 	{
-		return;
-	}
+		static int index;
+		static int	previousTimes[UI_FPS_FRAMES];
 
-	extern void SE_CheckForLanguageUpdates(void);
-	SE_CheckForLanguageUpdates();
+		if ( !( Key_GetCatcher() & KEYCATCH_UI ) )
+		{
+			return;
+		}
+
+		extern void SE_CheckForLanguageUpdates(void);
+		SE_CheckForLanguageUpdates();
 
 	if ( Menus_AnyFullScreenVisible() )
 	{//if not in full screen, don't mess with ghoul2
@@ -928,10 +931,26 @@ static qboolean UI_RunMenuScript ( const char **args )
 		}
 		else if (Q_stricmp(name, "loadgame") == 0)
 		{
-			if (s_savedata[s_savegame.currentLine].currentSaveFileName)// && (*s_file_desc_field.field.buffer))
+			menuDef_t *menu = Menu_GetFocused();
+			itemDef_t *list = menu ? Menu_FindItemByName(menu, "loadgamelist") : nullptr;
+			// Paint uses item->cursorPos, not the transient mouse-hover cursor.
+			const int selected = list && list->type == ITEM_TYPE_LISTBOX
+				? list->cursorPos : s_savegame.currentLine;
+			if (UI_ListSelectionValid(selected, s_savegame.saveFileCnt) &&
+				s_savedata[selected].currentSaveFileName)
 			{
+				const std::string fileName = s_savedata[selected].currentSaveFileName;
+				ui.Printf( va("UI loadgame: selection=%d file=%s menu=%s feeder=%d map=%s date=%s\n",
+					selected, fileName.c_str(), menu ? menu->window.name : "<none>",
+					s_savegame.currentLine, s_savedata[selected].currentSaveFileMap,
+					s_savedata[selected].currentSaveFileDateTimeString) );
 				Menus_CloseAll();
-				ui.Cmd_ExecuteText( EXEC_APPEND, va("load %s\n", s_savedata[s_savegame.currentLine].currentSaveFileName));
+				ui.Cmd_ExecuteText( EXEC_APPEND, va("load %s\n", fileName.c_str()));
+			}
+			else
+			{
+				ui.Printf( va("^3UI loadgame: selection=%d has no save file\n",
+					selected) );
 			}
 			// after loading a game, the list box (and it's highlight) get's reset back to 0, but currentLine sticks around, so set it to 0 here
 			s_savegame.currentLine = 0;
@@ -939,7 +958,8 @@ static qboolean UI_RunMenuScript ( const char **args )
 		}
 		else if (Q_stricmp(name, "deletegame") == 0)
 		{
-			if (s_savedata[s_savegame.currentLine].currentSaveFileName)	// A line was chosen
+			if (UI_ListSelectionValid(s_savegame.currentLine, s_savegame.saveFileCnt) &&
+				s_savedata[s_savegame.currentLine].currentSaveFileName)
 			{
 #ifndef FINAL_BUILD
 				ui.Printf( va("%s\n","Attempting to delete game"));
@@ -971,8 +991,9 @@ static qboolean UI_RunMenuScript ( const char **args )
 			const char *mapName = Info_ValueForKey( serverInfo, "mapname" );
 			ui.SG_StoreSaveGameComment(mapName);
 
-			ui.Cmd_ExecuteText( EXEC_APPEND, va("save %s\n", fileName));
-			s_savegame.saveFileCnt = -1;	//force a refresh the next time around
+			// Refresh only after the queued write has closed/renamed the save.
+			// A draw-time refresh here can run before the new thumbnail exists.
+			ui.Cmd_ExecuteText( EXEC_APPEND, va("save %s\nui_refreshSaveGames %s\n", fileName, fileName));
 		}
 		else if (Q_stricmp(name, "LoadMods") == 0)
 		{
@@ -1104,7 +1125,7 @@ static qboolean UI_RunMenuScript ( const char **args )
 			// if we're in the saber menu when creating a character, close this down
 			if( !Cvar_VariableIntegerValue( "saber_menu" ) )
 			{
-				Menus_CloseByName( "saberMenu" );
+				Menus_CloseAll();
 				Menus_OpenByName( "characterMenu" );
 			}
 		}
@@ -1791,17 +1812,37 @@ static void UI_StopCinematic(int handle)
 }
 static void UI_HandleLoadSelection()
 {
-	Cvar_Set("ui_SelectionOK", va("%d",(s_savegame.currentLine < s_savegame.saveFileCnt)) );
-	if (s_savegame.currentLine >= s_savegame.saveFileCnt)
+	const bool valid = UI_ListSelectionValid(s_savegame.currentLine, s_savegame.saveFileCnt);
+	Cvar_Set("ui_SelectionOK", valid ? "1" : "0");
+#ifdef JK2_MODE
+	screenShotValid = false;
+#endif
+	if (!valid)
 		return;
 #ifdef JK2_MODE
 	Cvar_Set("ui_gameDesc", s_savedata[s_savegame.currentLine].currentSaveFileComments );	// set comment
 
-	if (!ui.SG_GetSaveImage(s_savedata[s_savegame.currentLine].currentSaveFileName, &screenShotBuf))
+	screenShotValid = ui.SG_GetSaveImage(s_savedata[s_savegame.currentLine].currentSaveFileName, &screenShotBuf) != qfalse;
+	if (!screenShotValid)
 	{
 		memset( screenShotBuf,0,(SG_SCR_WIDTH * SG_SCR_HEIGHT * 4));
 	}
 #endif
+}
+
+void UI_RefreshSaveGames(const char *savedFile)
+{
+	ReadSaveDirectory();
+	// Sorting can move the new/overwritten save. Select by filename, not row.
+	// A failed save leaves the previous selection (or empty-list fallback) alone.
+	for (int i = 0; i < s_savegame.saveFileCnt; ++i)
+		if (Q_stricmp(savedFile, s_savedata[i].currentSaveFileName) == 0)
+		{
+			s_savegame.currentLine = i;
+			break;
+		}
+	UI_HandleLoadSelection();
+	UI_AdjustSaveGameListBox(s_savegame.currentLine);
 }
 
 /*
@@ -1817,9 +1858,7 @@ static int UI_FeederCount(float feederID)
 		{
 			ReadSaveDirectory();	//refresh
 			UI_HandleLoadSelection();
-#ifndef JK2_MODE
 			UI_AdjustSaveGameListBox(s_savegame.currentLine);
-#endif
 		}
 		return s_savegame.saveFileCnt;
 	}
@@ -1883,8 +1922,14 @@ static void UI_FeederSelection(float feederID, int index, itemDef_t *item)
 {
 	if (feederID == FEEDER_SAVEGAMES)
 	{
+		if (!UI_ListSelectionValid(index, s_savegame.saveFileCnt))
+			return;
 		s_savegame.currentLine = index;
 		UI_HandleLoadSelection();
+		ui.Printf(va("UI save selection: menu=%s row=%d file=%s map=%s date=%s\n",
+			item && item->parent ? static_cast<menuDef_t *>(item->parent)->window.name : "<none>",
+			index, s_savedata[index].currentSaveFileName, s_savedata[index].currentSaveFileMap,
+			s_savedata[index].currentSaveFileDateTimeString));
 	}
 	else if (feederID == FEEDER_MOVES)
 	{
@@ -3925,7 +3970,7 @@ static void UI_OwnerDraw(float x, float y, float w, float h, float text_x, float
 			int levelshot;
 			levelshot = ui.R_RegisterShaderNoMip( va( "levelshots/%s", s_savedata[s_savegame.currentLine].currentSaveFileMap ) );
 #ifdef JK2_MODE
-			if (screenShotBuf[0])
+			if (screenShotValid)
 			{
 				ui.DrawStretchRaw( x, y, w, h, SG_SCR_WIDTH, SG_SCR_HEIGHT, screenShotBuf, 0, qtrue );
 			}
@@ -6639,7 +6684,10 @@ static int UI_SortSaveGames( const void *A, const void *B )
 	}
 	else
 	{
-		return (a < b);
+		if (a < b)
+			return 1;
+		return Q_stricmp(((const savedata_t *)A)->currentSaveFileName,
+			((const savedata_t *)B)->currentSaveFileName);
 	}
 }
 
@@ -6648,29 +6696,27 @@ static int UI_SortSaveGames( const void *A, const void *B )
 UI_AdjustSaveGameListBox
 =======================
 */
-// Yeah I could get fired for this... in a world of good and bad, this is bad
-// I wish we passed in the menu item to RunScript(), oh well...
 void UI_AdjustSaveGameListBox( int currentLine )
 {
-	menuDef_t *menu;
-	itemDef_t *item;
-
-	// could be in either the ingame or shell load menu (I know, I know it's bad)
-	menu = Menus_FindByName("loadgameMenu");
-	if( !menu )
+	// Both menus can be registered simultaneously; the first may be hidden.
+	for (const char *name : {"loadgameMenu", "ingameloadMenu"})
 	{
-		menu = Menus_FindByName("ingameloadMenu");
-	}
-
-	if (menu)
-	{
-		item = (itemDef_s *) Menu_FindItemByName((menuDef_t *) menu, "loadgamelist");
-		if (item)
+		menuDef_t *menu = Menus_FindByName(name);
+		itemDef_t *item = menu ? Menu_FindItemByName(menu, "loadgamelist") : nullptr;
+		if (item && item->type == ITEM_TYPE_LISTBOX)
 		{
 			listBoxDef_t *listPtr = (listBoxDef_t*)item->typeData;
 			if( listPtr )
 			{
 				listPtr->cursorPos = currentLine;
+				const int rows = listPtr->elementHeight > 0.0f
+					? std::max(1, static_cast<int>(item->window.rect.h / listPtr->elementHeight)) : 1;
+				listPtr->startPos = std::max(0, std::min(listPtr->startPos,
+					std::max(0, s_savegame.saveFileCnt - rows)));
+				if (currentLine < listPtr->startPos)
+					listPtr->startPos = currentLine;
+				else if (currentLine >= listPtr->startPos + rows)
+					listPtr->startPos = currentLine - rows + 1;
 			}
 
 			item->cursorPos = currentLine;
@@ -6691,6 +6737,10 @@ void ReadSaveDirectory (void)
 	char	*holdChar;
 	int		len;
 	int		fileCnt;
+	std::string selectedFile;
+	if (UI_ListSelectionValid(s_savegame.currentLine, MAX_SAVELOADFILES) &&
+		s_savedata[s_savegame.currentLine].currentSaveFileName)
+		selectedFile = s_savedata[s_savegame.currentLine].currentSaveFileName;
 	// Clear out save data
 	memset(s_savedata,0,sizeof(s_savedata));
 	s_savegame.saveFileCnt = 0;
@@ -6698,6 +6748,7 @@ void ReadSaveDirectory (void)
 	Cvar_Set("ui_SelectionOK", "0" );
 #ifdef JK2_MODE
 	memset( screenShotBuf,0,(SG_SCR_WIDTH * SG_SCR_HEIGHT * 4)); //blank out sshot
+	screenShotValid = false;
 #endif
 
 
@@ -6745,5 +6796,13 @@ void ReadSaveDirectory (void)
 	}
 
 	qsort( s_savedata, s_savegame.saveFileCnt, sizeof(savedata_t), UI_SortSaveGames );
+	// A refresh can reorder rows after a new save; preserve identity, not index.
+	s_savegame.currentLine = 0;
+	for (i = 0; i < s_savegame.saveFileCnt; ++i)
+		if (Q_stricmp(selectedFile.c_str(), s_savedata[i].currentSaveFileName) == 0)
+		{
+			s_savegame.currentLine = i;
+			break;
+		}
 
 }

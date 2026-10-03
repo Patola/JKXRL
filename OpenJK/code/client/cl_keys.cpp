@@ -526,6 +526,21 @@ void Field_KeyDownEvent( field_t *edit, int key ) {
 
 	len = strlen( edit->buffer );
 
+	if ( key == A_BACKSPACE )
+	{
+		if ( edit->cursor > 0 )
+		{
+			memmove( edit->buffer + edit->cursor - 1,
+				edit->buffer + edit->cursor, len + 1 - edit->cursor );
+			--edit->cursor;
+			if ( edit->cursor < edit->scroll )
+			{
+				--edit->scroll;
+			}
+		}
+		return;
+	}
+
 	if ( key == A_DELETE ) {
 		if ( edit->cursor < len ) {
 			memmove( edit->buffer + edit->cursor,

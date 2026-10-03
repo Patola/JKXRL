@@ -33,6 +33,108 @@ extern qboolean PM_ControlledByPlayer( void );
 extern qboolean PM_InReboundHold( int anim );
 extern cvar_t *g_stepSlideFix;
 
+namespace
+{
+constexpr int PM_AUDIT_EVENT_COUNT = 24;
+
+struct pm_audit_event_t
+{
+	const char *label;
+	vec3_t origin;
+	vec3_t end;
+	vec3_t velocity;
+	vec3_t normal;
+	float fraction;
+	int entityNum;
+	int contents;
+	qboolean startsolid;
+	qboolean allsolid;
+};
+
+struct pm_movement_audit_t
+{
+	qboolean enabled;
+	int nextEvent;
+	int eventCount;
+	pm_audit_event_t events[PM_AUDIT_EVENT_COUNT];
+};
+
+pm_movement_audit_t pmAudit = {};
+
+void PM_AuditEvent( const char *label, const trace_t *trace, const vec3_t end )
+{
+	if ( !pmAudit.enabled )
+	{
+		return;
+	}
+
+	pm_audit_event_t &event = pmAudit.events[pmAudit.nextEvent];
+	event = {};
+	event.label = label;
+	VectorCopy( pm->ps->origin, event.origin );
+	VectorCopy( pm->ps->velocity, event.velocity );
+	if ( end != nullptr )
+	{
+		VectorCopy( end, event.end );
+	}
+	else
+	{
+		VectorCopy( pm->ps->origin, event.end );
+	}
+	if ( trace != nullptr )
+	{
+		VectorCopy( trace->plane.normal, event.normal );
+		event.fraction = trace->fraction;
+		event.entityNum = trace->entityNum;
+		event.contents = trace->contents;
+		event.startsolid = trace->startsolid;
+		event.allsolid = trace->allsolid;
+	}
+	else
+	{
+		event.fraction = -1.0f;
+		event.entityNum = ENTITYNUM_NONE;
+	}
+	pmAudit.nextEvent = ( pmAudit.nextEvent + 1 ) % PM_AUDIT_EVENT_COUNT;
+	pmAudit.eventCount = std::min( pmAudit.eventCount + 1, PM_AUDIT_EVENT_COUNT );
+}
+}
+
+void PM_BeginMovementAudit( qboolean enabled )
+{
+	pmAudit = {};
+	pmAudit.enabled = enabled;
+}
+
+void PM_DumpMovementAudit( void )
+{
+	if ( !pmAudit.enabled )
+	{
+		return;
+	}
+
+	gi.Printf( "jkxr-movement-trace: events=%d retained=%d\n",
+		pmAudit.eventCount, PM_AUDIT_EVENT_COUNT );
+	const int first = ( pmAudit.nextEvent - pmAudit.eventCount + PM_AUDIT_EVENT_COUNT ) %
+		PM_AUDIT_EVENT_COUNT;
+	for ( int i = 0; i < pmAudit.eventCount; ++i )
+	{
+		const pm_audit_event_t &event =
+			pmAudit.events[( first + i ) % PM_AUDIT_EVENT_COUNT];
+		gi.Printf(
+			"jkxr-movement-trace: %02d %-22s frac=%.5f ent=%d contents=0x%x "
+			"solid=%d/%d normal=(%.3f %.3f %.3f) origin=(%.3f %.3f %.3f) "
+			"end=(%.3f %.3f %.3f) velocity=(%.2f %.2f %.2f)\n",
+			i, event.label != nullptr ? event.label : "<null>",
+			event.fraction, event.entityNum, event.contents,
+			event.startsolid, event.allsolid,
+			event.normal[0], event.normal[1], event.normal[2],
+			event.origin[0], event.origin[1], event.origin[2],
+			event.end[0], event.end[1], event.end[2],
+			event.velocity[0], event.velocity[1], event.velocity[2] );
+	}
+}
+
 /*
 
 input: origin, velocity, bounds, groundPlane, trace function
@@ -145,6 +247,7 @@ qboolean	PM_SlideMove( float gravMod ) {
 
 		// see if we can make it there
 		pm->trace ( &trace, pm->ps->origin, pm->mins, pm->maxs, end, pm->ps->clientNum, slideMoveContents, (EG2_Collision)0, 0 );
+		PM_AuditEvent( "slide-trace", &trace, end );
 		if ( (trace.contents&CONTENTS_BOTCLIP)
 			&& (slideMoveContents&CONTENTS_BOTCLIP) )
 		{//hit a do not enter brush
@@ -152,15 +255,18 @@ qboolean	PM_SlideMove( float gravMod ) {
 			{//crap, we're in a do not enter brush, take it out for the remainder of the traces and re-trace this one right now without it
 				slideMoveContents &= ~CONTENTS_BOTCLIP;
 				pm->trace ( &trace, pm->ps->origin, pm->mins, pm->maxs, end, pm->ps->clientNum, slideMoveContents, (EG2_Collision)0, 0 );
+				PM_AuditEvent( "slide-no-botclip", &trace, end );
 			}
 			else if ( trace.plane.normal[2] > 0.0f )
 			{//on top of a do not enter brush, it, just redo this one trace without it
 				pm->trace ( &trace, pm->ps->origin, pm->mins, pm->maxs, end, pm->ps->clientNum, (slideMoveContents&~CONTENTS_BOTCLIP), (EG2_Collision)0, 0 );
+				PM_AuditEvent( "slide-top-botclip", &trace, end );
 			}
 		}
 
 		if ( trace.allsolid )
 		{// entity is completely trapped in another solid
+			PM_AuditEvent( "slide-return-allsolid", nullptr, nullptr );
 			pm->ps->velocity[2] = 0;	// don't build up falling damage, but allow sideways acceleration
 			return qtrue;
 		}
@@ -172,6 +278,7 @@ qboolean	PM_SlideMove( float gravMod ) {
 
 		if ( trace.fraction == 1 )
 		{
+			PM_AuditEvent( "slide-return-complete", nullptr, nullptr );
 			 break;		// moved the entire distance
 		}
 
@@ -212,6 +319,7 @@ qboolean	PM_SlideMove( float gravMod ) {
 		if ( numplanes >= MAX_CLIP_PLANES )
 		{// this shouldn't really happen
 			VectorClear( pm->ps->velocity );
+			PM_AuditEvent( "slide-return-maxplanes", nullptr, nullptr );
 			return qtrue;
 		}
 
@@ -306,6 +414,7 @@ qboolean	PM_SlideMove( float gravMod ) {
 
 					// stop dead at a triple plane interaction
 					VectorClear( pm->ps->velocity );
+					PM_AuditEvent( "slide-return-triple", nullptr, nullptr );
 					return qtrue;
 				}
 			}
@@ -325,6 +434,8 @@ qboolean	PM_SlideMove( float gravMod ) {
 	if ( pm->ps->pm_time ) {
 		VectorCopy( primal_velocity, pm->ps->velocity );
 	}
+	PM_AuditEvent( bumpcount != 0 ? "slide-return-bumped" : "slide-return-clear",
+		nullptr, nullptr );
 
 	return (qboolean)( bumpcount != 0 );
 }
@@ -354,8 +465,10 @@ void PM_StepSlideMove( float gravMod )
 	}
 
 	if ( PM_SlideMove( gravMod ) == 0 ) {
+		PM_AuditEvent( "step-return-direct", nullptr, nullptr );
 		return;		// we got exactly where we wanted to go first try
 	}//else Bumped into something, see if we can step over it
+	PM_AuditEvent( "step-try", nullptr, nullptr );
 
 	if ( pm->gent && pm->gent->client && pm->gent->client->NPC_class == CLASS_VEHICLE && pm->gent->m_pVehicle->m_pVehicleInfo->hoverHeight > 0 )
 	{//Hovering vehicles don't do steps
@@ -393,15 +506,18 @@ void PM_StepSlideMove( float gravMod )
 	VectorCopy(start_o, down);
 	down[2] -= stepSize;
 	pm->trace (&trace, start_o, pm->mins, pm->maxs, down, pm->ps->clientNum, pm->tracemask, (EG2_Collision)0, 0);
+	PM_AuditEvent( "step-ground-probe", &trace, down );
 	VectorSet(up, 0, 0, 1);
 	// never step up when you still have up velocity
 	if ( pm->ps->velocity[2] > 0 && (trace.fraction == 1.0 ||
 			DotProduct(trace.plane.normal, up) < 0.7)) {
+		PM_AuditEvent( "step-return-upward", nullptr, nullptr );
 		return;
 	}
 
 	if ( !pm->ps->velocity[0] && !pm->ps->velocity[1] )
 	{//All our velocity was cancelled sliding
+		PM_AuditEvent( "step-return-no-velocity", nullptr, nullptr );
 		return;
 	}
 
@@ -414,10 +530,12 @@ void PM_StepSlideMove( float gravMod )
 	// test the player position if they were a stepheight higher
 
 	pm->trace (&trace, start_o, pm->mins, pm->maxs, up, pm->ps->clientNum, pm->tracemask, (EG2_Collision)0, 0);
+	PM_AuditEvent( "step-up-probe", &trace, up );
 	if ( trace.allsolid || trace.startsolid || trace.fraction == 0) {
 		if ( pm->debugLevel ) {
 			Com_Printf("%i:bend can't step\n", c_pmove);
 		}
+		PM_AuditEvent( "step-return-blocked-up", nullptr, nullptr );
 		return;		// can't step up
 	}
 
@@ -446,6 +564,7 @@ void PM_StepSlideMove( float gravMod )
 		//slideMove was better, use it
 		VectorCopy (down_o, pm->ps->origin);
 		VectorCopy (down_v, pm->ps->velocity);
+		PM_AuditEvent( "step-keep-slide", nullptr, nullptr );
 	}
 	else
 	{
@@ -454,6 +573,7 @@ void PM_StepSlideMove( float gravMod )
 		VectorCopy (pm->ps->origin, down);
 		down[2] -= stepSize;
 		pm->trace (&trace, pm->ps->origin, pm->mins, pm->maxs, down, pm->ps->clientNum, pm->tracemask, (EG2_Collision)0, 0);
+		PM_AuditEvent( "step-down-probe", &trace, down );
 		if ( pm->debugLevel )
 		{
 			G_DebugLine(pm->ps->origin,trace.endpos,2000,0xffffff,qtrue);
@@ -539,6 +659,7 @@ void PM_StepSlideMove( float gravMod )
 			{
 				VectorCopy (down_o, pm->ps->origin);
 				VectorCopy (down_v, pm->ps->velocity);
+				PM_AuditEvent( "step-rollback", nullptr, nullptr );
 			}
 		}
 		if ( !g_stepSlideFix->integer )
@@ -591,5 +712,5 @@ void PM_StepSlideMove( float gravMod )
 			Com_Printf("%i:stepped\n", c_pmove);
 		}
 	}
+	PM_AuditEvent( "step-return-finished", nullptr, nullptr );
 }
-

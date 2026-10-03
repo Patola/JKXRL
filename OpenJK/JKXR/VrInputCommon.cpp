@@ -13,6 +13,9 @@ Authors		:	Simon Brown
 
 cvar_t	*vr_turn_mode;
 cvar_t	*vr_turn_angle;
+cvar_t *vr_mounted_yaw_speed;
+cvar_t *vr_mounted_pitch_speed;
+cvar_t *vr_thermal_throw_grace_ms;
 cvar_t	*vr_positional_factor;
 cvar_t	*vr_walkdirection;
 cvar_t	*vr_3rdperson_digital_direction;
@@ -38,6 +41,7 @@ cvar_t  *vr_irl_crouch_enabled;
 cvar_t  *vr_irl_crouch_to_stand_ratio;
 cvar_t	*vr_saber_block_debounce_time;
 cvar_t	*vr_haptic_intensity;
+cvar_t	*vr_saber_haptic_intensity;
 cvar_t  *vr_comfort_vignette;
 cvar_t  *vr_saber_3rdperson_mode;
 cvar_t  *vr_vehicle_use_hmd_direction;
@@ -65,6 +69,7 @@ float remote_movementForward;
 float remote_movementUp;
 float positional_movementSideways;
 float positional_movementForward;
+float mounted_aim_pitch;
 long long global_time;
 int ducked;
 vr_client_info_t vr;
@@ -94,27 +99,21 @@ float length(float x, float y)
 }
 
 #define NLF_DEADZONE 0.1
-#define NLF_POWER 2.2
+#define NLF_OUTER_DEADZONE 0.6
 
 float nonLinearFilter(float in)
 {
-    float val = 0.0f;
-    if (in > NLF_DEADZONE)
-    {
-        val = in > 1.0f ? 1.0f : in;
-        val -= NLF_DEADZONE;
-        val /= (1.0f - NLF_DEADZONE);
-        val = powf(val, NLF_POWER);
-    }
-    else if (in < -NLF_DEADZONE)
-    {
-        val = in < -1.0f ? -1.0f : in;
-        val += NLF_DEADZONE;
-        val /= (1.0f - NLF_DEADZONE);
-        val = -powf(fabsf(val), NLF_POWER);
-    }
+	const float magnitude = fabsf(in);
+	if (magnitude <= NLF_DEADZONE)
+	{
+		return 0.0f;
+	}
 
-    return val;
+	const float scaled = Com_Clamp(
+		0.0f, 1.0f,
+		(magnitude - NLF_DEADZONE) /
+			(NLF_OUTER_DEADZONE - NLF_DEADZONE));
+	return in < 0.0f ? -scaled : scaled;
 }
 
 void sendButtonActionSimple(const char* action)

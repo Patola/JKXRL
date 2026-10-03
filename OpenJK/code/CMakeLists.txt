@@ -27,7 +27,7 @@ if(BuildSPGame)
 endif(BuildSPGame)
 
 #    Add Modular Renderer project
-add_subdirectory("${SPDir}/rd-vanilla")
+add_subdirectory("${SPDir}/rd-vulkan")
 
 #    Add Engine Project
 if(BuildSPEngine OR BuildJK2SPEngine)
@@ -37,10 +37,6 @@ if(BuildSPEngine OR BuildJK2SPEngine)
 	
 	# OpenXR defines
 	set(SPEngineDefines ${SPEngineDefines} "JKXR_CLIENT")
-	set(SPEngineDefines ${SPEngineDefines} "XR_USE_GRAPHICS_API_OPENGL")
-	# On Linux XR_USE_PLATFORM_XLIB is defined locally in JKXR/linux/TBXR_Common.cpp
-	# (the only TU that needs the X11/GLX graphics binding) to keep Xlib's macros
-	# out of the rest of the engine.
 
 	set(SPEngineIncludeDirectories
 		${SPEngineIncludeDirectories}
@@ -50,7 +46,6 @@ if(BuildSPEngine OR BuildJK2SPEngine)
 		"${GSLIncludeDirectory}"
 		"${JKXRDir}"
 		"${OpenXRLibDir}"
-		"${OpenGLExternalIncludeDir}"
 		)
 
 	#    Dependencies
@@ -62,24 +57,10 @@ if(BuildSPEngine OR BuildJK2SPEngine)
 	string(STRIP ${SDL3_LIBRARIES} SDL3_LIBRARIES)
 	set(SPEngineIncludeDirectories ${SPEngineIncludeDirectories} ${SDL3_INCLUDE_DIRS})
 	set(SPEngineLibraries ${SPEngineLibraries} ${SDL3_LIBRARIES})
+
+	find_package(Vulkan REQUIRED)
+	set(SPEngineIncludeDirectories ${SPEngineIncludeDirectories} ${Vulkan_INCLUDE_DIRS})
 	
-	# OpenGL needed in the SP engine now for JKXR
-	find_package(OpenGL REQUIRED)
-	set(SPEngineIncludeDirectories ${SPEngineIncludeDirectories} ${OPENGL_INCLUDE_DIR})
-	set(SPEngineLibraries ${SPEngineLibraries} ${OPENGL_LIBRARIES})
-
-
-	# OpenXR loader: use the system OpenXR loader plus X11 for the GLX graphics
-	# binding (the glX* entry points themselves live in libGL, linked above).
-	find_library(OPENXR_LOADER_LIBRARY NAMES openxr_loader REQUIRED)
-	find_package(X11 REQUIRED)
-	set(SPEngineLibraries
-		${SPEngineLibraries}
-		${OPENXR_LOADER_LIBRARY}
-		${X11_LIBRARIES}
-	)
-
-
 	#    Source Files
 
 	# Client files
@@ -332,7 +313,6 @@ if(BuildSPEngine OR BuildJK2SPEngine)
 		"${SharedDir}/sys/sys_loadlib.h"
 		"${SharedDir}/sys/con_local.h"
 		"${SharedDir}/sys/con_log.cpp"
-		"${SharedDir}/sdl/sdl_qgl.h"
 		"${SharedDir}/sdl/sdl_sound.cpp"
 		"${SharedDir}/sdl/sdl_input.cpp"
 		"${SharedDir}/sdl/sdl_window.cpp"

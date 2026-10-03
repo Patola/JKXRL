@@ -5719,18 +5719,16 @@ void ForceThrowEx( gentity_t *self, qboolean pull, qboolean aimByViewAngles )
 		}
 	}
 
-	if (self->client->ps.clientNum == 0)
-	{
-		//Handle this here so it is refreshed on every frame, not just when the lightning gun is first fired
-		cgi_HapticEvent("RTCWQuest:fire_tesla", 0, (vr->right_handed ? 2 : 1), 100, 0, 0);
-	}
-
 	NPC_SetAnim( self, parts, anim, SETANIM_FLAG_OVERRIDE|SETANIM_FLAG_HOLD|SETANIM_FLAG_RESTART );
 	self->client->ps.saberMove = self->client->ps.saberBounceMove = LS_READY;//don't finish whatever saber anim you may have been in
 	self->client->ps.saberBlocked = BLOCKED_NONE;
 	if ( self->client->ps.forcePowersActive&(1<<FP_SPEED) )
 	{
 		hold = floor( hold*g_timescale->value );
+	}
+	if ( self->client->ps.clientNum == 0 )
+	{
+		cgi_HapticEvent( "force_push_pull", 0, vr->right_handed ? 2 : 1, 100, 0, 0 );
 	}
 	self->client->ps.weaponTime = hold;//was 1000, but want to swing sooner
 	//do effect... FIXME: build-up or delay this until in proper part of anim
@@ -7324,7 +7322,7 @@ void ForceLightningDamage( gentity_t *self, gentity_t *traceEnt, vec3_t dir, flo
 void ForceShootLightning( gentity_t *self )
 {
 	trace_t	tr;
-	vec3_t	end, forward;
+	vec3_t	end, forward, castOrigin, castAngles;
 	gentity_t	*traceEnt;
 
 	if ( self->health <= 0 )
@@ -7336,18 +7334,23 @@ void ForceShootLightning( gentity_t *self )
 		return;
 	}
 
-	if (self->client->ps.clientNum == 0 && !cg.renderingThirdPerson)
-	{
-		vec3_t origin, angles;
-		BG_CalculateVROffHandPosition(origin, angles);
-		AngleVectors(angles, forward, NULL, NULL);
-	}
-	else
-	{
-		AngleVectors(self->client->ps.viewangles, forward, NULL, NULL);
-	}
-
+	VectorCopy(self->client->renderInfo.handLPoint, castOrigin);
+	VectorCopy(self->client->ps.viewangles, castAngles);
+	const bool trackedLightning = BG_CalculateVRLightningPose(self, castOrigin, castAngles);
+	AngleVectors(castAngles, forward, NULL, NULL);
 	VectorNormalize( forward );
+
+	if ( trackedLightning )
+	{
+		static int lastAimLogTime = -2000;
+		if ( level.time < lastAimLogTime || level.time - lastAimLogTime >= 2000 )
+		{
+			lastAimLogTime = level.time;
+			gi.Printf("jkxr-lightning-aim: offhand origin=(%.1f %.1f %.1f) angles=(%.1f %.1f %.1f) view=(%.1f %.1f)\n",
+				castOrigin[0], castOrigin[1], castOrigin[2], castAngles[0], castAngles[1], castAngles[2],
+				self->client->ps.viewangles[0], self->client->ps.viewangles[1]);
+		}
+	}
 
 	if (self->client->ps.clientNum == 0)
 	{
@@ -7364,7 +7367,7 @@ void ForceShootLightning( gentity_t *self )
 		gentity_t	*entityList[MAX_GENTITIES];
 		int		e, numListedEntities, i;
 
-		VectorCopy( self->currentOrigin, center );
+		VectorCopy( trackedLightning ? castOrigin : self->currentOrigin, center );
 		for ( i = 0 ; i < 3 ; i++ )
 		{
 			mins[i] = center[i] - radius;
@@ -7422,13 +7425,13 @@ void ForceShootLightning( gentity_t *self )
 			}
 
 			//in PVS?
-			if ( !traceEnt->bmodel && !gi.inPVS( ent_org, self->client->renderInfo.handLPoint ) )
+			if ( !traceEnt->bmodel && !gi.inPVS( ent_org, castOrigin ) )
 			{//must be in PVS
 				continue;
 			}
 
 			//Now check and see if we can actually hit it
-			gi.trace( &tr, self->client->renderInfo.handLPoint, vec3_origin, vec3_origin, ent_org, self->s.number, MASK_SHOT, G2_NOCOLLIDE, 0 );
+			gi.trace( &tr, castOrigin, vec3_origin, vec3_origin, ent_org, self->s.number, MASK_SHOT, G2_NOCOLLIDE, 0 );
 			if ( tr.fraction < 1.0f && tr.entityNum != traceEnt->s.number )
 			{//must have clear LOS
 				continue;
@@ -7447,8 +7450,8 @@ void ForceShootLightning( gentity_t *self )
 		int traces = 0;
 		vec3_t	start;
 
-		VectorCopy( self->client->renderInfo.handLPoint, start );
-		VectorMA( self->client->renderInfo.handLPoint, 2048, forward, end );
+		VectorCopy( castOrigin, start );
+		VectorMA( castOrigin, 2048, forward, end );
 
 		while ( traces < 10 )
 		{//need to loop this in case we hit a Jedi who dodges the shot

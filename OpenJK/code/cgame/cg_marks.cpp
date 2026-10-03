@@ -172,6 +172,16 @@ void CG_ImpactMark( qhandle_t markShader, const vec3_t origin, const vec3_t dir,
 	numFragments = cgi_CM_MarkFragments( 4, (const float (*)[3])originalPoints,
 					projection, MAX_MARK_POINTS, markPoints[0],
 					MAX_MARK_FRAGMENTS, markFragments );
+	if ( markShader == cgs.media.fsrMarkShader || markShader == cgs.media.fslMarkShader ||
+		 markShader == cgs.media.fshrMarkShader || markShader == cgs.media.fshlMarkShader )
+	{
+		static unsigned reports[2] = {};
+		const bool right = markShader == cgs.media.fsrMarkShader || markShader == cgs.media.fshrMarkShader;
+		const unsigned count = ++reports[right];
+		if ( count <= 16 || count % 64 == 0 )
+			CG_Printf("jkxr-footprint-mark: foot=%s count=%u fragments=%d origin=(%.1f %.1f %.1f)\n",
+				right ? "right" : "left", count, numFragments, origin[0], origin[1], origin[2]);
+	}
 
 	colors[0] = red * 255;
 	colors[1] = green * 255;
@@ -284,4 +294,3 @@ void CG_AddMarks( void ) {
 		cgi_R_AddPolyToScene( mp->markShader, mp->poly.numVerts, mp->verts );
 	}
 }
-

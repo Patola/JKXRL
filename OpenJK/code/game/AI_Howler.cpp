@@ -43,8 +43,6 @@ extern void G_GetBoltPosition( gentity_t *self, int boltIndex, vec3_t pos, int m
 extern int PM_AnimLength( int index, animNumber_t anim );
 extern qboolean NAV_DirSafe( gentity_t *self, vec3_t dir, float dist );
 extern void G_Knockdown( gentity_t *self, gentity_t *attacker, const vec3_t pushDir, float strength, qboolean breakSaberLock );
-extern float NPC_EntRangeFromBolt( gentity_t *targEnt, int boltIndex );
-extern int NPC_GetEntsNearBolt( gentity_t **radiusEnts, float radius, int boltIndex, vec3_t boltOrg );
 extern qboolean PM_InKnockDown( playerState_t *ps );
 extern qboolean PM_HasAnimation( gentity_t *ent, int animation );
 
@@ -268,11 +266,22 @@ static void Howler_Howl( void )
 	const float	radiusSquared = (radius*radius);
 	float		distSq;
 	int			i;
-	vec3_t		boltOrg;
+	vec3_t		howlOrg;
+	vec3_t		mins;
+	vec3_t		maxs;
 
 	AddSoundEvent( NPC, NPC->currentOrigin, 512, AEL_DANGER, qfalse, qtrue );
 
-	numEnts = NPC_GetEntsNearBolt( radiusEnts, radius, NPC->handLBolt, boltOrg );
+	// The original code passed the non-humanoid hand bolt (-1), which the
+	// legacy Ghoul2 path effectively treated as the actor origin. Make that
+	// gameplay origin explicit instead of depending on renderer bolt fallback.
+	VectorCopy( NPC->currentOrigin, howlOrg );
+	for ( i = 0; i < 3; ++i )
+	{
+		mins[i] = howlOrg[i] - radius;
+		maxs[i] = howlOrg[i] + radius;
+	}
+	numEnts = gi.EntitiesInBox( mins, maxs, radiusEnts, ARRAY_LEN( radiusEnts ) );
 
 	for ( i = 0; i < numEnts; i++ )
 	{
@@ -296,7 +305,7 @@ static void Howler_Howl( void )
 			continue;
 		}
 
-		distSq = DistanceSquared( radiusEnts[i]->currentOrigin, boltOrg );
+		distSq = DistanceSquared( radiusEnts[i]->currentOrigin, howlOrg );
 		if ( distSq <= radiusSquared )
 		{
 			if ( distSq < halfRadSquared )
@@ -342,7 +351,7 @@ static void Howler_Howl( void )
 		}
 	}
 
-	float playerDist = NPC_EntRangeFromBolt( player, NPC->genericBolt1 );
+	float playerDist = Distance( player->currentOrigin, howlOrg );
 	if ( playerDist < 256.0f )
 	{
 		CGCam_Shake( 1.0f*playerDist/128.0f, 200 );

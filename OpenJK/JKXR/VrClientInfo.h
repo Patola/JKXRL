@@ -2,6 +2,7 @@
 #define vr_client_info_h
 
 #define NUM_WEAPON_SAMPLES      10
+#define NUM_FORCE_GESTURE_SAMPLES 32
 
 #define ANGLES_DEFAULT          0
 #define ANGLES_ADJUSTED         1
@@ -10,6 +11,7 @@
 
 #define USE_GESTURE_OFF_HAND      1
 #define USE_GESTURE_WEAPON_HAND   2
+#define USE_GESTURE_TARGET        4
 #define USE_HAPTIC_FEEDBACK_DELAY 500
 
 typedef struct {
@@ -35,7 +37,9 @@ typedef struct {
 
     int eye;
     bool using_screen_layer;
+    bool spatial_console_visible;
     bool third_person;
+    bool fov_valid;
     float fov_x;
     float fov_y;
     float off_center_fov_x;
@@ -72,6 +76,13 @@ typedef struct {
     vec3_t hmdorientation_snap;
     vec3_t hmdorientation_first; // only updated when in first person
 
+    // Cinematics need a stable entry pose. The general snapshots above may be
+    // refreshed by menus and screen-layer transitions while a camera is active.
+    bool cinematic_pose_valid;
+    vec3_t cinematic_hmdposition_snap;
+    vec3_t cinematic_hmdorientation_snap;
+    float cinematic_snapTurn_snap;
+
     vec3_t clientviewangles; //orientation in the client - we use this in the cgame
     float snapTurn; // how much turn has been applied to the yaw by joystick
     float clientview_yaw_last; // Don't use this, it is just for calculating delta!
@@ -99,7 +110,14 @@ typedef struct {
     bool primaryVelocityTriggeredAttack;
     float secondaryswingvelocity;
     bool secondaryVelocityTriggeredAttack;
+    bool dual_saber_casting;
     vec3_t secondaryVelocityTriggerLocation;
+	bool forceGestureArmed;
+	vec3_t forceGestureStartLocation;
+	int forceGestureCooldownTime;
+	float forceGestureRadialHistory[NUM_FORCE_GESTURE_SAMPLES];
+	int forceGestureHistoryTimestamp[NUM_FORCE_GESTURE_SAMPLES];
+	int forceGestureHistorySampleCount;
 
     vec3_t offhandangles[ANGLES_COUNT];
     vec3_t offhandangles_last[ANGLES_COUNT]; // Don't use this, it is just for calculating delta!
@@ -107,12 +125,23 @@ typedef struct {
     vec3_t offhandangles_saber[ANGLES_COUNT];
 
     vec3_t offhandposition[5]; // store last 5
+	int offhandPositionSampleCount;
     vec3_t offhandoffset;
 
     float   maxHeight;
     float   curHeight;
     int     useGestureState;
     int     useHapticFeedbackTime[2];
+
+    // Published by player movement; runtime-only, not part of saved playerState.
+    bool mounted_pitch_limits_valid;
+    float mounted_pitch_min;
+    float mounted_pitch_max;
+
+    // One-shot controller release, frozen until the game spawns the thermal.
+    bool thermal_throw_ready;
+    int thermal_throw_time;
+    vec3_t thermal_throw_velocity;
 
 } vr_client_info_t;
 

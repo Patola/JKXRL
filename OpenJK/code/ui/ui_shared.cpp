@@ -37,6 +37,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "../cgame/animtable.h"
 
 #include "ui_shared.h"
+#include "ui_list_selection.h"
 #include "menudef.h"
 
 #include "qcommon/stringed_ingame.h"
@@ -90,7 +91,7 @@ static itemDef_t *g_editItem = NULL;
 static itemDef_t *itemCapture = NULL;   // item that has the mouse captured ( if any )
 
 #define DOUBLE_CLICK_DELAY 300
-static int lastListBoxClickTime = 0;
+static ui_list_click_state_t lastListBoxClick;
 
 static void (*captureFunc) (void *p) = NULL;
 static void *captureData = NULL;
@@ -5359,21 +5360,21 @@ Menus_ActivateByName
 */
 void Menu_HandleMouseMove(menuDef_t *menu, float x, float y);
 menuDef_t *Menus_ActivateByName(const char *p)
-{
-	int i;
-	menuDef_t *m = NULL;
-	menuDef_t *focus = Menu_GetFocused();
-
-	for (i = 0; i < menuCount; i++)
 	{
-		// Look for the name in the current list of windows
-		if (Q_stricmp(Menus[i].window.name, p) == 0)
+		int i;
+		menuDef_t *m = NULL;
+		menuDef_t *focus = Menu_GetFocused();
+
+		for (i = 0; i < menuCount; i++)
 		{
-			m = &Menus[i];
-			Menus_Activate(m);
-			if (openMenuCount < MAX_OPEN_MENUS && focus != NULL)
+			// Look for the name in the current list of windows
+			if (Q_stricmp(Menus[i].window.name, p) == 0)
 			{
-				menuStack[openMenuCount++] = focus;
+				m = &Menus[i];
+				Menus_Activate(m);
+				if (openMenuCount < MAX_OPEN_MENUS && focus != NULL)
+				{
+					menuStack[openMenuCount++] = focus;
 			}
 		}
 		else
@@ -5841,6 +5842,7 @@ Menus_CloseAll
 void  Menus_CloseAll(void)
 {
 	int i;
+	lastListBoxClick = {};
 
 	for (i = 0; i < menuCount; i++)
 	{
@@ -9694,6 +9696,11 @@ itemDef_t *Menu_SetNextCursorItem(menuDef_t *menu)
 
 		if (Item_SetFocus(menu->items[menu->cursorItem], DC->cursorx, DC->cursory))
 		{
+			if (DC->Print)
+			{
+				DC->Print("UI keyboard focus: %s\n",
+					menu->items[menu->cursorItem]->window.name ? menu->items[menu->cursorItem]->window.name : "<unnamed>");
+			}
 			Menu_HandleMouseMove(menu, menu->items[menu->cursorItem]->window.rect.x + 1, menu->items[menu->cursorItem]->window.rect.y + 1);
 			return menu->items[menu->cursorItem];
 		}
@@ -9734,6 +9741,11 @@ itemDef_t *Menu_SetPrevCursorItem(menuDef_t *menu)
 
 		if (Item_SetFocus(menu->items[menu->cursorItem], DC->cursorx, DC->cursory))
 		{
+			if (DC->Print)
+			{
+				DC->Print("UI keyboard focus: %s\n",
+					menu->items[menu->cursorItem]->window.name ? menu->items[menu->cursorItem]->window.name : "<unnamed>");
+			}
 			Menu_HandleMouseMove(menu, menu->items[menu->cursorItem]->window.rect.x + 1, menu->items[menu->cursorItem]->window.rect.y + 1);
 			return menu->items[menu->cursorItem];
 		}
@@ -10181,8 +10193,15 @@ qboolean Item_ListBox_HandleKey(itemDef_t *item, int key, qboolean down, qboolea
 	listBoxDef_t *listPtr = (listBoxDef_t*)item->typeData;
 	int count = DC->feederCount(item->special);
 	int max, viewmax;
-	if (force || (Rect_ContainsPoint(&item->window.rect, DC->cursorx, DC->cursory) && item->window.flags & WINDOW_HASFOCUS))
+	const qboolean keyboardSelectable = (qboolean)(
+		!listPtr->notselectable || (int)item->special == FEEDER_SAVEGAMES );
+	if (force || (item->window.flags & WINDOW_HASFOCUS))
 	{
+		if (count <= 0)
+		{
+			return qfalse;
+		}
+
 		max = Item_ListBox_MaxScroll(item);
 		if (item->window.flags & WINDOW_HORIZONTAL)
 		{
@@ -10207,6 +10226,11 @@ qboolean Item_ListBox_HandleKey(itemDef_t *item, int key, qboolean down, qboolea
 					item->cursorPos = listPtr->cursorPos;
 
 					DC->feederSelection(item->special, item->cursorPos, item);
+					if (DC->Print)
+					{
+						DC->Print("UI keyboard list: %s feeder %.0f selection %d\n",
+							item->window.name ? item->window.name : "<unnamed>", item->special, item->cursorPos);
+					}
 
 				}
 				else
@@ -10240,6 +10264,11 @@ qboolean Item_ListBox_HandleKey(itemDef_t *item, int key, qboolean down, qboolea
 					item->cursorPos = listPtr->cursorPos;
 
 					DC->feederSelection(item->special, item->cursorPos, item);
+					if (DC->Print)
+					{
+						DC->Print("UI keyboard list: %s feeder %.0f selection %d\n",
+							item->window.name ? item->window.name : "<unnamed>", item->special, item->cursorPos);
+					}
 				}
 				else
 				{
@@ -10258,7 +10287,7 @@ qboolean Item_ListBox_HandleKey(itemDef_t *item, int key, qboolean down, qboolea
 			viewmax = (item->window.rect.h / listPtr->elementHeight);
 			if ( key == A_CURSOR_UP || key == A_KP_8 )
 			{
-				if (!listPtr->notselectable)
+				if (keyboardSelectable)
 				{
 					listPtr->cursorPos--;
 
@@ -10277,6 +10306,11 @@ qboolean Item_ListBox_HandleKey(itemDef_t *item, int key, qboolean down, qboolea
 					item->cursorPos = listPtr->cursorPos;
 
 					DC->feederSelection(item->special, item->cursorPos, item);
+					if (DC->Print)
+					{
+						DC->Print("UI keyboard list: %s feeder %.0f selection %d\n",
+							item->window.name ? item->window.name : "<unnamed>", item->special, item->cursorPos);
+					}
 				}
 				else
 				{
@@ -10291,7 +10325,7 @@ qboolean Item_ListBox_HandleKey(itemDef_t *item, int key, qboolean down, qboolea
 			}
 			if ( key == A_CURSOR_DOWN || key == A_KP_2 )
 			{
-				if (!listPtr->notselectable)
+				if (keyboardSelectable)
 				{
 					listPtr->cursorPos++;
 					if (listPtr->cursorPos < listPtr->startPos)
@@ -10309,6 +10343,11 @@ qboolean Item_ListBox_HandleKey(itemDef_t *item, int key, qboolean down, qboolea
 					item->cursorPos = listPtr->cursorPos;
 
 					DC->feederSelection(item->special, item->cursorPos, item);
+					if (DC->Print)
+					{
+						DC->Print("UI keyboard list: %s feeder %.0f selection %d\n",
+							item->window.name ? item->window.name : "<unnamed>", item->special, item->cursorPos);
+					}
 
 				}
 				else
@@ -10348,6 +10387,12 @@ qboolean Item_ListBox_HandleKey(itemDef_t *item, int key, qboolean down, qboolea
 				Display_MouseMove(NULL, DC->cursorx, DC->cursory);
 				return qtrue;
 			}
+		}
+		if ( ( key == A_ENTER || key == A_KP_ENTER ) &&
+			 (int)item->special == FEEDER_SAVEGAMES )
+		{
+			Item_RunScript( item, "uiScript loadgame ;" );
+			return qtrue;
 		}
 		// mouse hit
 		if (key == A_MOUSE1 || key == A_MOUSE2)
@@ -10393,14 +10438,20 @@ qboolean Item_ListBox_HandleKey(itemDef_t *item, int key, qboolean down, qboolea
 			}
 			else
 			{
-				// select an item
-				if (DC->realTime < lastListBoxClickTime && listPtr->doubleClick)
+				if (!UI_ListSelectionValid(listPtr->cursorPos, count))
+				{
+					lastListBoxClick = {};
+					return qtrue;
+				}
+				const bool activate = lastListBoxClick.Click(item, listPtr->cursorPos,
+					key, DC->realTime, DOUBLE_CLICK_DELAY, [&](int row) {
+						item->cursorPos = row;
+						DC->feederSelection(item->special, row, item);
+					});
+				if (activate && listPtr->doubleClick)
 				{
 					Item_RunScript(item, listPtr->doubleClick);
 				}
-				lastListBoxClickTime = DC->realTime + DOUBLE_CLICK_DELAY;
-				item->cursorPos = listPtr->cursorPos;
-				DC->feederSelection(item->special, item->cursorPos, item);
 			}
 			return qtrue;
 		}
@@ -10408,18 +10459,30 @@ qboolean Item_ListBox_HandleKey(itemDef_t *item, int key, qboolean down, qboolea
 		{
 			// home
 			listPtr->startPos = 0;
+			if (keyboardSelectable)
+			{
+				listPtr->cursorPos = 0;
+				item->cursorPos = 0;
+				DC->feederSelection(item->special, 0, item);
+			}
 			return qtrue;
 		}
 		if ( key == A_END || key == A_KP_1)
 		{
 			// end
 			listPtr->startPos = max;
+			if (keyboardSelectable)
+			{
+				listPtr->cursorPos = count - 1;
+				item->cursorPos = listPtr->cursorPos;
+				DC->feederSelection(item->special, item->cursorPos, item);
+			}
 			return qtrue;
 		}
 		if (key == A_PAGE_UP || key == A_KP_9 )
 		{
 			// page up
-			if (!listPtr->notselectable)
+			if (keyboardSelectable)
 			{
 				listPtr->cursorPos -= viewmax;
 				if (listPtr->cursorPos < 0)
@@ -10450,7 +10513,7 @@ qboolean Item_ListBox_HandleKey(itemDef_t *item, int key, qboolean down, qboolea
 		if ( key == A_PAGE_DOWN || key == A_KP_3 )
 		{
 			// page down
-			if (!listPtr->notselectable)
+			if (keyboardSelectable)
 			{
 				listPtr->cursorPos += viewmax;
 				if (listPtr->cursorPos < listPtr->startPos)
@@ -10735,11 +10798,17 @@ Item_YesNo_HandleKey
 */
 qboolean Item_YesNo_HandleKey(itemDef_t *item, int key)
 {
-  if (Rect_ContainsPoint(&item->window.rect, DC->cursorx, DC->cursory) && item->window.flags & WINDOW_HASFOCUS && item->cvar)
+	if ((item->window.flags & WINDOW_HASFOCUS) && item->cvar)
 	{
-		if (key == A_MOUSE1 || key == A_ENTER || key == A_MOUSE2 || key == A_MOUSE3)
+		if (key == A_MOUSE1 || key == A_ENTER || key == A_MOUSE2 || key == A_MOUSE3 ||
+			 key == A_CURSOR_LEFT || key == A_CURSOR_RIGHT || key == A_KP_4 || key == A_KP_6)
 		{
 			DC->setCVar(item->cvar, va("%i", !DC->getCVarValue(item->cvar)));
+			if (DC->Print && (key == A_CURSOR_LEFT || key == A_CURSOR_RIGHT || key == A_KP_4 || key == A_KP_6))
+			{
+				DC->Print("UI keyboard yesno: %s %s=%g\n",
+					item->window.name ? item->window.name : "<unnamed>", item->cvar, DC->getCVarValue(item->cvar));
+			}
 			return qtrue;
 		}
 	}
@@ -10868,10 +10937,12 @@ qboolean Item_Multi_HandleKey(itemDef_t *item, int key)
 	multiDef_t *multiPtr = (multiDef_t*)item->typeData;
 	if (multiPtr)
 	{
-		if (Rect_ContainsPoint(&item->window.rect, DC->cursorx, DC->cursory) && item->window.flags & WINDOW_HASFOCUS)
+		if (item->window.flags & WINDOW_HASFOCUS)
 		{
 			//Raz: Scroll on multi buttons!
-			if (key == A_MOUSE1 || key == A_ENTER || key == A_MOUSE2 || key == A_MOUSE3 || key == A_MWHEELDOWN || key == A_MWHEELUP)
+			if (key == A_MOUSE1 || key == A_ENTER || key == A_MOUSE2 || key == A_MOUSE3 ||
+				 key == A_MWHEELDOWN || key == A_MWHEELUP || key == A_CURSOR_LEFT ||
+				 key == A_CURSOR_RIGHT || key == A_KP_4 || key == A_KP_6)
 			//if (key == A_MOUSE1 || key == A_ENTER || key == A_MOUSE2 || key == A_MOUSE3)
 			{
 				if (item->cvar)
@@ -10879,7 +10950,8 @@ qboolean Item_Multi_HandleKey(itemDef_t *item, int key)
 					int current = Item_Multi_FindCvarByValue(item);
 					int max = Item_Multi_CountSettings(item);
 
-					if (key == A_MOUSE2 || key == A_MWHEELDOWN)
+					if (key == A_MOUSE2 || key == A_MWHEELDOWN ||
+						 key == A_CURSOR_LEFT || key == A_KP_4)
 					{
 						current--;
 						if ( current < 0 )
@@ -10916,12 +10988,18 @@ qboolean Item_Multi_HandleKey(itemDef_t *item, int key)
 					{//its a feeder?
 						DC->feederSelection(item->special, current, item);
 					}
+					if (DC->Print && (key == A_CURSOR_LEFT || key == A_CURSOR_RIGHT || key == A_KP_4 || key == A_KP_6))
+					{
+						DC->Print("UI keyboard multi: %s %s selection %d\n",
+							item->window.name ? item->window.name : "<unnamed>", item->cvar, current);
+					}
 				}
 				else
 				{
 					int max = Item_Multi_CountSettings(item);
 
-					if (key == A_MOUSE2 || key == A_MWHEELDOWN)
+					if (key == A_MOUSE2 || key == A_MWHEELDOWN ||
+						 key == A_CURSOR_LEFT || key == A_KP_4)
 					{
 						item->value--;
 						if ( item->value < 0 )
@@ -10962,12 +11040,33 @@ qboolean Item_Slider_HandleKey(itemDef_t *item, int key, qboolean down)
 
 	float x, value, width, work;
 
-	if (item->window.flags & WINDOW_HASFOCUS && item->cvar && Rect_ContainsPoint(&item->window.rect, DC->cursorx, DC->cursory))
+	if ((item->window.flags & WINDOW_HASFOCUS) && item->cvar)
 	{
-
-		if (key == A_MOUSE1 || key == A_ENTER || key == A_MOUSE2 || key == A_MOUSE3)
+		editFieldDef_t *editDef = (editFieldDef_s *) item->typeData;
+		if (editDef && (key == A_CURSOR_LEFT || key == A_CURSOR_RIGHT ||
+			 key == A_KP_4 || key == A_KP_6))
 		{
-			editFieldDef_t *editDef = (editFieldDef_s *) item->typeData;
+			const float range = editDef->maxVal - editDef->minVal;
+			if (range <= 0.0f)
+			{
+				return qfalse;
+			}
+			const float step = range / 20.0f;
+			float current = DC->getCVarValue(item->cvar);
+			current += (key == A_CURSOR_LEFT || key == A_KP_4) ? -step : step;
+			current = std::max(editDef->minVal, std::min(current, editDef->maxVal));
+			DC->setCVar(item->cvar, va("%f", current));
+			if (DC->Print)
+			{
+				DC->Print("UI keyboard slider: %s %s=%g\n",
+					item->window.name ? item->window.name : "<unnamed>", item->cvar, current);
+			}
+			return qtrue;
+		}
+
+		if ((key == A_MOUSE1 || key == A_MOUSE2 || key == A_MOUSE3) &&
+			 Rect_ContainsPoint(&item->window.rect, DC->cursorx, DC->cursory))
+		{
 			if (editDef)
 			{
 				rectDef_t testRect;

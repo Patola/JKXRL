@@ -691,6 +691,7 @@ extern	vmCvar_t		cg_missionInfoFlashTime;
 extern	vmCvar_t		cg_hudFiles;
 
 extern	vmCvar_t		cg_forceSpeedFOVAdjust;
+extern	vmCvar_t		cg_forceSpeedMotionBlur;
 
 extern	vmCvar_t		cg_turnAnims;
 extern	vmCvar_t		cg_motionBoneComp;
@@ -907,6 +908,8 @@ void CG_AddViewWeapon (playerState_t *ps);
 void CG_DrawWeaponSelect( void );
 
 void CG_DrawItemSelector( void );
+void CG_ItemSelectorCancel_f( void );
+void CG_ItemSelectorReleaseTime( void );
 
 void CG_OutOfAmmoChange( void );	// should this be in pmove?
 

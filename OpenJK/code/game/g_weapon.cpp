@@ -1209,6 +1209,12 @@ void FireWeapon( gentity_t *ent, qboolean alt_fire )
 			AngleVectors( ent->lastAngles, forwardVec, vrightVec, up );
 		}
 	}
+	else if ( (ent->client->ps.eFlags & EF_LOCKED_TO_WEAPON)
+		&& ent->client->renderInfo.mPCalcTime >= level.time - FRAMETIME * 2 )
+	{
+		VectorCopy( ent->client->renderInfo.muzzleDir, forwardVec );
+		MakeNormalVectors( forwardVec, vrightVec, up );
+	}
 	else if ( ent->s.weapon == WP_ATST_SIDE || ent->s.weapon == WP_ATST_MAIN )
 	{
 		vec3_t	delta1, enemy_org1, muzzle1;

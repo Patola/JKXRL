@@ -22,16 +22,14 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 
 // Current version of the single player game
 #include "AutoVersion.h"
-
-#define JKXR_VERSION		"1.2.0"
+#include "qcommon/jkxrl_version.h"
 
 #ifdef _DEBUG
-	#define	Q3_VERSION		"(debug)OpenJK: v" VERSION_STRING_DOTTED "  JKXR: " JKXR_VERSION
+	#define	Q3_VERSION		JKXRL_DISPLAY_VERSION " (debug; OpenJK: v" VERSION_STRING_DOTTED ")"
 #else // defined FINAL_BUILD
-	#define	Q3_VERSION		"JKXR: " JKXR_VERSION "  (OpenJK: v" VERSION_STRING_DOTTED ")"
+	#define	Q3_VERSION		JKXRL_DISPLAY_VERSION " (OpenJK: v" VERSION_STRING_DOTTED ")"
 //#else
 //	#define	Q3_VERSION		"(internal)OpenJK: v" VERSION_STRING_DOTTED
 #endif
 // end
-
 

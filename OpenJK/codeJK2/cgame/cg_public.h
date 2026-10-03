@@ -199,7 +199,8 @@ Ghoul2 Insert End
 	CG_OPENJK_MENU_PAINT,
 	CG_OPENJK_GETMENU_BYNAME,
 	CG_CVAR_GET,
-	CG_HAPTICEVENT
+	CG_HAPTICEVENT,
+	CG_R_GET_BMODEL_GLASS_POLYGON
 } cgameImport_t;
 
 //----------------------------------------------

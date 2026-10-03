@@ -29,6 +29,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "../game/anims.h"
 #include <bg_local.h>
 #include <VrClientInfo.h>
+#include <VrSelectorTime.h>
 
 extern void CG_LightningBolt( centity_t *cent, vec3_t origin );
 
@@ -1012,21 +1013,21 @@ void CG_AddViewWeapon( playerState_t *ps )
 
 	if ( cent->gent && cent->gent->client && cent->gent->client->ps.forcePowersActive&(1<<FP_LIGHTNING) )
 	{//doing the electrocuting
-		vec3_t tAng, fxDir, temp;
-		VectorSet( tAng, cent->pe.torso.pitchAngle, cent->pe.torso.yawAngle, 0 );
-
-		VectorCopy( cent->gent->client->renderInfo.handLPoint, temp );
-		VectorMA( temp, -5, cg.refdef.viewaxis[0], temp );
+		vec3_t tAng, temp, fxAxis[3];
+		if ( !BG_CalculateVRLightningPose(cent->gent, temp, tAng) )
+		{
+			VectorSet(tAng, cent->pe.torso.pitchAngle, cent->pe.torso.yawAngle, 0);
+			VectorCopy(cent->gent->client->renderInfo.handLPoint, temp);
+			VectorMA(temp, -5, cg.refdef.viewaxis[0], temp);
+		}
+		AnglesToAxis(tAng, fxAxis);
 		if ( cent->gent->client->ps.forcePowerLevel[FP_LIGHTNING] > FORCE_LEVEL_2 )
 		{//arc
-			vec3_t	fxAxis[3];
-			AnglesToAxis( tAng, fxAxis );
 			theFxScheduler.PlayEffect( cgs.effects.forceLightningWide, temp, fxAxis );
 		}
 		else
 		{//line
-			AngleVectors( tAng, fxDir, NULL, NULL );
-			theFxScheduler.PlayEffect( cgs.effects.forceLightning, temp, fxDir );
+			theFxScheduler.PlayEffect( cgs.effects.forceLightning, temp, fxAxis[0] );
 		}
 	}
 	// allow the gun to be completely removed
@@ -2729,31 +2730,53 @@ void CG_ToggleSaber_f( )
 	}
 }
 
+static jkxr_selector_time_t itemSelectorTimeScale;
+
+void CG_ItemSelectorReleaseTime( void )
+{
+    if (itemSelectorTimeScale.active)
+    {
+        const float current = atof(cgi_Cvar_Get("timescale"));
+        const float restored = itemSelectorTimeScale.End(current);
+        if (restored != current)
+            cgi_Cvar_Set("timescale", va("%g", restored));
+        if (atoi(cgi_Cvar_Get("vr_controller_debug")))
+            CG_Printf("jkxr-selector-time: release %g -> %g\n", current, restored);
+    }
+    cg.itemSelectorTime = 0;
+}
+
+void CG_ItemSelectorCancel_f( void )
+{
+    CG_ItemSelectorReleaseTime();
+    cg.itemSelectorSelection = ST_NONE;
+}
+
 //Selects the currently selected thing (if one _is_ selected)
 void CG_ItemSelectorSelect_f( void )
 {
-	cg.itemSelectorTime = 0;
-	cgi_Cvar_Set("timescale", "1.0");
+    const int selection = cg.itemSelectorSelection;
+    CG_ItemSelectorCancel_f();
 
-	if (cg.itemSelectorSelection == ST_NONE)
+	if (selection == ST_NONE)
 	{
 		return;
 	}
 
 	if (cg.itemSelectorType == ST_WEAPON) // weapons
 	{
-		if (cg.weaponSelect == cg.itemSelectorSelection)
+		if (cg.weaponSelect == selection)
 		{
 			return;
 		}
 
 		cg.weaponSelectTime = cg.time;
-		cg.weaponSelect = cg.itemSelectorSelection;
+		cg.weaponSelect = selection;
 	}
 	else if (cg.itemSelectorType == ST_GADGET) // gadgets
 	{
 		cg.inventorySelectTime = cg.time;
-		cg.inventorySelect = cg.itemSelectorSelection;
+		cg.inventorySelect = selection;
 
 		//Immediately use the selected inventory item
 		if (player)
@@ -2763,29 +2786,26 @@ void CG_ItemSelectorSelect_f( void )
 	}
 	else  if (cg.itemSelectorType == ST_FIGHTING_STYLE) //fighting style
 	{
-		cgi_SendConsoleCommand(va( "setSaberLevel %i\n", cg.itemSelectorSelection + 1));
+		cgi_SendConsoleCommand(va( "setSaberLevel %i\n", selection + 1));
 	}
 	else if (cg.itemSelectorType == ST_FORCE_POWER)
 	{
-		if (cg.forcepowerSelect == cg.itemSelectorSelection)
+		if (cg.forcepowerSelect == selection)
 		{
 			return;
 		}
 
 		cg.forcepowerSelectTime = cg.time;
-		cg.forcepowerSelect = cg.itemSelectorSelection;
+		cg.forcepowerSelect = selection;
 	}
 	else if (cg.itemSelectorType == ST_QUICK_MENU) {
-		if (cg.itemSelectorSelection == 0) {
+		if (selection == 0) {
 			cgi_SendConsoleCommand("save quik*\n");
 			CG_CenterPrint("Quick Saved", 240);
 		} else {
 			cgi_SendConsoleCommand("load quik\n");
 		}
 	}
-
-	//reset ready for next time
-	cg.itemSelectorSelection = ST_NONE;
 }
 
 void CG_ItemSelectorNext_f( void )
@@ -2832,6 +2852,7 @@ void CG_DrawItemSelector( void )
 {
 	if (cg.predicted_player_state.stats[STAT_HEALTH] <= 0)
 	{
+        CG_ItemSelectorCancel_f();
 		return;
 	}
 
@@ -2861,7 +2882,8 @@ void CG_DrawItemSelector( void )
 	{
 		frac = 1.0f;
 	}
-	cgi_Cvar_Set("timescale", "0.22");
+    if (itemSelectorTimeScale.Begin(atof(cgi_Cvar_Get("timescale"))))
+        cgi_Cvar_Set("timescale", "0.22");
 
 	vec3_t controllerOrigin, controllerAngles, controllerOffset, selectorOrigin;
 	if (cg.itemSelectorType >= ST_FORCE_POWER)

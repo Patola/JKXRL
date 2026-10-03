@@ -215,6 +215,7 @@ void _UI_MouseEvent( int dx, int dy );
 void _UI_MouseEventAbs( int x, int y );
 void _UI_KeyEvent( int key, qboolean down );
 void UI_Report(void);
+void UI_RefreshSaveGames(const char *savedFile);
 
 extern char GoToMenu[];
 

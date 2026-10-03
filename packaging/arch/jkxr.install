@@ -1,7 +1,7 @@
 post_install() {
 	cat <<'EOF'
 
-  JKXR (native Linux PCVR) installed.
+  JKXRL 0.6 (Vulkan / SDL3 / native Linux PCVR) installed.
 
   Launchers:
     jkxr-jka   Star Wars Jedi Knight: Jedi Academy (SP)
@@ -20,7 +20,8 @@ post_install() {
   nothing is written into the game directory.
 
   Requirements: a running OpenXR runtime (WiVRn, Monado, SteamVR) and an
-  X11 session (XWayland works - the launchers force SDL_VIDEODRIVER=x11).
+  Vulkan 1.3+ driver. Desktop input defaults to X11/XWayland; an explicit
+  SDL_VIDEODRIVER override is respected.
 
 EOF
 }

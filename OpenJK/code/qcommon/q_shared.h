@@ -31,6 +31,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "qcommon/q_math.h"
 #include "qcommon/q_color.h"
 #include "qcommon/q_string.h"
+#include "qcommon/jkxrl_version.h"
 
 //rww - conveniently toggle "gore" code, for model decals and stuff.
 #ifndef JK2_MODE
@@ -40,16 +41,16 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #if JK2_MODE
 #define PRODUCT_NAME			"openjo_sp"
 
-#define CLIENT_WINDOW_TITLE "JKXR Jedi Outcast"
-#define CLIENT_CONSOLE_TITLE "OpenJO Console (SP)"
+#define CLIENT_WINDOW_TITLE JKXRL_DISPLAY_VERSION " - Jedi Outcast"
+#define CLIENT_CONSOLE_TITLE JKXRL_DISPLAY_VERSION " - Jedi Outcast Console"
 #define HOMEPATH_NAME_UNIX "openjo"
 #define HOMEPATH_NAME_WIN "OpenJO"
 #define HOMEPATH_NAME_MACOSX HOMEPATH_NAME_WIN
 #else
 #define PRODUCT_NAME			"openjk_sp"
 
-#define CLIENT_WINDOW_TITLE "JKXR Jedi Academy"
-#define CLIENT_CONSOLE_TITLE "OpenJK Console (SP)"
+#define CLIENT_WINDOW_TITLE JKXRL_DISPLAY_VERSION " - Jedi Academy"
+#define CLIENT_CONSOLE_TITLE JKXRL_DISPLAY_VERSION " - Jedi Academy Console"
 #define HOMEPATH_NAME_UNIX "openjk"
 #define HOMEPATH_NAME_WIN "OpenJK"
 #define HOMEPATH_NAME_MACOSX HOMEPATH_NAME_WIN

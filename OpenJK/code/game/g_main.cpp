@@ -1462,6 +1462,14 @@ static inline qboolean G_RagWantsHumanoidsOnly( CGhoul2Info *ghlInfo )
 	return qfalse;
 }
 
+static qboolean G_RendererSupportsRagDoll()
+{
+	char renderer[MAX_QPATH];
+	gi.Cvar_VariableStringBuffer( "cl_renderer", renderer, sizeof( renderer ) );
+	return ( Q_stricmp( renderer, "rdsp-vulkan" ) != 0 &&
+		Q_stricmp( renderer, "rdjosp-vulkan" ) != 0 ) ? qtrue : qfalse;
+}
+
 //rww - game interface for the ragdoll stuff.
 //Returns qtrue if the entity is now in a ragdoll state, otherwise qfalse.
 //(ported from MP's CG version)
@@ -1475,7 +1483,7 @@ qboolean G_RagDoll(gentity_t *ent, vec3_t forcedAngles)
 	//int ragVar = gi.Cvar_VariableIntegerValue("broadsword");
 	int ragVar = g_broadsword->integer;
 
-	if (!ragVar)
+	if (!ragVar || !G_RendererSupportsRagDoll())
 	{
 		return qfalse;
 	}

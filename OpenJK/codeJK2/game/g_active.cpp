@@ -30,6 +30,8 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "wp_saber.h"
 #include "g_icarus.h"
 #include <VrClientInfo.h>
+#include <VrTriggerTouch.h>
+#include <VrMountedAim.h>
 
 #ifdef _DEBUG
 	#include <float.h>
@@ -858,7 +860,7 @@ void	G_TouchTriggersWithHand( bool offHand, gentity_t *ent, vec3_t src, vec3_t v
 			// Already touched this move
 			continue;
 		}
-		if ( !( hit->spawnflags & 4 ) ) {
+		if ( !VR_IsUseButtonTrigger( hit->e_TouchFunc == touchF_Touch_Multi, hit->spawnflags ) ) {
 			// Non-BUTTON entities were already processed
 			continue;
 		}
@@ -901,7 +903,7 @@ void	G_TouchTriggersLerped( gentity_t *ent ) {
 	trace_t		trace;
 	vec3_t		end, mins, maxs, diff;
 	const vec3_t	range = { 40, 40, 52 };
-	qboolean	touched[MAX_GENTITIES];
+	VrTriggerTouchSet<MAX_GENTITIES> touched;
 	qboolean	done = qfalse;
 
 	if ( !ent->client ) {
@@ -925,8 +927,6 @@ void	G_TouchTriggersLerped( gentity_t *ent ) {
 #endif// _DEBUG
 	VectorSubtract( ent->currentOrigin, ent->lastOrigin, diff );
 	dist = VectorNormalize( diff );
-
-	memset (touched, qfalse, sizeof(touched) );
 
 	bool thirdPersonActive = gi.cvar("cg_thirdPerson", "0", CVAR_TEMP)->integer;
 	bool useGestureEnabled = gi.cvar("vr_gesture_triggered_use", "1", CVAR_ARCHIVE)->integer; // defined in VrCvars.h
@@ -962,7 +962,7 @@ void	G_TouchTriggersLerped( gentity_t *ent ) {
 				continue;
 			}
 
-			if ( touched[i] == qtrue ) {
+			if ( touched.Seen( hit->s.number ) ) {
 				continue;//already touched this move
 			}
 			if ( ent->client->ps.stats[STAT_HEALTH] <= 0 ) 
@@ -986,18 +986,33 @@ void	G_TouchTriggersLerped( gentity_t *ent ) {
 				}
 			}
 
-			if (ent->client && ent->client->ps.clientNum == 0 && hit->spawnflags & 4 && useGestureAllowed) {
+			if (ent->client && ent->client->ps.clientNum == 0 && useGestureAllowed &&
+				VR_IsUseButtonTrigger( hit->e_TouchFunc == touchF_Touch_Multi, hit->spawnflags )) {
 				// Entity is BUTTON touched by player with enabled use gestures. Skip it as we want to touch
 				// buttons by hands and not by body in this case
 				continue;
 			}
 
-			touched[i] = qtrue;
+			touched.Mark( hit->s.number );
 
 			memset( &trace, 0, sizeof(trace) );
 
 			if ( hit->e_TouchFunc != touchF_NULL ) {
+				const bool pushTrigger = hit->e_TouchFunc == touchF_trigger_push_touch;
 				GEntity_TouchFunc(hit, ent, &trace);
+				if ( pushTrigger && ent->s.number == 0 && gi.cvar("vr_controller_debug", "0", 0)->integer )
+				{
+					static int lastReport = -1000;
+					if ( level.time < lastReport || level.time - lastReport >= 1000 )
+					{
+						gi.Printf("jkxr-push-trigger: entity=%d model=%d flags=%d origin=(%.1f %.1f %.1f) velocity=(%.1f %.1f %.1f) pushed=%d\n",
+							hit->s.number, hit->s.modelindex, hit->spawnflags,
+							ent->currentOrigin[0], ent->currentOrigin[1], ent->currentOrigin[2],
+							ent->client->ps.velocity[0], ent->client->ps.velocity[1], ent->client->ps.velocity[2],
+							(ent->client->ps.pm_flags & PMF_TRIGGER_PUSHED) != 0);
+						lastReport = level.time;
+					}
+				}
 			}
 
 			//WTF?  Why would a trigger ever fire off the NPC's touch func??!!!
@@ -1863,6 +1878,11 @@ extern void CG_ChangeWeapon( int num );
 
 	ent->s.eFlags &= ~EF_LOCKED_TO_WEAPON;
 	ent->client->ps.eFlags &= ~EF_LOCKED_TO_WEAPON;
+	if (!ent->s.number)
+	{
+		// Mounted pitch stops adjust command deltas; on foot VR pitch is absolute.
+		ent->client->ps.delta_angles[PITCH] = 0;
+	}
 
 	ent->owner->noDamageTeam = TEAM_FREE;
 	ent->owner->svFlags &= ~SVF_NONNPC_ENEMY;
@@ -1878,7 +1898,10 @@ extern void CG_ChangeWeapon( int num );
 
 void RunEmplacedWeapon( gentity_t *ent, usercmd_t **ucmd )
 {
-	if (( (*ucmd)->buttons & BUTTON_USE || /*(*ucmd)->forwardmove < 0 ||*/ (*ucmd)->upmove > 0 ) && ent->owner && ent->owner->delay + 500 < level.time )
+	static jkxr_mounted_exit_t playerExit;
+	const bool freshExit = ent->owner && playerExit.Update(ent->owner->s.number,
+		ent->owner->delay, level.time, ((*ucmd)->buttons & BUTTON_USE) != 0, (*ucmd)->upmove > 0);
+	if (freshExit)
 	{
 		ent->owner->s.loopSound = 0;
 
@@ -3212,5 +3235,3 @@ void ClientEndFrame( gentity_t *ent )
 
 //	G_SetClientSound (ent);
 }
-
-

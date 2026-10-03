@@ -527,8 +527,27 @@ void CL_JoystickMove( usercmd_t *cmd ) {
 	cmd->upmove = ClampChar( cmd->upmove + cl.joystickAxis[AXIS_UP] );
  */
 
-    cmd->forwardmove = ClampChar( cmd->forwardmove + (new_move.forward * 127) + (new_move.pos_forward * 127));
-    cmd->rightmove = ClampChar( cmd->rightmove + (new_move.side * 127) + (new_move.pos_side * 127));
+	float forward = new_move.forward + new_move.pos_forward;
+	float side = new_move.side + new_move.pos_side;
+	float magnitude = std::sqrt( forward * forward + side * side );
+	if ( magnitude > 1.0f )
+	{
+		forward /= magnitude;
+		side /= magnitude;
+		magnitude = 1.0f;
+	}
+	const float largestAxis = std::max( std::fabs( forward ), std::fabs( side ) );
+	if ( largestAxis > 0.0001f )
+	{
+		// PM_CmdScale treats the largest command axis as the analog magnitude.
+		// Convert the radial VR stick magnitude to that convention.
+		const float axialScale = magnitude / largestAxis;
+		forward *= axialScale;
+		side *= axialScale;
+	}
+
+	cmd->forwardmove = ClampChar( cmd->forwardmove + forward * 127.0f );
+	cmd->rightmove = ClampChar( cmd->rightmove + side * 127.0f );
 }
 
 /*
@@ -699,6 +718,13 @@ usercmd_t CL_CreateCmd( void ) {
 
     VR_GetMove(&new_move.forward, &new_move.side, &new_move.pos_forward, &new_move.pos_side,
                &new_move.up, &new_move.yaw, &new_move.pitch, &new_move.roll);
+	const bool consoleOwnsInput = vr.spatial_console_visible ||
+		(Key_GetCatcher() & KEYCATCH_CONSOLE);
+	if ( consoleOwnsInput )
+	{
+		new_move.forward = new_move.side = new_move.up = 0.0f;
+		new_move.pos_forward = new_move.pos_side = 0.0f;
+	}
 
 	// keyboard angle adjustment
 	CL_AdjustAngles ();
@@ -716,6 +742,23 @@ usercmd_t CL_CreateCmd( void ) {
 	// get basic movement from joystick
 	CL_JoystickMove( &cmd );
 
+	static cvar_t *controllerDebug = Cvar_Get( "vr_controller_debug", "0", 0 );
+	const float vrMoveMagnitude = std::sqrt(
+		new_move.forward * new_move.forward + new_move.side * new_move.side );
+	const float commandMagnitude = std::sqrt(
+		static_cast<float>( cmd.forwardmove * cmd.forwardmove +
+			cmd.rightmove * cmd.rightmove ) );
+	if ( controllerDebug->integer && vrMoveMagnitude >= 0.75f && commandMagnitude < 32.0f )
+	{
+		Com_Printf(
+			"jkxr-movement-pipeline: time=%d filtered=(%.3f %.3f) positional=(%.3f %.3f) "
+			"cmd=(%d %d) keyCatcher=0x%x thirdPerson=%d turret=%d emplaced=%d zoom=%d\n",
+			Sys_Milliseconds(), new_move.side, new_move.forward,
+			new_move.pos_side, new_move.pos_forward,
+			cmd.rightmove, cmd.forwardmove, Key_GetCatcher(), vr.third_person,
+			vr.remote_turret, vr.emplaced_gun, vr.cgzoommode );
+	}
+
 	// check to make sure the angles haven't wrapped
 	if ( cl.viewangles[PITCH] - oldAngles[PITCH] > 90 ) {
 		cl.viewangles[PITCH] = oldAngles[PITCH] + 90;
@@ -730,6 +773,13 @@ usercmd_t CL_CreateCmd( void ) {
 	}
 	// store out the final values
 	CL_FinishMove( &cmd );
+	if ( consoleOwnsInput )
+	{
+		// Final boundary covers keyboard, sticks, room-scale input and queued actions.
+		cmd.forwardmove = cmd.rightmove = cmd.upmove = 0;
+		cmd.buttons = 0;
+		cmd.generic_cmd = 0;
+	}
 
 	// draw debug graphs of turning for mouse testing
 	if ( cl_debugMove->integer ) {
@@ -1058,4 +1108,3 @@ void CL_InitInput( void ) {
 	cl_nodelta = Cvar_Get ("cl_nodelta", "0", 0);
 	cl_debugMove = Cvar_Get ("cl_debugMove", "0", 0);
 }
-

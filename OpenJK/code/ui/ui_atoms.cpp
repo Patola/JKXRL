@@ -203,6 +203,12 @@ qboolean UI_ConsoleCommand( void )
 {
 	char	*cmd;
 
+	if (Q_stricmp(UI_Argv(0), "ui_refreshSaveGames") == 0)
+	{
+		UI_RefreshSaveGames(UI_Argv(1));
+		return qtrue;
+	}
+
 	if (!ui.SG_GameAllowedToSaveHere(qtrue))	//only check if incamera
 	{
 		return qfalse;
@@ -280,6 +286,8 @@ void UI_Init( int apiVersion, uiimport_t *uiimport, qboolean inGameLoad )
 	ui.Cvar_Create( "cg_autoUseBacta", "0", CVAR_ARCHIVE );
 	ui.Cvar_Create( "d_slowmodeath", "4", CVAR_ARCHIVE );
 	ui.Cvar_Create( "cg_forceSpeedFOVAdjust", "1", CVAR_ARCHIVE );
+	ui.Cvar_Create( "cg_forceSpeedMotionBlur", "1", CVAR_ARCHIVE );
+	ui.Cvar_Create( "r_vulkanBloom", "0", CVAR_ARCHIVE );
 	ui.Cvar_Create( "g_saberAnimSpeed", "1.2", CVAR_ARCHIVE );
 	ui.Cvar_Create( "cg_heightAdjust", "0.0", CVAR_ARCHIVE );
 	ui.Cvar_Create( "cg_hudScale", "2.5", CVAR_ARCHIVE );
@@ -473,4 +481,3 @@ int UI_RegisterFont(const char *fontName)
 
 	return iFontIndex;
 }
-

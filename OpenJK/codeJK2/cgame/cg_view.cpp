@@ -1310,33 +1310,56 @@ qboolean CG_CalcFOVFromX( float fov_x )
 	return (inwater);
 }
 
+static float CG_ForceSpeedEffectFraction()
+{
+	gentity_t *player = &g_entities[0];
+	if ( !player->client )
+	{
+		return 0.0f;
+	}
+
+	const int level = player->client->ps.forcePowerLevel[FP_SPEED];
+	if ( level < FORCE_LEVEL_1 || level > FORCE_LEVEL_3 )
+	{
+		return 0.0f;
+	}
+	const float timeLeft = player->client->ps.forcePowerDuration[FP_SPEED] - cg.time;
+	if ( timeLeft <= 0.0f )
+	{
+		return 0.0f;
+	}
+	const float length = FORCE_SPEED_DURATION * forceSpeedValue[level];
+	if ( timeLeft < 200 )
+	{
+		return std::clamp(
+			sinf( DEG2RAD( ( timeLeft / 400.0f ) * 180.0f ) ), 0.0f, 1.0f );
+	}
+	if ( length - timeLeft < 300 )
+	{
+		return std::clamp(
+			sinf( DEG2RAD( ( ( length - timeLeft ) / 600.0f ) * 180.0f ) ),
+			0.0f, 1.0f );
+	}
+	return 1.0f;
+}
+
 float CG_ForceSpeedFOV( float infov )
 {
-	if (!cg_forceSpeedFOVAdjust.integer)
+	if ( !cg_forceSpeedFOVAdjust.integer )
 	{
 		return infov;
 	}
 
-	gentity_t	*player = &g_entities[0];
-	float fov;
-	float timeLeft = player->client->ps.forcePowerDuration[FP_SPEED] - cg.time;
-	float length = FORCE_SPEED_DURATION*forceSpeedValue[player->client->ps.forcePowerLevel[FP_SPEED]];
-	float amt = forceSpeedFOVMod[player->client->ps.forcePowerLevel[FP_SPEED]];
-	if ( timeLeft < 200 )
-	{//start going back
-		fov = infov + sinf(DEG2RAD((timeLeft/400)*180))*amt;
-	}
-	else if ( length - timeLeft < 300 )
-	{//start zooming in
-		fov = infov + sinf(DEG2RAD(((length - timeLeft)/600)*180))*amt;
-	}
-	else
-	{//stay at this FOV
-		fov = infov;//+amt;
+	gentity_t *player = &g_entities[0];
+	const int level = player->client->ps.forcePowerLevel[FP_SPEED];
+	const float fraction = CG_ForceSpeedEffectFraction();
+	if ( fraction <= 0.0f || level < FORCE_LEVEL_1 || level > FORCE_LEVEL_3 )
+	{
+		return infov;
 	}
 
 	cg.refdef.override_fov = true;
-	return fov;
+	return infov + forceSpeedFOVMod[level] * fraction;
 }
 /*
 ====================
@@ -1350,6 +1373,13 @@ static qboolean	CG_CalcFov( void ) {
 	float	fov_x;
 	float	f;
 		gentity_t	*player = &g_entities[0];
+	cg.refdef.forceSpeedBlur = 0.0f;
+	if ( cg_forceSpeedMotionBlur.integer && cg.snap && cg.zoomMode == 0 &&
+		 !in_camera && !in_misccamera &&
+		 ( cg.snap->ps.forcePowersActive & ( 1 << FP_SPEED ) ) )
+	{
+		cg.refdef.forceSpeedBlur = CG_ForceSpeedEffectFraction();
+	}
 
 	if ( cg.predicted_player_state.pm_type == PM_INTERMISSION ) {
 		// if in intermission, use a fixed value
@@ -1639,6 +1669,10 @@ static qboolean CG_CalcViewValues( void ) {
 			VectorCopy( cg_entities[cg.snap->ps.viewEntity].lerpOrigin, cg.refdef.vieworg );
 		}
 		VectorCopy( cg_entities[cg.snap->ps.viewEntity].lerpAngles, cg.refdefViewAngles );
+		if ( !Q_stricmp( "misc_camera", g_entities[cg.snap->ps.viewEntity].classname ) )
+		{
+			cg.refdef.rdflags |= RDF_SECURITY_CAMERA;
+		}
 		if ( !Q_stricmp( "misc_camera", g_entities[cg.snap->ps.viewEntity].classname ) || g_entities[cg.snap->ps.viewEntity].s.weapon == WP_TURRET )
 		{
 			viewEntIsCam = qtrue;
@@ -1836,6 +1870,9 @@ extern vec3_t	serverViewOrg;
 void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	qboolean	inwater = qfalse;
 
+    if (!vr->item_selector || vr->spatial_console_visible || cg.infoScreenText[0])
+        CG_ItemSelectorReleaseTime(); // A queued selection still owns its highlight.
+
 	if ( stereoView != STEREO_RIGHT ) {
 		cg.time = serverTime;
 	}
@@ -2015,11 +2052,11 @@ wasForceSpeed=isForceSpeed;
 		cgi_HapticEvent("heartbeat", 0, 0, cg.predicted_player_state.stats[STAT_HEALTH], 0, 0);
 	}
 
-	if (vr->item_selector)
+	if (vr->item_selector && !vr->spatial_console_visible)
 	{
 		CG_DrawItemSelector();
 	}
-	else {
+	else if (!vr->spatial_console_visible) {
 		// Don't draw the in-view weapon when in camera mode
 		if (!in_camera
 			&& !cg_pano.integer
@@ -2155,4 +2192,3 @@ wasForceSpeed=isForceSpeed;
 	}
 	*/
 }
-
