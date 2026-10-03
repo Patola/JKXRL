@@ -5,6 +5,13 @@ Jedi Outcast single-player VR. It replaces this fork's former OpenGL backend
 with Vulkan, uses SDL3 and C++17, and incorporates the extensively tested VR,
 gameplay, presentation and effects work from the development branch.
 
+**2026-10-03 refresh:** the v0.6 downloads now include the SteamVR startup fix.
+Both games have been confirmed running under SteamVR via Steam Link. The Arch
+package revision is `0.6-2`; both binary archives and their checksums have also
+been replaced. This release URL is unchanged, and the `v0.6` source tag now
+points to the corrected source. Users of the initial `0.6-1` package should
+upgrade, particularly when using SteamVR.
+
 ## Highlights
 
 - Vulkan soft shadows, dynamic lighting, optional bloom and restored material effects.
@@ -19,7 +26,7 @@ gameplay, presentation and effects work from the development branch.
 ## Install on Arch Linux
 
 ```sh
-sudo pacman -U ./jkxrl-0.6-1-x86_64.pkg.tar.zst
+sudo pacman -U ./jkxrl-0.6-2-x86_64.pkg.tar.zst
 ```
 
 Accept replacement of the conflicting older `jkxrl-git` package if installed.
@@ -39,10 +46,13 @@ engines, modules or asset packs with this release.
 Both original games must be owned separately. Commercial game data is not
 included. Vulkan 1.3+ and an OpenXR runtime with `XR_KHR_vulkan_enable2` are
 required. Primary validation: Arch Linux, Mesa/RX 7900 XTX, Quest 3 via WiVRn.
+Both games have also been confirmed running with SteamVR via Steam Link.
+The renderer requests OpenXR 1.0 plus the Vulkan extension rather
+than unnecessarily requiring an OpenXR 1.1 runtime.
 
 ## Downloads and verification
 
-- `jkxrl-0.6-1-x86_64.pkg.tar.zst`: recommended Arch package, both games included.
+- `jkxrl-0.6-2-x86_64.pkg.tar.zst`: recommended Arch package, both games included.
 - `jkxrl-0.6-linux-x86_64.tar.gz` / `.zip`: equivalent `usr/` runtime tree and
   installation instructions. These use current Arch shared libraries, not a
   universal static runtime; build from source on incompatible distributions.

@@ -5,8 +5,8 @@ It is dynamically linked against current Arch Linux libraries, NOT a static or
 universal Linux distribution. If dependencies are incompatible, build from
 source instead: https://github.com/Patola/JKXRL/tree/v0.6
 
-Arch users: prefer jkxrl-0.6-1-x86_64.pkg.tar.zst with:
-  sudo pacman -U ./jkxrl-0.6-1-x86_64.pkg.tar.zst
+Arch users: prefer jkxrl-0.6-2-x86_64.pkg.tar.zst with:
+  sudo pacman -U ./jkxrl-0.6-2-x86_64.pkg.tar.zst
 Accept removal of the conflicting older jkxrl-git package if prompted.
 
 Other systems: inspect the usr/ tree and install it into /usr using your

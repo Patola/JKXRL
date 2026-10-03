@@ -158,6 +158,8 @@ endif()
 
 find_program(PYTHON3_EXECUTABLE python3)
 if(PYTHON3_EXECUTABLE AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_test(NAME openxr-startup
+        COMMAND "${PYTHON3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/../tools/check_xr_startup.py")
     add_test(NAME release-identity
         COMMAND "${PYTHON3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/../tools/check_release_identity.py")
     add_test(NAME vegetation-fog-contracts

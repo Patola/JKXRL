@@ -17,7 +17,7 @@ Caveat: Does not control grass, weather, FX sprites or BSP flare records. Restri
 
 Review sources: [OpenJK/code/rd-vulkan/vk_billboard.h](../../code/rd-vulkan/vk_billboard.h), [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/material-autosprite-run.md](../../docs/material-autosprite-run.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19577](../../code/rd-vulkan/vk_backend.cpp#L19577) (shared source; conditional availability; registration): default `1`; flags `0`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19596](../../code/rd-vulkan/vk_backend.cpp#L19596) (shared source; conditional availability; registration): default `1`; flags `0`
 
 ## r_vulkanBloom
 
@@ -29,7 +29,7 @@ Caveat: Off preserves ordinary glow and dynamic lighting. This is the More Video
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19509](../../code/rd-vulkan/vk_backend.cpp#L19509) (shared source; conditional availability; registration): default `0`; flags `CVAR_ARCHIVE`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19528](../../code/rd-vulkan/vk_backend.cpp#L19528) (shared source; conditional availability; registration): default `0`; flags `CVAR_ARCHIVE`
 - [OpenJK/code/ui/ui_atoms.cpp:290](../../code/ui/ui_atoms.cpp#L290) (shared source; conditional availability; registration): default `0`; flags `CVAR_ARCHIVE`
 
 ## r_vulkanBloomIntensity
@@ -42,7 +42,7 @@ Caveat: Requires r_vulkanBloom; high values can wash out detail.
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19511](../../code/rd-vulkan/vk_backend.cpp#L19511) (shared source; conditional availability; registration): default `1.0`; flags `CVAR_ARCHIVE`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19530](../../code/rd-vulkan/vk_backend.cpp#L19530) (shared source; conditional availability; registration): default `1.0`; flags `CVAR_ARCHIVE`
 
 ## r_vulkanBloomRadius
 
@@ -54,7 +54,7 @@ Caveat: Does not enlarge dynamic-light illumination on nearby surfaces.
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19513](../../code/rd-vulkan/vk_backend.cpp#L19513) (shared source; conditional availability; registration): default `3.0`; flags `CVAR_ARCHIVE`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19532](../../code/rd-vulkan/vk_backend.cpp#L19532) (shared source; conditional availability; registration): default `3.0`; flags `CVAR_ARCHIVE`
 
 ## r_vulkanComputeSkinning
 
@@ -66,7 +66,7 @@ Caveat: Performance depends on scene and GPU workload.
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19550](../../code/rd-vulkan/vk_backend.cpp#L19550) (shared source; conditional availability; registration): default `1`; flags `CVAR_ARCHIVE`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19569](../../code/rd-vulkan/vk_backend.cpp#L19569) (shared source; conditional availability; registration): default `1`; flags `CVAR_ARCHIVE`
 
 ## r_vulkanDeforms
 
@@ -78,7 +78,7 @@ Caveat: Does not disable skeletal animation, scrolling textures, weather, grass 
 
 Review sources: [OpenJK/code/rd-vulkan/vk_deform.h](../../code/rd-vulkan/vk_deform.h), [OpenJK/code/rd-vulkan/shaders/deform.glsl](../../code/rd-vulkan/shaders/deform.glsl), [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19574](../../code/rd-vulkan/vk_backend.cpp#L19574) (shared source; conditional availability; registration): default `1`; flags `0`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19593](../../code/rd-vulkan/vk_backend.cpp#L19593) (shared source; conditional availability; registration): default `1`; flags `0`
 
 ## r_vulkanEwebCull
 
@@ -88,7 +88,7 @@ Caveat: Not a quality preset; retain the validated default to avoid missing/inve
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19542](../../code/rd-vulkan/vk_backend.cpp#L19542) (shared source; conditional availability; registration): default `2`; flags `0`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19561](../../code/rd-vulkan/vk_backend.cpp#L19561) (shared source; conditional availability; registration): default `2`; flags `0`
 
 ## r_vulkanForceSenseIntensity
 
@@ -100,7 +100,7 @@ Caveat: Vignette darkening has a separate control.
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:25052](../../code/rd-vulkan/vk_backend.cpp#L25052) (shared source; conditional availability; registration): default `6.0`; flags `CVAR_ARCHIVE`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:25071](../../code/rd-vulkan/vk_backend.cpp#L25071) (shared source; conditional availability; registration): default `6.0`; flags `CVAR_ARCHIVE`
 
 ## r_vulkanForceSenseRayScale
 
@@ -110,7 +110,7 @@ Caveat: Not scene FOV or scope magnification.
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:18271](../../code/rd-vulkan/vk_backend.cpp#L18271) (shared source; conditional availability; registration): default `1.0`; flags `CVAR_ARCHIVE`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:18290](../../code/rd-vulkan/vk_backend.cpp#L18290) (shared source; conditional availability; registration): default `1.0`; flags `CVAR_ARCHIVE`
 
 ## r_vulkanForceSenseVignetteStrength
 
@@ -120,7 +120,7 @@ Values/units: Multiplier; accepted default 2.
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:25064](../../code/rd-vulkan/vk_backend.cpp#L25064) (shared source; conditional availability; registration): default `2.0`; flags `CVAR_ARCHIVE`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:25083](../../code/rd-vulkan/vk_backend.cpp#L25083) (shared source; conditional availability; registration): default `2.0`; flags `CVAR_ARCHIVE`
 
 ## r_vulkanForceSpeedBlurStrength
 
@@ -132,7 +132,7 @@ Caveat: Separate from the perspective/FOV pulse and the menu enable/disable swit
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19552](../../code/rd-vulkan/vk_backend.cpp#L19552) (shared source; conditional availability; registration): default `1.0`; flags `CVAR_ARCHIVE`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19571](../../code/rd-vulkan/vk_backend.cpp#L19571) (shared source; conditional availability; registration): default `1.0`; flags `CVAR_ARCHIVE`
 
 ## r_vulkanFxModelAudit
 
@@ -140,7 +140,7 @@ Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_b
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19543](../../code/rd-vulkan/vk_backend.cpp#L19543) (shared source; conditional availability; registration): default `0`; flags `0`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19562](../../code/rd-vulkan/vk_backend.cpp#L19562) (shared source; conditional availability; registration): default `0`; flags `0`
 
 ## r_vulkanGLMLod
 
@@ -152,7 +152,7 @@ Caveat: Some models lack visibly different lower LODs.
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19547](../../code/rd-vulkan/vk_backend.cpp#L19547) (shared source; conditional availability; registration): default `-1`; flags `0`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19566](../../code/rd-vulkan/vk_backend.cpp#L19566) (shared source; conditional availability; registration): default `-1`; flags `0`
 
 ## r_vulkanGLMLodAudit
 
@@ -160,7 +160,7 @@ Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_b
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19548](../../code/rd-vulkan/vk_backend.cpp#L19548) (shared source; conditional availability; registration): default `0`; flags `0`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19567](../../code/rd-vulkan/vk_backend.cpp#L19567) (shared source; conditional availability; registration): default `0`; flags `0`
 
 ## r_vulkanGlowIntensity
 
@@ -170,7 +170,7 @@ Values/units: Multiplier.
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19505](../../code/rd-vulkan/vk_backend.cpp#L19505) (shared source; conditional availability; registration): default `1.45`; flags `CVAR_ARCHIVE`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19524](../../code/rd-vulkan/vk_backend.cpp#L19524) (shared source; conditional availability; registration): default `1.45`; flags `CVAR_ARCHIVE`
 
 ## r_vulkanGlowRadius
 
@@ -182,7 +182,7 @@ Caveat: Not shadow softness or receiver illumination strength.
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19507](../../code/rd-vulkan/vk_backend.cpp#L19507) (shared source; conditional availability; registration): default `1.12`; flags `CVAR_ARCHIVE`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19526](../../code/rd-vulkan/vk_backend.cpp#L19526) (shared source; conditional availability; registration): default `1.12`; flags `CVAR_ARCHIVE`
 
 ## r_vulkanLegacyColorPipeline
 
@@ -194,7 +194,7 @@ Caveat: Global behavior; not a local hologram fix.
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19488](../../code/rd-vulkan/vk_backend.cpp#L19488) (shared source; conditional availability; registration): default `1`; flags `CVAR_ARCHIVE &#124; CVAR_LATCH`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19507](../../code/rd-vulkan/vk_backend.cpp#L19507) (shared source; conditional availability; registration): default `1`; flags `CVAR_ARCHIVE &#124; CVAR_LATCH`
 
 ## r_vulkanLightmapGamma
 
@@ -206,7 +206,7 @@ Caveat: Broad lighting change, not a generic transparency correction.
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19537](../../code/rd-vulkan/vk_backend.cpp#L19537) (shared source; conditional availability; registration): default `1.0`; flags `CVAR_ARCHIVE`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19556](../../code/rd-vulkan/vk_backend.cpp#L19556) (shared source; conditional availability; registration): default `1.0`; flags `CVAR_ARCHIVE`
 
 ## r_vulkanLocalFog
 
@@ -218,7 +218,7 @@ Caveat: Diagnostic comparison switch, not a water-opacity setting. Light amplifi
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/code/rd-vulkan/vk_local_fog.h](../../code/rd-vulkan/vk_local_fog.h), [OpenJK/docs/local-fog-run.md](../../docs/local-fog-run.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19502](../../code/rd-vulkan/vk_backend.cpp#L19502) (shared source; conditional availability; registration): default `1`; flags `0`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19521](../../code/rd-vulkan/vk_backend.cpp#L19521) (shared source; conditional availability; registration): default `1`; flags `0`
 
 ## r_vulkanMaterialAudit
 
@@ -228,7 +228,7 @@ Caveat: Potentially verbose; use focused captures.
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19486](../../code/rd-vulkan/vk_backend.cpp#L19486) (shared source; conditional availability; registration): default `0`; flags `0`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19505](../../code/rd-vulkan/vk_backend.cpp#L19505) (shared source; conditional availability; registration): default `0`; flags `0`
 
 ## r_vulkanModelCull
 
@@ -240,7 +240,7 @@ Caveat: Disabling can substantially increase work; use to diagnose missing model
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19544](../../code/rd-vulkan/vk_backend.cpp#L19544) (shared source; conditional availability; registration): default `1`; flags `0`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19563](../../code/rd-vulkan/vk_backend.cpp#L19563) (shared source; conditional availability; registration): default `1`; flags `0`
 
 ## r_vulkanModelDynamicLightAudit
 
@@ -248,7 +248,7 @@ Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_b
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19541](../../code/rd-vulkan/vk_backend.cpp#L19541) (shared source; conditional availability; registration): default `0`; flags `0`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19560](../../code/rd-vulkan/vk_backend.cpp#L19560) (shared source; conditional availability; registration): default `0`; flags `0`
 
 ## r_vulkanModelDynamicLights
 
@@ -260,7 +260,7 @@ Caveat: Independent of bloom and character shadows.
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19539](../../code/rd-vulkan/vk_backend.cpp#L19539) (shared source; conditional availability; registration): default `1`; flags `CVAR_ARCHIVE`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19558](../../code/rd-vulkan/vk_backend.cpp#L19558) (shared source; conditional availability; registration): default `1`; flags `CVAR_ARCHIVE`
 
 ## r_vulkanQuestColorProfile
 
@@ -272,7 +272,7 @@ Caveat: Latched and affects the overall palette.
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19489](../../code/rd-vulkan/vk_backend.cpp#L19489) (shared source; conditional availability; registration): default `0`; flags `CVAR_LATCH`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19508](../../code/rd-vulkan/vk_backend.cpp#L19508) (shared source; conditional availability; registration): default `0`; flags `CVAR_LATCH`
 
 ## r_vulkanRiftSeamDebug
 
@@ -284,7 +284,7 @@ Caveat: Diagnostic modes suppress this rock material's finishing/fog/dynamic-lig
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/rock-seams-run.md](../../docs/rock-seams-run.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19501](../../code/rd-vulkan/vk_backend.cpp#L19501) (shared source; conditional availability; registration): default `0`; flags `0`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19520](../../code/rd-vulkan/vk_backend.cpp#L19520) (shared source; conditional availability; registration): default `0`; flags `0`
 
 ## r_vulkanShadowAudit
 
@@ -292,7 +292,7 @@ Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_b
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19572](../../code/rd-vulkan/vk_backend.cpp#L19572) (shared source; conditional availability; registration): default `0`; flags `0`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19591](../../code/rd-vulkan/vk_backend.cpp#L19591) (shared source; conditional availability; registration): default `0`; flags `0`
 
 ## r_vulkanShadowCasterLimit
 
@@ -304,7 +304,7 @@ Caveat: Higher budgets cost more; not a guarantee every visible model casts a sh
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19558](../../code/rd-vulkan/vk_backend.cpp#L19558) (shared source; conditional availability; registration): default `24`; flags `CVAR_ARCHIVE`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19577](../../code/rd-vulkan/vk_backend.cpp#L19577) (shared source; conditional availability; registration): default `24`; flags `CVAR_ARCHIVE`
 
 ## r_vulkanShadowDepthBias
 
@@ -314,7 +314,7 @@ Caveat: Too little causes self-shadow artifacts; too much can detach shadows.
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19562](../../code/rd-vulkan/vk_backend.cpp#L19562) (shared source; conditional availability; registration): default `1.25`; flags `CVAR_ARCHIVE`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19581](../../code/rd-vulkan/vk_backend.cpp#L19581) (shared source; conditional availability; registration): default `1.25`; flags `CVAR_ARCHIVE`
 
 ## r_vulkanShadowDistance
 
@@ -324,7 +324,7 @@ Values/units: Game units, not metres.
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19560](../../code/rd-vulkan/vk_backend.cpp#L19560) (shared source; conditional availability; registration): default `2048`; flags `CVAR_ARCHIVE`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19579](../../code/rd-vulkan/vk_backend.cpp#L19579) (shared source; conditional availability; registration): default `2048`; flags `CVAR_ARCHIVE`
 
 ## r_vulkanShadowFilter
 
@@ -336,7 +336,7 @@ Caveat: Pipeline availability can cause fallback; opacity is independent.
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19568](../../code/rd-vulkan/vk_backend.cpp#L19568) (shared source; conditional availability; registration): default `1`; flags `CVAR_ARCHIVE`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19587](../../code/rd-vulkan/vk_backend.cpp#L19587) (shared source; conditional availability; registration): default `1`; flags `CVAR_ARCHIVE`
 
 ## r_vulkanShadowMapSize
 
@@ -348,7 +348,7 @@ Caveat: Higher values cost memory/GPU time. Restart to ensure resource recreatio
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19556](../../code/rd-vulkan/vk_backend.cpp#L19556) (shared source; conditional availability; registration): default `2048`; flags `CVAR_ARCHIVE &#124; CVAR_LATCH`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19575](../../code/rd-vulkan/vk_backend.cpp#L19575) (shared source; conditional availability; registration): default `2048`; flags `CVAR_ARCHIVE &#124; CVAR_LATCH`
 
 ## r_vulkanShadowOpacity
 
@@ -360,7 +360,7 @@ Caveat: More darkness does not improve geometric quality.
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19566](../../code/rd-vulkan/vk_backend.cpp#L19566) (shared source; conditional availability; registration): default `0.32`; flags `CVAR_ARCHIVE`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19585](../../code/rd-vulkan/vk_backend.cpp#L19585) (shared source; conditional availability; registration): default `0.32`; flags `CVAR_ARCHIVE`
 
 ## r_vulkanShadows
 
@@ -372,7 +372,7 @@ Caveat: Also requires cg_shadows >= 2. Saved settings/menu actions can differ fr
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19553](../../code/rd-vulkan/vk_backend.cpp#L19553) (shared source; conditional availability; registration): default `0`; flags `CVAR_ARCHIVE`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19572](../../code/rd-vulkan/vk_backend.cpp#L19572) (shared source; conditional availability; registration): default `0`; flags `CVAR_ARCHIVE`
 
 ## r_vulkanShadowSlopeBias
 
@@ -382,7 +382,7 @@ Caveat: Not the decal offset factor; tune only with controlled shadow comparison
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19564](../../code/rd-vulkan/vk_backend.cpp#L19564) (shared source; conditional availability; registration): default `1.75`; flags `CVAR_ARCHIVE`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19583](../../code/rd-vulkan/vk_backend.cpp#L19583) (shared source; conditional availability; registration): default `1.75`; flags `CVAR_ARCHIVE`
 
 ## r_vulkanShadowWhiteArmorScale
 
@@ -394,7 +394,7 @@ Caveat: Not a global trooper brightness control.
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19570](../../code/rd-vulkan/vk_backend.cpp#L19570) (shared source; conditional availability; registration): default `0.1`; flags `CVAR_ARCHIVE`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19589](../../code/rd-vulkan/vk_backend.cpp#L19589) (shared source; conditional availability; registration): default `0.1`; flags `CVAR_ARCHIVE`
 
 ## r_vulkanSpecularAlpha
 
@@ -406,7 +406,7 @@ Caveat: Many affected stages are marked detail and require r_detailtextures 1 be
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/code/rd-vulkan/shaders/specular.glsl](../../code/rd-vulkan/shaders/specular.glsl), [OpenJK/docs/specular-alpha-run.md](../../docs/specular-alpha-run.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19575](../../code/rd-vulkan/vk_backend.cpp#L19575) (shared source; conditional availability; registration): default `1`; flags `0`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19594](../../code/rd-vulkan/vk_backend.cpp#L19594) (shared source; conditional availability; registration): default `1`; flags `0`
 
 ## r_vulkanTiming
 
@@ -418,7 +418,7 @@ Caveat: Not total headset latency or WiVRn encoding/decoding time.
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19573](../../code/rd-vulkan/vk_backend.cpp#L19573) (shared source; conditional availability; registration): default `0`; flags `0`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19592](../../code/rd-vulkan/vk_backend.cpp#L19592) (shared source; conditional availability; registration): default `0`; flags `0`
 
 ## r_vulkanVegetationCoverage
 
@@ -430,7 +430,7 @@ Caveat: Does not invent vegetation on materials that never requested it.
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19517](../../code/rd-vulkan/vk_backend.cpp#L19517) (shared source; conditional availability; registration): default `1`; flags `CVAR_ARCHIVE`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19536](../../code/rd-vulkan/vk_backend.cpp#L19536) (shared source; conditional availability; registration): default `1`; flags `CVAR_ARCHIVE`
 
 ## r_vulkanVegetationDistanceScale
 
@@ -442,7 +442,7 @@ Caveat: Higher distances increase work. Not tree-mesh LOD; improves the original
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19515](../../code/rd-vulkan/vk_backend.cpp#L19515) (shared source; conditional availability; registration): default `3.0`; flags `CVAR_ARCHIVE`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19534](../../code/rd-vulkan/vk_backend.cpp#L19534) (shared source; conditional availability; registration): default `3.0`; flags `CVAR_ARCHIVE`
 
 ## r_vulkanVegetationFog
 
@@ -454,7 +454,7 @@ Caveat: Requires r_vulkanLocalFog 1. Light amplification goggles override it. Do
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/code/rd-vulkan/shaders/world.frag](../../code/rd-vulkan/shaders/world.frag), [OpenJK/docs/vegetation-fog-run.md](../../docs/vegetation-fog-run.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19503](../../code/rd-vulkan/vk_backend.cpp#L19503) (shared source; conditional availability; registration): default `1`; flags `0`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19522](../../code/rd-vulkan/vk_backend.cpp#L19522) (shared source; conditional availability; registration): default `1`; flags `0`
 
 ## r_vulkanVertexStyles
 
@@ -466,7 +466,7 @@ Caveat: Not a global brightness or dynamic-light setting. Most surfaces have no 
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/code/rd-vulkan/vk_vertex_lighting.h](../../code/rd-vulkan/vk_vertex_lighting.h), [OpenJK/docs/vertex-lighting-run.md](../../docs/vertex-lighting-run.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19576](../../code/rd-vulkan/vk_backend.cpp#L19576) (shared source; conditional availability; registration): default `1`; flags `0`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19595](../../code/rd-vulkan/vk_backend.cpp#L19595) (shared source; conditional availability; registration): default `1`; flags `0`
 
 ## r_vulkanWaterEffectIntensity
 
@@ -478,7 +478,7 @@ Caveat: Not universal water alpha; river, temple and wake paths are distinct.
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19519](../../code/rd-vulkan/vk_backend.cpp#L19519) (shared source; conditional availability; registration): default `1.35`; flags `CVAR_ARCHIVE`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19538](../../code/rd-vulkan/vk_backend.cpp#L19538) (shared source; conditional availability; registration): default `1.35`; flags `CVAR_ARCHIVE`
 
 ## r_vulkanWaterWakeIntensity
 
@@ -488,7 +488,7 @@ Values/units: Multiplier; accepted default 1.
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19535](../../code/rd-vulkan/vk_backend.cpp#L19535) (shared source; conditional availability; registration): default `1.0`; flags `CVAR_ARCHIVE`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19554](../../code/rd-vulkan/vk_backend.cpp#L19554) (shared source; conditional availability; registration): default `1.0`; flags `CVAR_ARCHIVE`
 
 ## r_vulkanWorldDebug
 
@@ -500,7 +500,7 @@ Caveat: Nonzero modes intentionally alter materials/coverage, not quality preset
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19500](../../code/rd-vulkan/vk_backend.cpp#L19500) (shared source; conditional availability; registration): default `0`; flags `0`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19519](../../code/rd-vulkan/vk_backend.cpp#L19519) (shared source; conditional availability; registration): default `0`; flags `0`
 
 ## r_vulkanYavinRiverDiagnostic
 
@@ -512,7 +512,7 @@ Caveat: Nonzero modes intentionally change its appearance.
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19525](../../code/rd-vulkan/vk_backend.cpp#L19525) (shared source; conditional availability; registration): default `0`; flags `0`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19544](../../code/rd-vulkan/vk_backend.cpp#L19544) (shared source; conditional availability; registration): default `0`; flags `0`
 
 ## r_vulkanYavinRiverExtinction
 
@@ -524,7 +524,7 @@ Caveat: Not generic fog or temple transparency.
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19523](../../code/rd-vulkan/vk_backend.cpp#L19523) (shared source; conditional availability; registration): default `0.22`; flags `CVAR_ARCHIVE`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19542](../../code/rd-vulkan/vk_backend.cpp#L19542) (shared source; conditional availability; registration): default `0.22`; flags `CVAR_ARCHIVE`
 
 ## r_vulkanYavinRiverLightmapGamma
 
@@ -534,7 +534,7 @@ Values/units: Gamma exponent; default 1.
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19529](../../code/rd-vulkan/vk_backend.cpp#L19529) (shared source; conditional availability; registration): default `1.0`; flags `CVAR_ARCHIVE`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19548](../../code/rd-vulkan/vk_backend.cpp#L19548) (shared source; conditional availability; registration): default `1.0`; flags `CVAR_ARCHIVE`
 
 ## r_vulkanYavinRiverOpacityScale
 
@@ -546,7 +546,7 @@ Caveat: Cannot repair draw ordering or submerged geometry; those were separate b
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19521](../../code/rd-vulkan/vk_backend.cpp#L19521) (shared source; conditional availability; registration): default `1.0`; flags `CVAR_ARCHIVE`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19540](../../code/rd-vulkan/vk_backend.cpp#L19540) (shared source; conditional availability; registration): default `1.0`; flags `CVAR_ARCHIVE`
 
 ## r_vulkanYavinRiverStageMask
 
@@ -558,7 +558,7 @@ Caveat: Other masks remove contributions; not visual presets.
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19527](../../code/rd-vulkan/vk_backend.cpp#L19527) (shared source; conditional availability; registration): default `15`; flags `0`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19546](../../code/rd-vulkan/vk_backend.cpp#L19546) (shared source; conditional availability; registration): default `15`; flags `0`
 
 ## r_vulkanYavinWaterDetailIntensity
 
@@ -568,7 +568,7 @@ Values/units: Multiplier; accepted default 1.
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19533](../../code/rd-vulkan/vk_backend.cpp#L19533) (shared source; conditional availability; registration): default `1.0`; flags `CVAR_ARCHIVE`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19552](../../code/rd-vulkan/vk_backend.cpp#L19552) (shared source; conditional availability; registration): default `1.0`; flags `CVAR_ARCHIVE`
 
 ## r_vulkanYavinWaterTransparency
 
@@ -578,7 +578,7 @@ Caveat: Not the starting river. Retain the validated value unless testing this e
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19531](../../code/rd-vulkan/vk_backend.cpp#L19531) (shared source; conditional availability; registration): default `0.35`; flags `CVAR_ARCHIVE`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19550](../../code/rd-vulkan/vk_backend.cpp#L19550) (shared source; conditional availability; registration): default `0.35`; flags `CVAR_ARCHIVE`
 
 ## rd_vulkanDiagnosticWorld
 
@@ -590,4 +590,4 @@ Caveat: Do not enable while evaluating visual parity.
 
 Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_backend.cpp), [OpenJK/docs/vulkan-vr-parity.md](../../docs/vulkan-vr-parity.md)
 
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19485](../../code/rd-vulkan/vk_backend.cpp#L19485) (shared source; conditional availability; registration): default `0`; flags `0`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19504](../../code/rd-vulkan/vk_backend.cpp#L19504) (shared source; conditional availability; registration): default `0`; flags `0`

@@ -214,7 +214,7 @@ Case-insensitive source spellings: `com_buildScript`, `com_buildscript`
 - [OpenJK/code/qcommon/common.cpp:1109](../../code/qcommon/common.cpp#L1109) (shared source; conditional availability; registration): default `0`; flags `0`
 - [OpenJK/code/rd-gles/tr_init.cpp:1740](../../code/rd-gles/tr_init.cpp#L1740) (legacy renderer source (not Vulkan); registration): default `0`; flags `0`
 - [OpenJK/code/rd-vanilla/tr_init.cpp:1685](../../code/rd-vanilla/tr_init.cpp#L1685) (legacy renderer source (not Vulkan); registration): default `0`; flags `0`
-- [OpenJK/code/rd-vulkan/tr_init.cpp:192](../../code/rd-vulkan/tr_init.cpp#L192) (shared source; conditional availability; registration): default `0`; flags `0`
+- [OpenJK/code/rd-vulkan/tr_init.cpp:197](../../code/rd-vulkan/tr_init.cpp#L197) (shared source; conditional availability; registration): default `0`; flags `0`
 
 ## com_busyWait
 
@@ -598,7 +598,7 @@ No literal registration was found in the scanned sources; default and flags are 
 - [OpenJK/code/rd-common/tr_font.cpp:1139](../../code/rd-common/tr_font.cpp#L1139) (shared source; conditional availability; read/set reference)
 - [OpenJK/code/rd-gles/tr_init.cpp:1736](../../code/rd-gles/tr_init.cpp#L1736) (legacy renderer source (not Vulkan); registration): default `english`; flags `CVAR_ARCHIVE &#124; CVAR_NORESTART`
 - [OpenJK/code/rd-vanilla/tr_init.cpp:1681](../../code/rd-vanilla/tr_init.cpp#L1681) (legacy renderer source (not Vulkan); registration): default `english`; flags `CVAR_ARCHIVE &#124; CVAR_NORESTART`
-- [OpenJK/code/rd-vulkan/tr_init.cpp:191](../../code/rd-vulkan/tr_init.cpp#L191) (shared source; conditional availability; registration): default `english`; flags `CVAR_ARCHIVE &#124; CVAR_NORESTART`
+- [OpenJK/code/rd-vulkan/tr_init.cpp:196](../../code/rd-vulkan/tr_init.cpp#L196) (shared source; conditional availability; registration): default `english`; flags `CVAR_ARCHIVE &#124; CVAR_NORESTART`
 
 ## session
 

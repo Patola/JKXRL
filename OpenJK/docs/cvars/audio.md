@@ -24,7 +24,7 @@ Caveat: Disabling can remove animated video content, not only standalone movies.
 Review sources: [OpenJK/code/client/snd_dma.cpp](../../code/client/snd_dma.cpp), [OpenJK/code/client/cl_cin.cpp](../../code/client/cl_cin.cpp)
 
 - [OpenJK/code/client/cl_main.cpp:1468](../../code/client/cl_main.cpp#L1468) (shared source; conditional availability; registration): default `1`; flags `CVAR_ARCHIVE_ND`
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:4783](../../code/rd-vulkan/vk_backend.cpp#L4783) (shared source; conditional availability; registration): default `1`; flags `0`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:4802](../../code/rd-vulkan/vk_backend.cpp#L4802) (shared source; conditional availability; registration): default `1`; flags `0`
 
 ## s_allowDynamicMusic
 

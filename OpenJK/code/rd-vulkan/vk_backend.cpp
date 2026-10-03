@@ -2327,7 +2327,9 @@ static void VK_LogXrFailure( const char *what, XrResult result )
 	}
 	else
 	{
-		std::snprintf( resultString, sizeof( resultString ), "%d", result );
+		std::snprintf( resultString, sizeof( resultString ), "%s (%d)",
+			result == XR_ERROR_API_VERSION_UNSUPPORTED ? "XR_ERROR_API_VERSION_UNSUPPORTED" : "OpenXR error",
+			result );
 	}
 
 	ri.Printf( PRINT_WARNING, "rd-vulkan: %s failed: %s\n", what, resultString );
@@ -2450,11 +2452,28 @@ static bool VK_CreateXrInstance()
 	createInfo.applicationInfo.applicationVersion = JKXRL_VERSION_NUMBER;
 	std::strncpy( createInfo.applicationInfo.engineName, "OpenJK rd-vulkan", XR_MAX_ENGINE_NAME_SIZE - 1 );
 	createInfo.applicationInfo.engineVersion = 1;
-	createInfo.applicationInfo.apiVersion = XR_CURRENT_API_VERSION;
+	// Our core calls require OpenXR 1.0. Newer build headers must not raise
+	// the runtime requirement (SteamVR can reject an OpenXR 1.1 request).
+	createInfo.applicationInfo.apiVersion = XR_MAKE_VERSION( 1, 0, 0 );
 	createInfo.enabledExtensionCount = ARRAY_LEN( requiredExtensions );
 	createInfo.enabledExtensionNames = requiredExtensions;
 
-	return VK_CheckXr( xrCreateInstance( &createInfo, &vk.xrInstance ), "xrCreateInstance" );
+	ri.Printf( PRINT_ALL, "rd-vulkan: requesting OpenXR 1.0 with %s\n",
+		XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME );
+	if ( !VK_CheckXr( xrCreateInstance( &createInfo, &vk.xrInstance ), "xrCreateInstance" ) )
+	{
+		return false;
+	}
+	XrInstanceProperties properties = {};
+	properties.type = XR_TYPE_INSTANCE_PROPERTIES;
+	if ( VK_CheckXr( xrGetInstanceProperties( vk.xrInstance, &properties ), "xrGetInstanceProperties" ) )
+	{
+		ri.Printf( PRINT_ALL, "rd-vulkan: OpenXR runtime %s %u.%u.%u\n", properties.runtimeName,
+			static_cast<unsigned int>( XR_VERSION_MAJOR( properties.runtimeVersion ) ),
+			static_cast<unsigned int>( XR_VERSION_MINOR( properties.runtimeVersion ) ),
+			static_cast<unsigned int>( XR_VERSION_PATCH( properties.runtimeVersion ) ) );
+	}
+	return true;
 }
 
 static bool VK_GetXrSystem()

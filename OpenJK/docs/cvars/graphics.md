@@ -77,8 +77,8 @@ Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_b
 - [OpenJK/code/rd-gles/tr_init.cpp:1590](../../code/rd-gles/tr_init.cpp#L1590) (legacy renderer source (not Vulkan); registration): default `0`; flags `CVAR_ARCHIVE_ND &#124; CVAR_LATCH`; guards `#ifndef JK2_MODE`
 - [OpenJK/code/rd-gles/tr_init.cpp:1593](../../code/rd-gles/tr_init.cpp#L1593) (legacy renderer source (not Vulkan); registration): default `1`; flags `CVAR_ARCHIVE_ND &#124; CVAR_LATCH`; guards `#ifndef JK2_MODE -> #else`
 - [OpenJK/code/rd-vanilla/tr_init.cpp:1540](../../code/rd-vanilla/tr_init.cpp#L1540) (legacy renderer source (not Vulkan); registration): default `1`; flags `CVAR_ARCHIVE_ND &#124; CVAR_LATCH`
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19493](../../code/rd-vulkan/vk_backend.cpp#L19493) (shared source; conditional availability; registration): default `0`; flags `CVAR_ARCHIVE_ND &#124; CVAR_LATCH`; guards `#ifndef JK2_MODE`
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19496](../../code/rd-vulkan/vk_backend.cpp#L19496) (shared source; conditional availability; registration): default `1`; flags `CVAR_ARCHIVE_ND &#124; CVAR_LATCH`; guards `#ifndef JK2_MODE -> #else`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19512](../../code/rd-vulkan/vk_backend.cpp#L19512) (shared source; conditional availability; registration): default `0`; flags `CVAR_ARCHIVE_ND &#124; CVAR_LATCH`; guards `#ifndef JK2_MODE`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19515](../../code/rd-vulkan/vk_backend.cpp#L19515) (shared source; conditional availability; registration): default `1`; flags `CVAR_ARCHIVE_ND &#124; CVAR_LATCH`; guards `#ifndef JK2_MODE -> #else`
 - [OpenJK/code/ui/ui_main.cpp:4379](../../code/ui/ui_main.cpp#L4379) (shared source; conditional availability; read/set reference)
 - [OpenJK/code/ui/ui_main.cpp:4431](../../code/ui/ui_main.cpp#L4431) (shared source; conditional availability; read/set reference)
 
@@ -129,7 +129,7 @@ Review sources: [OpenJK/code/rd-vulkan/vk_flare.h](../../code/rd-vulkan/vk_flare
 - [OpenJK/code/rd-gles/tr_init.cpp:1619](../../code/rd-gles/tr_init.cpp#L1619) (legacy renderer source (not Vulkan); registration): default `0`; flags `CVAR_ARCHIVE_ND`; guards `#ifndef JK2_MODE`
 - [OpenJK/code/rd-gles/tr_init.cpp:1621](../../code/rd-gles/tr_init.cpp#L1621) (legacy renderer source (not Vulkan); registration): default `1`; flags `CVAR_ARCHIVE_ND`; guards `#ifndef JK2_MODE -> #else`
 - [OpenJK/code/rd-vanilla/tr_init.cpp:1562](../../code/rd-vanilla/tr_init.cpp#L1562) (legacy renderer source (not Vulkan); registration): default `1`; flags `CVAR_ARCHIVE_ND`
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19578](../../code/rd-vulkan/vk_backend.cpp#L19578) (shared source; conditional availability; registration): default `1`; flags `CVAR_ARCHIVE`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19597](../../code/rd-vulkan/vk_backend.cpp#L19597) (shared source; conditional availability; registration): default `1`; flags `CVAR_ARCHIVE`
 
 ## r_fullscreen
 
@@ -172,7 +172,7 @@ Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_b
 
 - [OpenJK/code/rd-gles/tr_init.cpp:1617](../../code/rd-gles/tr_init.cpp#L1617) (legacy renderer source (not Vulkan); registration): default `-2`; flags `CVAR_ARCHIVE_ND`
 - [OpenJK/code/rd-vanilla/tr_init.cpp:1561](../../code/rd-vanilla/tr_init.cpp#L1561) (legacy renderer source (not Vulkan); registration): default `-2`; flags `CVAR_ARCHIVE_ND`
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19546](../../code/rd-vulkan/vk_backend.cpp#L19546) (shared source; conditional availability; registration): default `-2`; flags `CVAR_ARCHIVE`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19565](../../code/rd-vulkan/vk_backend.cpp#L19565) (shared source; conditional availability; registration): default `-2`; flags `CVAR_ARCHIVE`
 - [OpenJK/code/ui/ui_main.cpp:4375](../../code/ui/ui_main.cpp#L4375) (shared source; conditional availability; read/set reference)
 - [OpenJK/code/ui/ui_main.cpp:4427](../../code/ui/ui_main.cpp#L4427) (shared source; conditional availability; read/set reference)
 
@@ -186,7 +186,7 @@ Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_b
 
 - [OpenJK/code/rd-gles/tr_init.cpp:1623](../../code/rd-gles/tr_init.cpp#L1623) (legacy renderer source (not Vulkan); registration): default `10`; flags `CVAR_ARCHIVE_ND`
 - [OpenJK/code/rd-vanilla/tr_init.cpp:1563](../../code/rd-vanilla/tr_init.cpp#L1563) (legacy renderer source (not Vulkan); registration): default `10`; flags `CVAR_ARCHIVE_ND`
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19545](../../code/rd-vulkan/vk_backend.cpp#L19545) (shared source; conditional availability; registration): default `10`; flags `CVAR_ARCHIVE`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19564](../../code/rd-vulkan/vk_backend.cpp#L19564) (shared source; conditional availability; registration): default `10`; flags `CVAR_ARCHIVE`
 
 ## r_mode
 
@@ -218,7 +218,7 @@ Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_b
 
 - [OpenJK/code/rd-gles/tr_init.cpp:1698](../../code/rd-gles/tr_init.cpp#L1698) (legacy renderer source (not Vulkan); registration): default `-1`; flags `CVAR_CHEAT`
 - [OpenJK/code/rd-vanilla/tr_init.cpp:1638](../../code/rd-vanilla/tr_init.cpp#L1638) (legacy renderer source (not Vulkan); registration): default `-1`; flags `CVAR_CHEAT`
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19498](../../code/rd-vulkan/vk_backend.cpp#L19498) (shared source; conditional availability; registration): default `-8`; flags `0`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19517](../../code/rd-vulkan/vk_backend.cpp#L19517) (shared source; conditional availability; registration): default `-8`; flags `0`
 
 ## r_offsetunits
 
@@ -232,7 +232,7 @@ Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_b
 
 - [OpenJK/code/rd-gles/tr_init.cpp:1699](../../code/rd-gles/tr_init.cpp#L1699) (legacy renderer source (not Vulkan); registration): default `-2`; flags `CVAR_CHEAT`
 - [OpenJK/code/rd-vanilla/tr_init.cpp:1639](../../code/rd-vanilla/tr_init.cpp#L1639) (legacy renderer source (not Vulkan); registration): default `-2`; flags `CVAR_CHEAT`
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19499](../../code/rd-vulkan/vk_backend.cpp#L19499) (shared source; conditional availability; registration): default `-8`; flags `0`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19518](../../code/rd-vulkan/vk_backend.cpp#L19518) (shared source; conditional availability; registration): default `-8`; flags `0`
 
 ## r_picmip
 
@@ -247,7 +247,7 @@ Review sources: [OpenJK/code/rd-vulkan/vk_backend.cpp](../../code/rd-vulkan/vk_b
 - [OpenJK/code/rd-gles/tr_init.cpp:1589](../../code/rd-gles/tr_init.cpp#L1589) (legacy renderer source (not Vulkan); registration): default `1`; flags `CVAR_ARCHIVE &#124; CVAR_LATCH`; guards `#ifndef JK2_MODE`
 - [OpenJK/code/rd-gles/tr_init.cpp:1592](../../code/rd-gles/tr_init.cpp#L1592) (legacy renderer source (not Vulkan); registration): default `0`; flags `CVAR_ARCHIVE &#124; CVAR_LATCH`; guards `#ifndef JK2_MODE -> #else`
 - [OpenJK/code/rd-vanilla/tr_init.cpp:1537](../../code/rd-vanilla/tr_init.cpp#L1537) (legacy renderer source (not Vulkan); registration): default `0`; flags `CVAR_ARCHIVE &#124; CVAR_LATCH`
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19490](../../code/rd-vulkan/vk_backend.cpp#L19490) (shared source; conditional availability; registration): default `1`; flags `CVAR_ARCHIVE &#124; CVAR_LATCH`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19509](../../code/rd-vulkan/vk_backend.cpp#L19509) (shared source; conditional availability; registration): default `1`; flags `CVAR_ARCHIVE &#124; CVAR_LATCH`
 - [OpenJK/code/ui/ui_main.cpp:4376](../../code/ui/ui_main.cpp#L4376) (shared source; conditional availability; read/set reference)
 - [OpenJK/code/ui/ui_main.cpp:4428](../../code/ui/ui_main.cpp#L4428) (shared source; conditional availability; read/set reference)
 

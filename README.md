@@ -12,10 +12,10 @@ needed for this x86-64 release.
 
 ## Play on Arch Linux
 
-Download `jkxrl-0.6-1-x86_64.pkg.tar.zst` from the release, then:
+Download `jkxrl-0.6-2-x86_64.pkg.tar.zst` from the release, then:
 
 ```sh
-sudo pacman -U ./jkxrl-0.6-1-x86_64.pkg.tar.zst
+sudo pacman -U ./jkxrl-0.6-2-x86_64.pkg.tar.zst
 ```
 
 The package conflicts with the older `jkxrl-git` package; accept its replacement

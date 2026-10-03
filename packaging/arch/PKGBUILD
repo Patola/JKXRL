@@ -10,7 +10,7 @@
 
 pkgname=jkxrl
 pkgver=0.6
-pkgrel=1
+pkgrel=2
 pkgdesc="JKXRL - Jedi Academy and Jedi Outcast in native Linux VR (Vulkan, SDL3, OpenXR)"
 arch=('x86_64')
 url="https://github.com/Patola/JKXRL"

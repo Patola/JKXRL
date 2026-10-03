@@ -139,9 +139,9 @@ Review sources: [OpenJK/JKXR/VrInputDefault.cpp](../../JKXR/VrInputDefault.cpp),
 - [OpenJK/code/game/wp_saber.cpp:5884](../../code/game/wp_saber.cpp#L5884) (JKA source; registration): default `0`; flags `0`
 - [OpenJK/code/game/wp_saber.cpp:10495](../../code/game/wp_saber.cpp#L10495) (JKA source; registration): default `0`; flags `0`
 - [OpenJK/code/game/wp_thermal.cpp:342](../../code/game/wp_thermal.cpp#L342) (JKA source; registration): default `0`; flags `0`
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:5032](../../code/rd-vulkan/vk_backend.cpp#L5032) (shared source; conditional availability; read/set reference)
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:5071](../../code/rd-vulkan/vk_backend.cpp#L5071) (shared source; conditional availability; read/set reference)
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:17713](../../code/rd-vulkan/vk_backend.cpp#L17713) (shared source; conditional availability; read/set reference)
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:5051](../../code/rd-vulkan/vk_backend.cpp#L5051) (shared source; conditional availability; read/set reference)
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:5090](../../code/rd-vulkan/vk_backend.cpp#L5090) (shared source; conditional availability; read/set reference)
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:17732](../../code/rd-vulkan/vk_backend.cpp#L17732) (shared source; conditional availability; read/set reference)
 - [OpenJK/codeJK2/cgame/cg_weapons.cpp:2743](../../codeJK2/cgame/cg_weapons.cpp#L2743) (JKO source; read/set reference)
 - [OpenJK/codeJK2/game/g_active.cpp:1003](../../codeJK2/game/g_active.cpp#L1003) (JKO source; registration): default `0`; flags `0`
 - [OpenJK/codeJK2/game/wp_thermal.cpp:313](../../codeJK2/game/wp_thermal.cpp#L313) (JKO source; registration): default `0`; flags `0`

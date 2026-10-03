@@ -454,7 +454,7 @@ Review sources: [OpenJK/code/cgame/cg_main.cpp](../../code/cgame/cg_main.cpp), [
 
 - [OpenJK/code/cgame/cg_main.cpp:415](../../code/cgame/cg_main.cpp#L415) (JKA source; registration table): default `20`; flags `CVAR_ARCHIVE`
 - [OpenJK/code/rd-gles/tr_cmds.cpp:111](../../code/rd-gles/tr_cmds.cpp#L111) (legacy renderer source (not Vulkan); registration): default `20`; flags `0`
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:17859](../../code/rd-vulkan/vk_backend.cpp#L17859) (shared source; conditional availability; registration): default `20`; flags `0`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:17878](../../code/rd-vulkan/vk_backend.cpp#L17878) (shared source; conditional availability; registration): default `20`; flags `0`
 - [OpenJK/code/ui/ui_atoms.cpp:294](../../code/ui/ui_atoms.cpp#L294) (shared source; conditional availability; registration): default `20`; flags `CVAR_ARCHIVE`
 - [OpenJK/codeJK2/cgame/cg_main.cpp:395](../../codeJK2/cgame/cg_main.cpp#L395) (JKO source; registration table): default `20`; flags `CVAR_ARCHIVE`
 
@@ -628,7 +628,7 @@ Review sources: [OpenJK/code/cgame/cg_main.cpp](../../code/cgame/cg_main.cpp), [
 - [OpenJK/code/rd-gles/tr_init.cpp:1702](../../code/rd-gles/tr_init.cpp#L1702) (legacy renderer source (not Vulkan); registration): default `1`; flags `0`
 - [OpenJK/code/rd-vanilla/tr_init.cpp:1642](../../code/rd-vanilla/tr_init.cpp#L1642) (legacy renderer source (not Vulkan); registration): default `1`; flags `0`
 - [OpenJK/code/rd-vanilla/tr_init.cpp:1643](../../code/rd-vanilla/tr_init.cpp#L1643) (legacy renderer source (not Vulkan); registration): default `1`; flags `0`
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:19554](../../code/rd-vulkan/vk_backend.cpp#L19554) (shared source; conditional availability; registration): default `1`; flags `CVAR_ARCHIVE`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:19573](../../code/rd-vulkan/vk_backend.cpp#L19573) (shared source; conditional availability; registration): default `1`; flags `CVAR_ARCHIVE`
 - [OpenJK/code/ui/ui_atoms.cpp:326](../../code/ui/ui_atoms.cpp#L326) (shared source; conditional availability; registration): default `1`; flags `CVAR_ARCHIVE`; guards `#ifndef JK2_MODE`
 - [OpenJK/codeJK2/cgame/cg_main.cpp:391](../../codeJK2/cgame/cg_main.cpp#L391) (JKO source; registration table): default `1`; flags `CVAR_ARCHIVE`
 
@@ -720,7 +720,7 @@ Review sources: [OpenJK/code/cgame/cg_main.cpp](../../code/cgame/cg_main.cpp), [
 - [OpenJK/code/game/g_utils.cpp:1716](../../code/game/g_utils.cpp#L1716) (JKA source; registration): default `0`; flags `CVAR_TEMP`
 - [OpenJK/code/game/g_utils.cpp:1963](../../code/game/g_utils.cpp#L1963) (JKA source; registration): default `0`; flags `CVAR_TEMP`
 - [OpenJK/code/game/g_utils.cpp:2072](../../code/game/g_utils.cpp#L2072) (JKA source; registration): default `0`; flags `CVAR_TEMP`
-- [OpenJK/code/rd-vulkan/vk_backend.cpp:24703](../../code/rd-vulkan/vk_backend.cpp#L24703) (shared source; conditional availability; registration): default `0`; flags `0`
+- [OpenJK/code/rd-vulkan/vk_backend.cpp:24722](../../code/rd-vulkan/vk_backend.cpp#L24722) (shared source; conditional availability; registration): default `0`; flags `0`
 - [OpenJK/codeJK2/cgame/cg_main.cpp:447](../../codeJK2/cgame/cg_main.cpp#L447) (JKO source; registration table): default `0`; flags `CVAR_SAVEGAME`
 - [OpenJK/codeJK2/game/g_active.cpp:931](../../codeJK2/game/g_active.cpp#L931) (JKO source; registration): default `0`; flags `CVAR_TEMP`
 - [OpenJK/codeJK2/game/g_trigger.cpp:230](../../codeJK2/game/g_trigger.cpp#L230) (JKO source; registration): default `0`; flags `CVAR_TEMP`

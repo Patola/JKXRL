@@ -181,7 +181,12 @@ unsigned int AnyLanguage_ReadCharFromString( char **text, qboolean *trailingPunc
 
 static void RE_BeginRegistration( glconfig_t *config, intptr_t )
 {
-	const bool backendReady = VK_Backend_Init();
+	if ( !VK_Backend_Init() )
+	{
+		ri.Error( ERR_FATAL, "Vulkan/OpenXR initialization failed. Check that the intended OpenXR runtime "
+			"is active and the headset is connected. See the preceding rd-vulkan error in the log." );
+		return;
+	}
 	if (!trWeatherCommandRegistered)
 	{
 		ri.Cmd_AddCommand("r_we", R_WorldEffect_f);
@@ -213,7 +218,7 @@ static void RE_BeginRegistration( glconfig_t *config, intptr_t )
 	config->deviceSupportsGamma = qfalse;
 	config->renderer_string = JKXRL_DISPLAY_VERSION " Vulkan renderer";
 	config->vendor_string = "JKXRL";
-	config->version_string = backendReady ? "Vulkan/OpenXR bootstrap" : "Vulkan scaffold";
+	config->version_string = "Vulkan/OpenXR";
 	config->extensions_string = "";
 }
 

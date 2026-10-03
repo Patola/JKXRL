@@ -2252,7 +2252,7 @@
         },
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 17859,
+          "line": 17878,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -2972,7 +2972,7 @@
         },
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19554,
+          "line": 19573,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -3388,7 +3388,7 @@
         },
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 24703,
+          "line": 24722,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -4656,7 +4656,7 @@
         },
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 4783,
+          "line": 4802,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -5439,7 +5439,7 @@
         },
         {
           "path": "OpenJK/code/rd-vulkan/tr_init.cpp",
-          "line": 192,
+          "line": 197,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -10624,7 +10624,7 @@
         },
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19493,
+          "line": 19512,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [
@@ -10637,7 +10637,7 @@
         },
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19496,
+          "line": 19515,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [
@@ -11712,7 +11712,7 @@
         },
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19578,
+          "line": 19597,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -12385,7 +12385,7 @@
         },
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19546,
+          "line": 19565,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -12472,7 +12472,7 @@
         },
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19545,
+          "line": 19564,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -12981,7 +12981,7 @@
         },
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19498,
+          "line": 19517,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -13022,7 +13022,7 @@
         },
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19499,
+          "line": 19518,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -13108,7 +13108,7 @@
         },
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19490,
+          "line": 19509,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14023,7 +14023,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19577,
+          "line": 19596,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14042,7 +14042,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19509,
+          "line": 19528,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14072,7 +14072,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19511,
+          "line": 19530,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14091,7 +14091,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19513,
+          "line": 19532,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14110,7 +14110,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19550,
+          "line": 19569,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14129,7 +14129,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19574,
+          "line": 19593,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14148,7 +14148,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19542,
+          "line": 19561,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14167,7 +14167,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 25052,
+          "line": 25071,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14186,7 +14186,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 18271,
+          "line": 18290,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14205,7 +14205,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 25064,
+          "line": 25083,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14224,7 +14224,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19552,
+          "line": 19571,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14243,7 +14243,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19543,
+          "line": 19562,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14262,7 +14262,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19547,
+          "line": 19566,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14281,7 +14281,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19548,
+          "line": 19567,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14300,7 +14300,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19505,
+          "line": 19524,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14319,7 +14319,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19507,
+          "line": 19526,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14338,7 +14338,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19488,
+          "line": 19507,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14357,7 +14357,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19537,
+          "line": 19556,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14376,7 +14376,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19502,
+          "line": 19521,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14395,7 +14395,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19486,
+          "line": 19505,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14414,7 +14414,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19544,
+          "line": 19563,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14433,7 +14433,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19541,
+          "line": 19560,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14452,7 +14452,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19539,
+          "line": 19558,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14471,7 +14471,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19489,
+          "line": 19508,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14490,7 +14490,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19501,
+          "line": 19520,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14509,7 +14509,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19572,
+          "line": 19591,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14528,7 +14528,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19558,
+          "line": 19577,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14547,7 +14547,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19562,
+          "line": 19581,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14566,7 +14566,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19560,
+          "line": 19579,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14585,7 +14585,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19568,
+          "line": 19587,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14604,7 +14604,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19556,
+          "line": 19575,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14623,7 +14623,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19566,
+          "line": 19585,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14642,7 +14642,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19553,
+          "line": 19572,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14661,7 +14661,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19564,
+          "line": 19583,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14680,7 +14680,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19570,
+          "line": 19589,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14699,7 +14699,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19575,
+          "line": 19594,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14718,7 +14718,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19573,
+          "line": 19592,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14737,7 +14737,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19517,
+          "line": 19536,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14756,7 +14756,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19515,
+          "line": 19534,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14775,7 +14775,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19503,
+          "line": 19522,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14794,7 +14794,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19576,
+          "line": 19595,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14813,7 +14813,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19519,
+          "line": 19538,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14832,7 +14832,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19535,
+          "line": 19554,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14851,7 +14851,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19500,
+          "line": 19519,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14870,7 +14870,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19525,
+          "line": 19544,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14889,7 +14889,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19523,
+          "line": 19542,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14908,7 +14908,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19529,
+          "line": 19548,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14927,7 +14927,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19521,
+          "line": 19540,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14946,7 +14946,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19527,
+          "line": 19546,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14965,7 +14965,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19533,
+          "line": 19552,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -14984,7 +14984,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19531,
+          "line": 19550,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -15319,7 +15319,7 @@
       "occurrences": [
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 19485,
+          "line": 19504,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -15986,7 +15986,7 @@
         },
         {
           "path": "OpenJK/code/rd-vulkan/tr_init.cpp",
-          "line": 191,
+          "line": 196,
           "kind": "registration",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -20907,7 +20907,7 @@
         },
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 5032,
+          "line": 5051,
           "kind": "read/set reference",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -20915,7 +20915,7 @@
         },
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 5071,
+          "line": 5090,
           "kind": "read/set reference",
           "scope": "shared source; conditional availability",
           "conditions": [],
@@ -20923,7 +20923,7 @@
         },
         {
           "path": "OpenJK/code/rd-vulkan/vk_backend.cpp",
-          "line": 17713,
+          "line": 17732,
           "kind": "read/set reference",
           "scope": "shared source; conditional availability",
           "conditions": [],

@@ -87,7 +87,7 @@ Use `openjo_sp.x86_64` for JKO. From another working directory, pass
 Install the stable release from GitHub:
 
 ```sh
-sudo pacman -U ./jkxrl-0.6-1-x86_64.pkg.tar.zst
+sudo pacman -U ./jkxrl-0.6-2-x86_64.pkg.tar.zst
 ```
 
 Accept replacement of `jkxrl-git` if installed. The package name is now `jkxrl`;
@@ -144,6 +144,13 @@ third-party VR asset credits remain in `assets/packaged_mods_credits.txt`.
 ## Troubleshooting
 
 - No headset/session: check the active OpenXR runtime and connected headset.
+- SteamVR startup: the renderer requests OpenXR 1.0 plus
+  `XR_KHR_vulkan_enable2`, not the installed SDK's latest core version. This
+  still uses Vulkan 1.3+; OpenXR and Vulkan version numbers are independent.
+  `xrCreateInstance failed: -4` in the original v0.6 package means the runtime
+  rejected the SDK-derived OpenXR 1.1 request. The startup compatibility fix
+  also stops renderer registration on failure instead of using an invalid
+  Vulkan device. The new log identifies the runtime after instance creation.
 - Missing library or renderer API mismatch: reinstall all runtime components from
   one build, then launch through the updated launcher to refresh the home module.
 - Missing menus: verify that all three VR pk3s for the game are synchronized.
@@ -152,6 +159,12 @@ third-party VR asset credits remain in `assets/packaged_mods_credits.txt`.
 The build retains `-fno-strict-aliasing` and conservative engine optimization.
 Do not enable package-wide LTO or substitute aggressive compiler flags during
 this cleanup. Performance changes are a separate, measured step.
+
+The OpenXR startup regression test runs without a headset:
+`python3 tools/check_xr_startup.py`. To probe an installed runtime explicitly,
+connect its headset and use `--runtime /path/to/runtime.json`. This opt-in probe
+can start the runtime; it checks instance creation only, not rendering or input.
+Complete validation still requires launching both games in the headset.
 
 ## Console settings
 
